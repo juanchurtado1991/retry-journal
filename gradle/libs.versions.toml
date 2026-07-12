@@ -53,11 +53,14 @@ ktor-client-content-negotiation  = { group = "io.ktor", name = "ktor-client-cont
 ktor-client-mock                 = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 ktor-server-core                 = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-cio                  = { group = "io.ktor", name = "ktor-server-cio", version.ref = "ktor" }
+ktor-server-content-negotiation  = { group = "io.ktor", name = "ktor-server-content-negotiation", version.ref = "ktor" }
 
 kotlinx-coroutines-core           = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test           = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 
 kmpworkmanager                    = { group = "dev.brewkits", name = "kmpworkmanager", version.ref = "kmpworkmanager" }
+kmpworkmanager-annotations        = { group = "dev.brewkits", name = "kmpworker-annotations", version.ref = "kmpworkmanager" }
+kmpworkmanager-ksp                = { group = "dev.brewkits", name = "kmpworker-ksp", version.ref = "kmpworkmanager" }
 
 androidx-activity-compose         = { group = "androidx.activity", name = "activity-compose", version.ref = "androidx-activity" }
 androidx-lifecycle-viewmodel      = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
