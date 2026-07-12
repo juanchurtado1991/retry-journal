@@ -1,0 +1,46 @@
+# Android/IntelliJ
+*.iml
+.gradle/
+.idea/
+local.properties
+.kotlin/
+.vscode/
+*.gpg
+*.asc
+
+# Build outputs (Recursive)
+**/build/
+**/bin/
+**/out/
+**/target/
+
+# Captures and Logs
+/captures
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Native/KMP
+.externalNativeBuild
+.cxx
+
+# Explicitly keep critical project meta
+!LICENSE
+!.github/
+
+# Secrets and local configurations
+.env
+.env.local
+.env.*.local
+
+# JVM Crash Logs
+hs_err_pid*.log
+replay_pid*.log
+
+# AI agent instruction files (local dev aid only, not shipped project docs)
+AGENTS.md
+CLAUDE.md
