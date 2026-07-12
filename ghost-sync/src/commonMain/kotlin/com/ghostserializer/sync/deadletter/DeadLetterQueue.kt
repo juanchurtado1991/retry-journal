@@ -4,7 +4,7 @@ import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.QueueEntryId
 
 /**
- * Where [com.ghostserializer.sync.engine.GhostSyncEngine] parks requests the server rejected
+ * Where 'com.ghostserializer.sync.engine.GhostSyncEngine' parks requests the server rejected
  * with a 4xx — a business failure, not a transient one, so retrying it automatically in a loop
  * would just spin forever. It never blocks the main queue: [record] and [retry] both go through
  * [mainQueue], which is a separate append-only file from this queue's own [storage].
@@ -14,14 +14,25 @@ class DeadLetterQueue(
     private val storage: DiskQueue,
 ) {
 
-    internal suspend fun record(method: String, url: String, headers: Map<String, String>, body: ByteArray): DeadLetterEntryId {
+    internal suspend fun record(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: ByteArray
+    ): DeadLetterEntryId {
         val id = storage.enqueue(method, url, headers, body)
         return DeadLetterEntryId(id.sequenceId)
     }
 
     /** Every dead-lettered request, oldest first. Not a hot path — meant for an inspection UI. */
     suspend fun peekAll(): List<DeadLetterEntry> =
-        storage.peekAll().map { entry -> DeadLetterEntry(DeadLetterEntryId(entry.id.sequenceId), entry.meta, entry.body) }
+        storage.peekAll().map { entry ->
+            DeadLetterEntry(
+                DeadLetterEntryId(entry.id.sequenceId),
+                entry.meta,
+                entry.body
+            )
+        }
 
     /** Re-enqueues the entry on [mainQueue] for the next `flush()` to retry, then drops it from here. */
     suspend fun retry(id: DeadLetterEntryId) {

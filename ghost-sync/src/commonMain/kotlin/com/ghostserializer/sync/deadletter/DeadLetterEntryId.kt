@@ -1,5 +1,7 @@
 package com.ghostserializer.sync.deadletter
 
+import kotlin.jvm.JvmInline
+
 /**
  * Distinct from [com.ghostserializer.sync.queue.QueueEntryId] on purpose: a dead-letter entry
  * lives in a different backing file with its own sequence-id space, so the two ids must never be

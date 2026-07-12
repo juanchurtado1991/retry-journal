@@ -1,5 +1,7 @@
 package com.ghostserializer.sync.queue
 
+import kotlin.jvm.JvmInline
+
 /**
  * A monotonically increasing id written into the record itself — not the record's byte offset.
  * Compaction relocates records to reclaim dead space, which would silently invalidate an
