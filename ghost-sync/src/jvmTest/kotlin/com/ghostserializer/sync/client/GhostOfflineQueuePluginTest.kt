@@ -29,7 +29,7 @@ class GhostOfflineQueuePluginTest {
     @BeforeTest
     fun setUp() {
         dir = Files.createTempDirectory("ghost-sync-client-test").toString().toPath()
-        diskQueue = DiskQueue((dir.toString() + "/queue.bin").toPath())
+        diskQueue = DiskQueue(("$dir/queue.bin").toPath())
     }
 
     @AfterTest
@@ -55,7 +55,7 @@ class GhostOfflineQueuePluginTest {
 
     @Test
     fun `a successful response is not queued`() = runBlocking {
-        val client = HttpClient(MockEngine { request -> respond("ok", HttpStatusCode.OK, headersOf()) }) {
+        val client = HttpClient(MockEngine { _ -> respond("ok", HttpStatusCode.OK, headersOf()) }) {
             install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
         }
 
