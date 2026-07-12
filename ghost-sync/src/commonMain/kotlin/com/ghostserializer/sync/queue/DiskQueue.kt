@@ -100,6 +100,12 @@ class DiskQueue(
         liveOffsetsBySequence.isEmpty()
     }
 
+    /** O(1): the in-memory index size, no record bytes read from disk. Safe to poll from a UI. */
+    suspend fun size(): Int = mutex.withLock {
+        ensureOpenLocked()
+        liveOffsetsBySequence.size
+    }
+
     private fun removeLocked(targetSequenceId: Long) {
         val offset = liveOffsetsBySequence.remove(targetSequenceId) ?: return
         val removedLength = recordLengthsByOffset.remove(offset) ?: return

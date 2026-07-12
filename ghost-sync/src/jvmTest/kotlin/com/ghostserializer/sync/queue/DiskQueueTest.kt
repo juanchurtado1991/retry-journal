@@ -116,6 +116,19 @@ class DiskQueueTest {
     }
 
     @Test
+    fun `size reflects enqueues and removals without decoding any record`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        assertEquals(0, queue.size())
+
+        val idA = queue.enqueue("POST", "/a", emptyMap(), "a".encodeToByteArray())
+        queue.enqueue("POST", "/b", emptyMap(), "b".encodeToByteArray())
+        assertEquals(2, queue.size())
+
+        queue.remove(idA)
+        assertEquals(1, queue.size())
+    }
+
+    @Test
     fun `an empty queue peeks as null and stays empty after reopening`() = runBlocking {
         val queue = DiskQueue(queuePath)
         assertNull(queue.peek())
