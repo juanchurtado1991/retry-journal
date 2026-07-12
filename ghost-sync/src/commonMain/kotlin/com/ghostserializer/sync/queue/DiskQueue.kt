@@ -77,6 +77,13 @@ class DiskQueue(
         liveOffsetsBySequence.entries.mapNotNull { (sequenceId, offset) -> readLiveEntryAtLocked(sequenceId, offset) }
     }
 
+    /** A specific entry by id, or `null` if it was never enqueued or has already been removed. */
+    suspend fun get(id: QueueEntryId): QueueEntry? = mutex.withLock {
+        ensureOpenLocked()
+        val offset = liveOffsetsBySequence[id.sequenceId] ?: return@withLock null
+        readLiveEntryAtLocked(id.sequenceId, offset)
+    }
+
     /** Idempotent: removing an already-removed or unknown id is a no-op. */
     suspend fun remove(id: QueueEntryId) {
         mutex.withLock {
