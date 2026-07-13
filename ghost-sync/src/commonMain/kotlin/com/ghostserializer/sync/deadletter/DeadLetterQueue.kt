@@ -1,51 +1,206 @@
 package com.ghostserializer.sync.deadletter
 
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.DiskQueueConstants.CURRENT_DIRECTORY_PATH
+import com.ghostserializer.sync.queue.DiskQueueConstants.NEWLINE_BYTE
+import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.QueueEntry
 import com.ghostserializer.sync.queue.QueueEntryId
+import okio.utf8Size
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okio.Path
+import okio.Path.Companion.toPath
+import okio.buffer
 
-/**
- * Where 'com.ghostserializer.sync.engine.GhostSyncEngine' parks requests the server rejected
- * with a 4xx — a business failure, not a transient one, so retrying it automatically in a loop
- * would just spin forever. It never blocks the main queue: [record] and [retry] both go through
- * [mainQueue], which is a separate append-only file from this queue's own [storage].
- */
 class DeadLetterQueue(
     private val mainQueue: DiskQueue,
     private val storage: DiskQueue,
 ) {
+    private val recoveryMutex = Mutex()
+    private val retryMutex = Mutex()
+    private var recovered = false
+
+    private suspend fun ensureRecovered() {
+        if (recovered) {
+            return
+        }
+        recoveryMutex.withLock {
+            if (recovered) {
+                return
+            }
+            recoverPendingRetries()
+            recovered = true
+        }
+    }
+
+    private class JournalData(
+        val method: String,
+        val url: String,
+        val headers: FrozenHttpHeaders,
+        val body: ByteArray,
+    )
+
+    private fun readJournal(file: Path): JournalData? {
+        return try {
+            storage.fileSystem.read(file) {
+                val newlineIndex = indexOf(NEWLINE_BYTE.toByte())
+                if (newlineIndex == -1L) {
+                    return@read null
+                }
+                skip(newlineIndex + 1)
+
+                val methodLen = readInt()
+                val method = readUtf8(methodLen.toLong())
+
+                val urlLen = readInt()
+                val url = readUtf8(urlLen.toLong())
+
+                val headersSize = readInt()
+                val names = ArrayList<String>(headersSize)
+                val values = ArrayList<String>(headersSize)
+                for (i in 0 until headersSize) {
+                    val kLen = readInt()
+                    names.add(readUtf8(kLen.toLong()))
+                    val vLen = readInt()
+                    values.add(readUtf8(vLen.toLong()))
+                }
+
+                val bodyLen = readInt()
+                val body = readByteArray(bodyLen.toLong())
+                JournalData(method, url, FrozenHttpHeaders(names, values), body)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun writeJournal(file: Path, idValue: Long, entry: QueueEntry) {
+        storage.fileSystem.write(file) {
+            writeDecimalLong(idValue)
+            writeByte(NEWLINE_BYTE)
+
+            val method = entry.meta.method
+            writeInt(method.utf8Size().toInt())
+            writeUtf8(method)
+
+            val url = entry.meta.url
+            writeInt(url.utf8Size().toInt())
+            writeUtf8(url)
+
+            val headers = entry.meta.headers
+            writeInt(headers.size)
+            headers.forEach { name, value ->
+                writeInt(name.utf8Size().toInt())
+                writeUtf8(name)
+                writeInt(value.utf8Size().toInt())
+                writeUtf8(value)
+            }
+
+            writeInt(entry.body.size)
+            write(entry.body)
+        }
+    }
+
+    private suspend fun recoverPendingRetries() {
+        val parent = storage.path.parent ?: CURRENT_DIRECTORY_PATH.toPath()
+        val prefix = storage.path.name + RETRY_JOURNAL_SUFFIX
+        if (!storage.fileSystem.exists(parent)) {
+            return
+        }
+        val files = try {
+            storage.fileSystem.list(parent).filter { it.name.startsWith(prefix) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        for (file in files) {
+            val idValue = file.name.removePrefix(prefix).toLongOrNull() ?: continue
+            val entryInStorage = storage.get(QueueEntryId(idValue))
+            if (entryInStorage != null) {
+                storage.fileSystem.delete(file)
+                continue
+            }
+
+            val journalData = readJournal(file)
+            if (journalData == null) {
+                continue
+            }
+            if (!mainQueueAlreadyContains(journalData)) {
+                mainQueue.enqueue(
+                    method = journalData.method,
+                    url = journalData.url,
+                    headers = journalData.headers,
+                    body = journalData.body,
+                )
+            }
+            storage.fileSystem.delete(file)
+        }
+    }
+
+    private suspend fun mainQueueAlreadyContains(journalData: JournalData): Boolean {
+        val pending = ArrayList<QueueEntry>()
+        mainQueue.peekAll(pending)
+        for (entry in pending) {
+            if (entry.meta.method == journalData.method &&
+                entry.meta.url == journalData.url &&
+                entry.body.contentEquals(journalData.body)
+            ) {
+                return true
+            }
+        }
+        return false
+    }
 
     internal suspend fun record(
         method: String,
         url: String,
-        headers: Map<String, String>,
-        body: ByteArray
+        headers: FrozenHttpHeaders,
+        body: ByteArray,
     ): DeadLetterEntryId {
+        ensureRecovered()
         val id = storage.enqueue(method, url, headers, body)
         return DeadLetterEntryId(id.sequenceId)
     }
 
-    /** O(1): no record bytes read from disk, unlike [peekAll] — safe to poll from a UI. */
-    suspend fun size(): Int = storage.size()
+    suspend fun size(): Int {
+        ensureRecovered()
+        return storage.size()
+    }
 
-    /** Every dead-lettered request, oldest first. Not a hot path — meant for an inspection UI. */
-    suspend fun peekAll(): List<DeadLetterEntry> =
-        storage.peekAll().map { entry ->
-            DeadLetterEntry(
-                DeadLetterEntryId(entry.id.sequenceId),
-                entry.meta,
-                entry.body
+    suspend fun peekAll(outResult: MutableCollection<DeadLetterEntry>): Int {
+        ensureRecovered()
+        val before = outResult.size
+        storage.peekAllRaw { sequenceId, meta, body ->
+            outResult.add(
+                DeadLetterEntry(
+                    DeadLetterEntryId(sequenceId),
+                    meta,
+                    body,
+                ),
             )
         }
+        return outResult.size - before
+    }
 
-    /** Re-enqueues the entry on [mainQueue] for the next `flush()` to retry, then drops it from here. */
     suspend fun retry(id: DeadLetterEntryId) {
-        val entry = storage.get(QueueEntryId(id.value)) ?: return
-        mainQueue.enqueue(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        ensureRecovered()
+        retryMutex.withLock {
+            val entry = storage.get(QueueEntryId(id.value)) ?: return
+            val journalFile = (storage.path.toString() + RETRY_JOURNAL_SUFFIX + id.value).toPath()
+            writeJournal(journalFile, id.value, entry)
+            storage.remove(QueueEntryId(id.value))
+            mainQueue.enqueue(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+            storage.fileSystem.delete(journalFile)
+        }
+    }
+
+    suspend fun discard(id: DeadLetterEntryId) {
+        ensureRecovered()
         storage.remove(QueueEntryId(id.value))
     }
 
-    /** Drops the entry for good; its space is reclaimed on the next compaction. */
-    suspend fun discard(id: DeadLetterEntryId) {
-        storage.remove(QueueEntryId(id.value))
+    fun close() {
+        storage.close()
     }
 }
