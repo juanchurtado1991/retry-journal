@@ -25,4 +25,8 @@ internal object AppConstants {
     const val DESKTOP_DATA_DIRECTORY_NAME: String = ".ghost-sync-sample"
 
     const val DESKTOP_WINDOW_TITLE: String = "Ghost Sync — Stress Test (Desktop)"
+
+    const val SERVER_HEALTH_POLL_INTERVAL_MS: Long = 2_000L
+    const val ACTIVITY_LOG_MAX_ENTRIES: Int = 50
+    const val LOG_TIMESTAMP_DECIMALS: Int = 1
 }
