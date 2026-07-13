@@ -1,3 +1,6 @@
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinMultiplatform
+import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -10,6 +13,40 @@ plugins {
     // by GhostSyncSerializerAgnosticTest, which proves the payload layer works with
     // kotlinx.serialization content negotiation too, not just Ghost's.
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.vanniktech.publish)
+}
+
+configure<MavenPublishBaseExtension> {
+    publishToMavenCentral()
+    signAllPublications()
+    coordinates(project.group.toString(), "ghost-sync", project.version.toString())
+
+    pom {
+        name.set("ghost-sync")
+        description.set("Offline-first HTTP sync engine for Kotlin Multiplatform")
+        url.set("https://github.com/ghostserializer/ghost-sync-kmp")
+        licenses {
+            license {
+                name.set("Apache License 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0")
+            }
+        }
+        developers {
+            developer {
+                id.set("ghostserializer")
+                name.set("ghostserializer")
+            }
+        }
+        scm {
+            url.set("https://github.com/ghostserializer/ghost-sync-kmp")
+            connection.set("scm:git:git://github.com/ghostserializer/ghost-sync-kmp.git")
+            developerConnection.set("scm:git:ssh://git@github.com/ghostserializer/ghost-sync-kmp.git")
+        }
+    }
+}
+
+mavenPublishing {
+    configure(KotlinMultiplatform(javadocJar = JavadocJar.Dokka("dokkaHtml")))
 }
 
 kotlin {

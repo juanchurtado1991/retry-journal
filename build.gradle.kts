@@ -62,3 +62,14 @@ tasks.register("ciTestJvm") {
     description = "JVM test modules (no emulador / sin macOS requerido)"
     dependsOn(":ghost-sync:jvmTest")
 }
+
+tasks.register("ciCompile") {
+    group = "verification"
+    description = "Compile all Linux-verifiable targets (sin iOS / sin emulador)"
+    dependsOn(
+        ":ghost-sync:assembleRelease",
+        ":ghost-sync:compileKotlinJvm",
+        ":sync-sample:composeApp:compileDebugKotlinAndroid",
+        ":sync-sample:composeApp:compileKotlinDesktop",
+    )
+}
