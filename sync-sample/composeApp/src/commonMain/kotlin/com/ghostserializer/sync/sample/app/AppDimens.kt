@@ -16,4 +16,7 @@ internal object AppDimens {
     val STAT_NUMBER_MIN_WIDTH: Dp = 96.dp
     val TITLE_SUBTITLE_SPACING: Dp = 4.dp
     val LOG_ROW_VERTICAL_PADDING: Dp = 2.dp
+
+    val QUEUE_CHIP_SIZE: Dp = 28.dp
+    val QUEUE_CHIP_SPACING: Dp = 6.dp
 }

@@ -40,4 +40,15 @@ internal object AppConstants {
     /** Gives the embedded server's socket a moment to bind/unbind before the next health check,
      * so toggling it doesn't race a poll that started just before the toggle finished. */
     const val SERVER_TOGGLE_SETTLE_MS: Long = 150L
+
+    /** Caps how many pending requests get their own animated chip on screen — past this, only the
+     * numeric "Pending" count updates. Ten thousand chips would be neither legible nor cheap to
+     * recompose; this is about showing individual requests moving through the queue, not a
+     * progress bar. */
+    const val MAX_VISUALIZED_QUEUE_ITEMS: Int = 20
+
+    /** How long a chip holds its delivered/dead-lettered color before disappearing during `Sync
+     * now` — only applied to chips actually on screen (at most [MAX_VISUALIZED_QUEUE_ITEMS]), so
+     * a 10,000-entry flush isn't slowed down by an animation nobody's watching past the first 20. */
+    const val SYNC_ANIMATION_STEP_DELAY_MS: Long = 400L
 }

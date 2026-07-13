@@ -6,11 +6,15 @@ import com.ghostserializer.sync.sample.shared.MutationAck
 import com.ghostserializer.sync.sample.shared.MutationRequest
 import com.ghostserializer.sync.sample.shared.SampleApiConstants
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.PartData
+import io.ktor.http.content.forEachPart
+import io.ktor.http.content.streamProvider
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveMultipart
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -62,6 +66,22 @@ fun Application.chaosModule() {
                     call.respondGhost(MutationAck(request.id, System.currentTimeMillis()))
                 }
             }
+        }
+
+        // Deliberately simple compared to /mutations: no chaos rotation, always succeeds when
+        // reachable. The offline/online server switch in the demo is what exercises the
+        // interesting path (GhostOfflineQueuePlugin capturing a real multipart body correctly)
+        // — this endpoint just needs to be a real destination for it to capture bytes for.
+        post(SampleApiConstants.UPLOAD_PATH) {
+            var receivedBytes = 0L
+            val multipart = call.receiveMultipart()
+            multipart.forEachPart { part ->
+                if (part is PartData.FileItem) {
+                    receivedBytes += part.streamProvider().readBytes().size
+                }
+                part.dispose()
+            }
+            call.respond(HttpStatusCode.OK, receivedBytes.toString())
         }
     }
 }

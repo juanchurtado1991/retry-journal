@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.sample.app
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,12 +40,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import com.ghostserializer.sync.client.OfflineQueuedException
+import com.ghostserializer.sync.engine.FlushProgress
+import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.sample.shared.MutationRequest
 import com.ghostserializer.sync.sample.shared.SampleApiConstants
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.coroutineScope
@@ -63,9 +72,14 @@ private val appStartMark = TimeSource.Monotonic.markNow()
  * terminal needed. Elsewhere (Android/iOS) it just reports whether a server you started yourself
  * (`./gradlew :sync-sample:server:run`) is reachable.
  *
- * "Show advanced options" holds the same offline-queueing demo through a Ktorfit-generated call
- * instead of a hand-written `HttpClient.post()` — see [SyncSetup.mutationApi] and [MutationApi] —
- * plus larger stress-test batch sizes, both kept out of the way of the simple flow above.
+ * [QueueVisualization] shows up to [AppConstants.MAX_VISUALIZED_QUEUE_ITEMS] pending requests as
+ * small chips: gray while queued, briefly flashing green (delivered) or red (dead-lettered) as
+ * `Sync now` actually resolves each one — driven by [com.ghostserializer.sync.engine.FlushProgress],
+ * not a simulated animation.
+ *
+ * "Show advanced options" holds larger stress-test batch sizes and the same offline-queueing demo
+ * through a Ktorfit-generated call instead of a hand-written `HttpClient.post()` — see
+ * [SyncSetup.mutationApi] and [MutationApi] — both kept out of the way of the simple flow above.
  */
 @Composable
 fun App() {
@@ -86,6 +100,7 @@ private fun DemoScreen() {
     var ktorfitCallCount by remember { mutableStateOf(0) }
     var serverStatus by remember { mutableStateOf(ServerHealthStatus.Checking) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var queueChips by remember { mutableStateOf<List<QueueChipUiState>>(emptyList()) }
     val logEntries = remember { mutableStateListOf<ActivityLogEntry>() }
 
     fun log(message: String, kind: LogKind = LogKind.Info) {
@@ -97,7 +112,9 @@ private fun DemoScreen() {
 
     suspend fun refreshCounts() {
         queueSize = SyncSetup.diskQueue.size()
-        deadLetterSize = SyncSetup.deadLetterQueue.peekAll().size
+        deadLetterSize = SyncSetup.deadLetterQueue.size()
+        queueChips = SyncSetup.diskQueue.peekIds(AppConstants.MAX_VISUALIZED_QUEUE_ITEMS)
+            .map { QueueChipUiState(it, ChipStatus.Pending) }
     }
 
     suspend fun checkServerStatus() {
@@ -154,20 +171,25 @@ private fun DemoScreen() {
 
         StatsRow(pending = queueSize, deadLettered = deadLetterSize)
 
+        QueueVisualization(queueChips)
+
         Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
             Button(
-                enabled = !isBusy,
+                enabled = !isBusy && FilePicker.isSupported,
                 onClick = {
                     scope.launch {
                         isBusy = true
-                        log(AppStrings.LOG_SENDING_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENDING_SUFFIX)
-                        enqueueMutations(AppConstants.SIMPLE_SEND_COUNT)
-                        refreshCounts()
-                        log(AppStrings.LOG_SENT_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENT_SUFFIX, LogKind.Success)
+                        val picked = FilePicker.pickFile()
+                        if (picked != null) {
+                            log(AppStrings.LOG_UPLOADING_PREFIX + picked.name + AppStrings.LOG_UPLOADING_SUFFIX)
+                            val (message, kind) = uploadFile(picked)
+                            refreshCounts()
+                            log(message, kind)
+                        }
                         isBusy = false
                     }
                 },
-            ) { Text(AppStrings.SEND_BUTTON_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.SEND_BUTTON_SUFFIX) }
+            ) { Text(AppStrings.UPLOAD_BUTTON) }
 
             Button(
                 enabled = !isBusy,
@@ -175,7 +197,20 @@ private fun DemoScreen() {
                     scope.launch {
                         isBusy = true
                         log(AppStrings.LOG_SYNCING)
-                        val result = SyncSetup.syncEngine.flush(SyncSetup.replayClient)
+                        val result = SyncSetup.syncEngine.flush(SyncSetup.replayClient) { progress ->
+                            val (id, status) = when (progress) {
+                                is FlushProgress.Delivered -> progress.id to ChipStatus.Delivered
+                                is FlushProgress.DeadLettered -> progress.id to ChipStatus.DeadLettered
+                            }
+                            // Only chips actually on screen (capped at MAX_VISUALIZED_QUEUE_ITEMS)
+                            // get the animated pause — a 10,000-entry flush must not slow down
+                            // waiting on an animation for chips nobody sees past the first 20.
+                            if (queueChips.any { it.id == id }) {
+                                queueChips = queueChips.map { if (it.id == id) it.copy(status = status) else it }
+                                delay(AppConstants.SYNC_ANIMATION_STEP_DELAY_MS)
+                                queueChips = queueChips.filterNot { it.id == id }
+                            }
+                        }
                         refreshCounts()
                         log(
                             AppStrings.LOG_SYNCED_RESULT_PREFIX + result.delivered +
@@ -189,6 +224,14 @@ private fun DemoScreen() {
             ) { Text(AppStrings.SYNC_BUTTON) }
         }
 
+        if (!FilePicker.isSupported) {
+            Text(
+                AppStrings.FILE_PICKER_UNSUPPORTED_HINT,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         TextButton(onClick = { showAdvanced = !showAdvanced }) {
             Text(if (showAdvanced) AppStrings.ADVANCED_HIDE else AppStrings.ADVANCED_SHOW)
         }
@@ -196,7 +239,7 @@ private fun DemoScreen() {
         if (showAdvanced) {
             AdvancedSection(
                 isBusy = isBusy,
-                onStressTest = { count ->
+                onSend = { count ->
                     scope.launch {
                         isBusy = true
                         log(AppStrings.LOG_SENDING_PREFIX + count + AppStrings.LOG_SENDING_SUFFIX)
@@ -309,18 +352,49 @@ private fun StatCard(title: String, value: Int, modifier: Modifier = Modifier) {
     }
 }
 
+/** One chip per pending request (capped, see [AppConstants.MAX_VISUALIZED_QUEUE_ITEMS]) — gray
+ * while queued, flashing green/red as [FlushProgress] resolves it during `Sync now`, then gone. */
 @Composable
-private fun AdvancedSection(isBusy: Boolean, onStressTest: (Int) -> Unit, onKtorfitSend: () -> Unit) {
+private fun QueueVisualization(chips: List<QueueChipUiState>) {
+    if (chips.isEmpty()) {
+        return
+    }
+    LazyRow(
+        modifier = Modifier.height(AppDimens.QUEUE_CHIP_SIZE),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.QUEUE_CHIP_SPACING),
+    ) {
+        items(chips, key = { it.id.sequenceId }) { chip ->
+            QueueChip(chip, modifier = Modifier.animateItem())
+        }
+    }
+}
+
+@Composable
+private fun QueueChip(chip: QueueChipUiState, modifier: Modifier = Modifier) {
+    val targetColor = when (chip.status) {
+        ChipStatus.Pending -> MaterialTheme.colorScheme.surfaceVariant
+        ChipStatus.Delivered -> MaterialTheme.colorScheme.primary
+        ChipStatus.DeadLettered -> MaterialTheme.colorScheme.error
+    }
+    val color by animateColorAsState(targetColor)
+    Box(modifier = modifier.size(AppDimens.QUEUE_CHIP_SIZE).clip(CircleShape).background(color))
+}
+
+@Composable
+private fun AdvancedSection(isBusy: Boolean, onSend: (Int) -> Unit, onKtorfitSend: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(AppDimens.CARD_INTERNAL_SPACING),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
-                Button(enabled = !isBusy, onClick = { onStressTest(AppConstants.DEFAULT_MUTATION_COUNT) }) {
+                Button(enabled = !isBusy, onClick = { onSend(AppConstants.SIMPLE_SEND_COUNT) }) {
+                    Text(AppStrings.SEND_BUTTON_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.SEND_BUTTON_SUFFIX)
+                }
+                Button(enabled = !isBusy, onClick = { onSend(AppConstants.DEFAULT_MUTATION_COUNT) }) {
                     Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT)
                 }
-                Button(enabled = !isBusy, onClick = { onStressTest(AppConstants.STRESS_TEST_MUTATION_COUNT) }) {
+                Button(enabled = !isBusy, onClick = { onSend(AppConstants.STRESS_TEST_MUTATION_COUNT) }) {
                     Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT)
                 }
             }
@@ -368,6 +442,39 @@ private fun formatElapsed(elapsed: Duration): String =
 private fun healthUrl(): String =
     AppStrings.SERVER_URL_SCHEME + platformServerHost +
         AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.HEALTH_PATH
+
+private fun uploadUrl(): String =
+    AppStrings.SERVER_URL_SCHEME + platformServerHost +
+        AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.UPLOAD_PATH
+
+/** Posts a real multipart file upload through [SyncSetup.liveClient] — proves
+ * [com.ghostserializer.sync.client.GhostOfflineQueuePlugin] captures a
+ * [io.ktor.http.content.OutgoingContent.WriteChannelContent] body (what `MultiPartFormDataContent`
+ * actually is) correctly, not just a typed DTO. [OfflineQueuedException] means the server was
+ * unreachable and the file is now sitting in the queue, not lost. */
+private suspend fun uploadFile(file: PickedFile): Pair<String, LogKind> = try {
+    SyncSetup.liveClient.post(uploadUrl()) {
+        setBody(
+            MultiPartFormDataContent(
+                formData {
+                    append(
+                        AppStrings.UPLOAD_FORM_FIELD_NAME,
+                        file.bytes,
+                        Headers.build {
+                            append(
+                                HttpHeaders.ContentDisposition,
+                                AppStrings.UPLOAD_CONTENT_DISPOSITION_PREFIX + file.name + AppStrings.UPLOAD_CONTENT_DISPOSITION_SUFFIX,
+                            )
+                        },
+                    )
+                },
+            ),
+        )
+    }
+    (AppStrings.LOG_UPLOAD_DELIVERED_PREFIX + file.name + AppStrings.LOG_UPLOAD_DELIVERED_SUFFIX) to LogKind.Success
+} catch (e: OfflineQueuedException) {
+    (AppStrings.LOG_UPLOAD_QUEUED_PREFIX + file.name + AppStrings.LOG_UPLOAD_QUEUED_SUFFIX) to LogKind.Info
+}
 
 /**
  * Fires all [count] requests concurrently, bounded by [AppConstants.ENQUEUE_CONCURRENCY]
