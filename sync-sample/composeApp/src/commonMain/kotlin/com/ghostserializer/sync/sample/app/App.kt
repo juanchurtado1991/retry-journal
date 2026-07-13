@@ -30,11 +30,11 @@ import kotlinx.coroutines.launch
  * The stress-test screen from the Fase 6 validation plan: enqueue thousands of mutations while
  * the chaos server is unreachable (offline queueing), then flush once it's back.
  *
- * This module talks to `sample:server` running locally. To actually exercise the offline path,
- * make sure the server is **not** running (or the device is in airplane mode) before pressing
- * "Enqueue offline" — every POST will fail with a real connection error, which is exactly what
- * `GhostOfflineQueuePlugin` is meant to catch. Start the server (`./gradlew :sample:server:run`)
- * before pressing "Flush now".
+ * This module talks to `sync-sample:server` running locally. To actually exercise the offline
+ * path, make sure the server is **not** running (or the device is in airplane mode) before
+ * pressing "Enqueue offline" — every POST will fail with a real connection error, which is
+ * exactly what `GhostOfflineQueuePlugin` is meant to catch. Start the server
+ * (`./gradlew :sync-sample:server:run`) before pressing "Flush now".
  */
 @Composable
 fun App() {
@@ -51,7 +51,7 @@ private fun StressTestScreen() {
     var queueSize by remember { mutableStateOf(0) }
     var deadLetterSize by remember { mutableStateOf(0) }
     var isBusy by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf("Ready") }
+    var statusMessage by remember { mutableStateOf(AppStrings.STATUS_READY) }
 
     suspend fun refreshCounts() {
         queueSize = SyncSetup.diskQueue.size()
@@ -61,42 +61,42 @@ private fun StressTestScreen() {
     LaunchedEffect(Unit) { refreshCounts() }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().padding(AppDimens.SCREEN_PADDING),
+        verticalArrangement = Arrangement.spacedBy(AppDimens.SECTION_SPACING),
     ) {
-        Text("Ghost Sync — Stress Test", style = MaterialTheme.typography.headlineSmall)
-        Text("Pending in queue: $queueSize")
-        Text("Dead-lettered: $deadLetterSize")
+        Text(AppStrings.SCREEN_TITLE, style = MaterialTheme.typography.headlineSmall)
+        Text(AppStrings.PENDING_LABEL_PREFIX + queueSize)
+        Text(AppStrings.DEAD_LETTERED_LABEL_PREFIX + deadLetterSize)
         Text(statusMessage)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
             Button(
                 enabled = !isBusy,
                 onClick = {
                     scope.launch {
                         isBusy = true
-                        statusMessage = "Enqueueing ${AppConstants.DEFAULT_MUTATION_COUNT} offline..."
+                        statusMessage = AppStrings.ENQUEUEING_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.ENQUEUEING_SUFFIX
                         enqueueMutations(AppConstants.DEFAULT_MUTATION_COUNT)
                         refreshCounts()
-                        statusMessage = "Enqueued ${AppConstants.DEFAULT_MUTATION_COUNT}."
+                        statusMessage = AppStrings.ENQUEUED_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.ENQUEUED_SUFFIX
                         isBusy = false
                     }
                 },
-            ) { Text("Enqueue ${AppConstants.DEFAULT_MUTATION_COUNT} offline") }
+            ) { Text(AppStrings.ENQUEUE_BUTTON_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.ENQUEUE_BUTTON_SUFFIX) }
 
             Button(
                 enabled = !isBusy,
                 onClick = {
                     scope.launch {
                         isBusy = true
-                        statusMessage = "Enqueueing ${AppConstants.STRESS_TEST_MUTATION_COUNT} offline..."
+                        statusMessage = AppStrings.ENQUEUEING_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT + AppStrings.ENQUEUEING_SUFFIX
                         enqueueMutations(AppConstants.STRESS_TEST_MUTATION_COUNT)
                         refreshCounts()
-                        statusMessage = "Enqueued ${AppConstants.STRESS_TEST_MUTATION_COUNT}."
+                        statusMessage = AppStrings.ENQUEUED_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT + AppStrings.ENQUEUED_SUFFIX
                         isBusy = false
                     }
                 },
-            ) { Text("Stress test: ${AppConstants.STRESS_TEST_MUTATION_COUNT}") }
+            ) { Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT) }
         }
 
         Button(
@@ -104,25 +104,27 @@ private fun StressTestScreen() {
             onClick = {
                 scope.launch {
                     isBusy = true
-                    statusMessage = "Flushing..."
+                    statusMessage = AppStrings.FLUSHING
                     val result = SyncSetup.syncEngine.flush(SyncSetup.replayClient)
                     refreshCounts()
-                    statusMessage = "Flushed — delivered=${result.delivered} " +
-                        "deadLettered=${result.deadLettered} stoppedEarly=${result.stoppedEarly}"
+                    statusMessage = AppStrings.FLUSHED_RESULT_PREFIX + result.delivered +
+                        AppStrings.FLUSHED_RESULT_DEAD_LETTERED + result.deadLettered +
+                        AppStrings.FLUSHED_RESULT_STOPPED_EARLY + result.stoppedEarly
                     isBusy = false
                 }
             },
-        ) { Text("Flush now") }
+        ) { Text(AppStrings.FLUSH_BUTTON) }
     }
 }
 
 private suspend fun enqueueMutations(count: Int) {
-    val serverUrl = "http://${AppConstants.SERVER_HOST}:${SampleApiConstants.DEFAULT_PORT}${SampleApiConstants.MUTATIONS_PATH}"
+    val serverUrl = AppStrings.SERVER_URL_SCHEME + AppConstants.SERVER_HOST +
+        AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.MUTATIONS_PATH
 
     repeat(count) { index ->
         val request = MutationRequest(
-            id = "mutation-$index",
-            payload = "stress-test-payload-$index",
+            id = AppStrings.MUTATION_ID_PREFIX + index,
+            payload = AppStrings.MUTATION_PAYLOAD_PREFIX + index,
             createdAtMillis = index.toLong(),
         )
         runCatching {

@@ -12,4 +12,6 @@ internal object ChaosConstants {
 
     /** Slow but within the client's timeout — a tolerable, successful delay. */
     const val LATENCY_DELAY_MS: Long = 3_000L
+
+    const val HEALTH_CHECK_RESPONSE_BODY: String = "ok"
 }

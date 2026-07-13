@@ -10,7 +10,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
  * `bgTaskId` must match the identifier registered with `BGTaskScheduler` in iosApp's AppDelegate
  * and listed under `BGTaskSchedulerPermittedIdentifiers` in Info.plist — see iosApp/README.md.
  */
-@Worker(name = AppConstants.SYNC_WORKER_NAME, bgTaskId = "ghost_sync_task")
+@Worker(name = AppConstants.SYNC_WORKER_NAME, bgTaskId = AppConstants.IOS_BACKGROUND_TASK_ID)
 class SyncWorkerIos : IosWorker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =
         GhostSyncWorker().doWork(input, env)

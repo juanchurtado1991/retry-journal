@@ -26,12 +26,15 @@ class GhostSyncWorker(
         return try {
             val result = engine.flush(SyncSetup.replayClient)
             if (result.stoppedEarly) {
-                retry(reason = "flush stopped early: a 5xx or network failure left work in the queue")
+                retry(reason = AppStrings.WORKER_RETRY_REASON_STOPPED_EARLY)
             } else {
-                WorkerResult.Success("delivered=${result.delivered} deadLettered=${result.deadLettered}")
+                WorkerResult.Success(
+                    AppStrings.WORKER_SUCCESS_MESSAGE_PREFIX + result.delivered +
+                        AppStrings.WORKER_SUCCESS_MESSAGE_DEAD_LETTERED + result.deadLettered,
+                )
             }
         } catch (cause: Exception) {
-            retry(reason = "flush threw: ${cause.message}")
+            retry(reason = AppStrings.WORKER_RETRY_REASON_THREW_PREFIX + cause.message)
         }
     }
 

@@ -16,4 +16,8 @@ internal object AppConstants {
     const val SYNC_INTERVAL_MS: Long = 15 * 60 * 1000L
     const val SYNC_RETRY_DELAY_MS: Long = 60_000L
     const val SYNC_MAX_RETRY_ATTEMPTS: Int = 5
+
+    /** Must match the identifier registered with BGTaskScheduler in iosApp's AppDelegate and
+     * listed under BGTaskSchedulerPermittedIdentifiers in Info.plist — see sync-sample/iosApp/. */
+    const val IOS_BACKGROUND_TASK_ID: String = "ghost_sync_task"
 }

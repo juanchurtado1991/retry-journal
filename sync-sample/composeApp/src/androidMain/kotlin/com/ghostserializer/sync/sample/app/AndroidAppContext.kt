@@ -10,5 +10,5 @@ internal object AndroidAppContext {
     }
 
     fun requireApplication(): Application =
-        checkNotNull(application) { "AndroidAppContext.install() must run in Application.onCreate() first." }
+        checkNotNull(application) { AppStrings.ANDROID_APP_CONTEXT_NOT_INSTALLED }
 }

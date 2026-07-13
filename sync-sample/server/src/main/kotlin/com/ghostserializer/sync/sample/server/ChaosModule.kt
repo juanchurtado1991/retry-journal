@@ -32,7 +32,7 @@ fun Application.chaosModule() {
 
     routing {
         get(SampleApiConstants.HEALTH_PATH) {
-            call.respond(HttpStatusCode.OK, "ok")
+            call.respond(HttpStatusCode.OK, ChaosConstants.HEALTH_CHECK_RESPONSE_BODY)
         }
 
         post(SampleApiConstants.MUTATIONS_PATH) {
