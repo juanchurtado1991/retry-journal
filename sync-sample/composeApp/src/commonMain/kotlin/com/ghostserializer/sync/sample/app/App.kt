@@ -203,12 +203,17 @@ private fun DemoScreen() {
                                 is FlushProgress.DeadLettered -> progress.id to ChipStatus.DeadLettered
                             }
                             // Only chips actually on screen (capped at MAX_VISUALIZED_QUEUE_ITEMS)
-                            // get the animated pause — a 10,000-entry flush must not slow down
-                            // waiting on an animation for chips nobody sees past the first 20.
+                            // animate at all. Updating the status here is instant — flush() moves
+                            // on to the next entry immediately, at full real speed. The brief
+                            // colored pause before the chip disappears is scheduled on its own
+                            // fire-and-forget coroutine below, not awaited here, so the demo's
+                            // animation never throttles the actual sync.
                             if (queueChips.any { it.id == id }) {
                                 queueChips = queueChips.map { if (it.id == id) it.copy(status = status) else it }
-                                delay(AppConstants.SYNC_ANIMATION_STEP_DELAY_MS)
-                                queueChips = queueChips.filterNot { it.id == id }
+                                scope.launch {
+                                    delay(AppConstants.SYNC_ANIMATION_STEP_DELAY_MS)
+                                    queueChips = queueChips.filterNot { it.id == id }
+                                }
                             }
                         }
                         refreshCounts()

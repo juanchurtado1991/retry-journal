@@ -16,28 +16,16 @@ A window opens with the server already on. That's it.
 
 ### What you'll see
 
-```
-┌─ Ghost Sync — Demo ──────────────────────────
-│
-│  ●  Server online                     ← a switch: turn the embedded server on/off
-│
-│    12              0
-│  Pending      Dead-lettered           ← live counts, no need to refresh
-│
-│  ●  ●  ●  ●                           ← one chip per pending request —
-│                                          flashes green (delivered) or red
-│                                          (rejected) as Sync now processes it
-│
-│  [ Upload a file ]   [ Sync now ]
-│
-│  ▾ Show advanced options              ← stress-test batches, Ktorfit demo
-│
-│  Activity
-│  +12.3s  Delivered photo.jpg.
-│  +8.1s   Queued mutation-4 — offline.
-```
+![The demo screen: a server on/off switch, live pending/dead-letter counts, one chip per pending request, an Upload a file / Sync now pair of buttons, and a running activity log](docs/demo-desktop.png)
 
-Try this flow:
+This particular run has 9,994 requests pending — the row of gray dots is
+[`QueueVisualization`](composeApp/src/commonMain/kotlin/com/ghostserializer/sync/sample/app/App.kt):
+one chip per pending request, capped at 20 on screen at once (a stress test does not need — or
+want — 10,000 individual chips). Each chip flashes green (delivered) or red (dead-lettered) as
+**Sync now** actually resolves it, driven by real progress from `GhostSyncEngine`, not a simulated
+animation.
+
+Try this flow yourself:
 
 1. Flip the switch off. The dot turns red.
 2. Tap **Upload a file** and pick anything from disk. It fails to send (no server) and shows up
