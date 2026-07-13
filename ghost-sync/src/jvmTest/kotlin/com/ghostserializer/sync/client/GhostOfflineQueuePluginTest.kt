@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.client
 
+import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.queue.DiskQueue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -15,7 +16,11 @@ import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -157,6 +162,44 @@ class GhostOfflineQueuePluginTest {
         }
 
         assertNull(diskQueue.peek())
+    }
+
+    @Test
+    fun `concurrent failed requests do not cross-contaminate each other's captured headers`() = runBlocking {
+        // Reproduces the race on the plugin's shared header scratch arrays: many requests fail
+        // at once on real, separate threads (not just interleaved coroutines on one thread) and
+        // each must keep its own header, not one clobbered by a sibling in flight at the same time.
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        val concurrency = 50
+        withContext(Dispatchers.Default) {
+            coroutineScope {
+                repeat(concurrency) { index ->
+                    launch {
+                        try {
+                            client.post("https://example.com/item-$index") {
+                                headers.append("X-Index", index.toString())
+                            }
+                        } catch (_: OfflineQueuedException) {
+                            // Expected — this is the connectivity failure being captured.
+                        }
+                    }
+                }
+            }
+        }
+
+        val entries = diskQueue.peekAll()
+        assertEquals(concurrency, entries.size)
+        for (entry in entries) {
+            val expectedIndex = entry.meta.url.substringAfterLast("item-")
+            assertEquals(
+                expectedIndex,
+                entry.meta.headers.findValue("X-Index"),
+                "entry for ${entry.meta.url} carries a header captured from a different request",
+            )
+        }
     }
 
     @Test

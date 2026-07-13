@@ -16,6 +16,8 @@ import io.ktor.utils.io.core.readBytes
 import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Installed on Ghost's Ktor client. When a request fails to reach the network — not a business
@@ -27,11 +29,16 @@ import kotlinx.coroutines.launch
  *
  * Header capture avoids [Map] entirely: [captureHeaders] writes into reusable scratch arrays on
  * this plugin instance and snapshots them into [FrozenHttpHeaders] with a single [Array.copyOf]
- * per axis — no hash buckets, no map-entry objects.
+ * per axis — no hash buckets, no map-entry objects. Those scratch arrays are shared across every
+ * request this client ever makes, so [captureMutex] serializes capture: one [HttpClient] instance
+ * routinely has multiple requests in flight on different coroutines, and without the lock two
+ * failing requests racing through [captureHeaders] at once would interleave writes into the same
+ * arrays and persist one request's headers under another's queued entry.
  */
 class GhostOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
 ) {
+    private val captureMutex = Mutex()
     private var headerNameScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
     private var headerValueScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
 
@@ -39,7 +46,7 @@ class GhostOfflineQueuePlugin private constructor(
         client.plugin(HttpSend).intercept { request ->
             try {
                 execute(request)
-            } catch (e: IOException) {
+            } catch (_: IOException) {
                 val url = request.url.buildString()
                 try {
                     enqueueLocked(request, url)
@@ -51,7 +58,7 @@ class GhostOfflineQueuePlugin private constructor(
         }
     }
 
-    private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) {
+    private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) = captureMutex.withLock {
         val outgoingBody = request.body as? OutgoingContent
         val body = captureBody(outgoingBody)
         val headers = captureHeaders(request, outgoingBody)
@@ -70,9 +77,7 @@ class GhostOfflineQueuePlugin private constructor(
     ): FrozenHttpHeaders {
         val builderEntries = request.headers.entries()
         var count = 0
-        for (entry in builderEntries) {
-            count++
-        }
+        builderEntries.forEach { _ -> count++ }
         ensureHeaderScratch(count)
 
         var index = 0
