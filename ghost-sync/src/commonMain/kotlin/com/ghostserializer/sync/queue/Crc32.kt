@@ -1,9 +1,25 @@
 package com.ghostserializer.sync.queue
 
 /**
- * IEEE 802.3 CRC-32 (reflected), table-based. Pure Kotlin: neither the stdlib nor Okio ship a
- * multiplatform CRC32, and `java.util.zip.CRC32` is JVM/Android-only, so this is the only way to
- * get the same corruption check on every target without pulling in a dependency for 30 lines.
+ * A CRC-32 is a **checksum**: you feed it a sequence of bytes and it hands back a single 32-bit
+ * number that summarizes them. Feed it the exact same bytes again and you get the exact same
+ * number back; change even one bit anywhere in the input and the number almost certainly comes
+ * out different. It cannot repair damaged data or say *which* byte changed — it can only tell you
+ * "these bytes match what was checksummed before" or "they don't," which is exactly what
+ * [DiskQueue] needs: every record written to disk is checksummed, and every record read back is
+ * checksummed again and compared. If a write was interrupted partway through — the process was
+ * killed mid-`enqueue()` — the checksums won't match, and [DiskQueue] treats that as "this is
+ * where the valid data ends," truncating the corrupt tail instead of crashing or reading garbage
+ * back as if it were a real request. See [DiskQueue]'s own doc for why that recovery path matters.
+ *
+ * This implementation is the IEEE 802.3 variant (reflected), the same algorithm used by Ethernet,
+ * gzip, and PNG — chosen for being a well-understood, widely-implemented standard rather than a
+ * custom scheme. It's table-based (see [TABLE]) for speed: precomputing the effect of every
+ * possible byte value once means checksumming real data is one array lookup per byte instead of
+ * eight bit-shifts per byte. It's written in pure Kotlin because neither the Kotlin stdlib nor
+ * Okio ship a multiplatform CRC32, and `java.util.zip.CRC32` only exists on JVM/Android — this is
+ * the only way to get the same corruption check on every target `:ghost-sync` compiles for,
+ * without pulling in a whole dependency for what amounts to 30 lines.
  *
  * Callers accumulate across multiple byte segments (metadata, then body) with [update] and call
  * [finalize] once at the end, so a record's checksum never requires concatenating its segments

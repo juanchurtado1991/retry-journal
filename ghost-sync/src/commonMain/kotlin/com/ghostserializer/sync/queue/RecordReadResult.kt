@@ -15,12 +15,9 @@ internal sealed class RecordReadResult {
         val recordLength: Int,
     ) : RecordReadResult() {
         override fun equals(other: Any?): Boolean {
-            if (this === other) {
-                return true
-            }
-            if (other !is Live) {
-                return false
-            }
+            if (this === other) return true
+            if (other !is Live) return false
+            
             return sequenceId == other.sequenceId &&
                 meta == other.meta &&
                 metaBytes.contentEquals(other.metaBytes) &&
