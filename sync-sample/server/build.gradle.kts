@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":sample:shared"))
+    implementation(project(":sync-sample:shared"))
     implementation(libs.ghost.ktor)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)

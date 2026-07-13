@@ -1,6 +1,6 @@
 # Convenciones de código — Ghost-Sync KMP
 
-Reglas obligatorias para todo el código Kotlin de este repositorio (librería `:ghost-sync` y módulos `sample/*`). Ver el plan de arquitectura para el razonamiento completo detrás de cada decisión de diseño.
+Reglas obligatorias para todo el código Kotlin de este repositorio (librería `:ghost-sync` y módulos `sync-sample/*`). Ver el plan de arquitectura para el razonamiento completo detrás de cada decisión de diseño.
 
 1. **No magic strings.** Ninguna literal de texto repetida o significativa suelta en el código: nombres de cabeceras HTTP, extensiones de archivo, nombres de query params, etc. viven en un objeto de constantes.
 2. **No magic numbers.** Igual que la regla 1 pero para literales numéricas: tamaños de buffer, timeouts, códigos de estado HTTP, umbrales de compactación.
@@ -16,5 +16,6 @@ Reglas obligatorias para todo el código Kotlin de este repositorio (librería `
 ## Decisiones de arquitectura fijas
 
 - `:ghost-sync` es la **única dependencia de dominio** (serialización + red), basada en el motor Ghost (`com.ghostserializer:*`). Toda la infraestructura de I/O usa **Okio** (ya transitivo vía Ghost) — nunca `kotlinx-io`.
-- `:ghost-sync` **no depende de ningún scheduler** (`kmpworkmanager`, `androidx.work`, etc.). `GhostSyncEngine.flush()` es una `suspend fun` agnóstica que cualquier infraestructura de despacho puede invocar. `kmpworkmanager` solo se usa como integración de referencia en `sample/composeApp`.
+- `:ghost-sync` **no depende de ningún scheduler** (`kmpworkmanager`, `androidx.work`, etc.). `GhostSyncEngine.flush()` es una `suspend fun` agnóstica que cualquier infraestructura de despacho puede invocar. `kmpworkmanager` solo se usa como integración de referencia en `sync-sample/composeApp`.
+- `sync-sample/*` es un árbol de módulos completamente aparte, sin ninguna configuración de publicación — nunca se shipea con `:ghost-sync`. Es solo para validar la librería con una app real (Fase 6).
 - Un solo módulo Gradle publicado (`:ghost-sync`) en vez de dividir en `core`/`client`/`engine`: nadie consume una parte sin las demás, así que dividir sería overhead de Gradle sin beneficio real.

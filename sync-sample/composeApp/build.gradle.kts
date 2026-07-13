@@ -28,7 +28,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":ghost-sync"))
-            implementation(project(":sample:shared"))
+            implementation(project(":sync-sample:shared"))
             implementation(libs.ghost.ktor)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)

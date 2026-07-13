@@ -11,7 +11,7 @@ project's coding rules and the architecture decisions that are considered settle
 | Module | What it is |
 |---|---|
 | `:ghost-sync` | The library. `queue/` (`DiskQueue`), `deadletter/` (`DeadLetterQueue`), `client/` (`GhostOfflineQueuePlugin`), `engine/` (`GhostSyncEngine`) |
-| `sample/shared`, `sample/server`, `sample/composeApp`, `sample/iosApp` | Full-cycle demo app — see [sample/README.md](sample/README.md) |
+| `sync-sample/shared`, `sync-sample/server`, `sync-sample/composeApp`, `sync-sample/iosApp` | Full-cycle demo app — **never shipped with the library**, kept in its own top-level module — see [sync-sample/README.md](sync-sample/README.md) |
 
 ## How it works, in one paragraph
 
@@ -22,14 +22,14 @@ queue recovers by truncating it, not by failing to open. `GhostSyncEngine.flush(
 back against any `HttpClient`, removing entries that succeed, moving business failures (4xx) to a
 `DeadLetterQueue` with its own public `retry`/`discard` API, and stopping the loop untouched on a
 5xx or network error for the next attempt. `flush()` takes no scheduler dependency at all —
-`kmpworkmanager`, `androidx.work`, or a plain coroutine timer can all drive it; see `sample/composeApp`
+`kmpworkmanager`, `androidx.work`, or a plain coroutine timer can all drive it; see `sync-sample/composeApp`
 for a real `kmpworkmanager` integration.
 
 ## Build & test
 
 ```bash
-./gradlew :ghost-sync:jvmTest   # 18 unit tests, JVM only, no emulator needed
-./gradlew :sample:server:run    # chaotic Ktor server for manual/full-cycle testing
+./gradlew :ghost-sync:jvmTest        # 18 unit tests, JVM only, no emulator needed
+./gradlew :sync-sample:server:run    # chaotic Ktor server for manual/full-cycle testing
 ```
 
 `:ghost-sync` targets `android`, `iosArm64`, `iosSimulatorArm64`, `jvm` — the same set Ghost

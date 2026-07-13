@@ -7,14 +7,14 @@ enqueues thousands of mutations offline and flushes them once connectivity retur
 |---|---|---|
 | `shared` | `@GhostSerialization` models shared by server and app | Compiles (JVM + Android); KSP generates both serializers |
 | `server` | Chaotic Ktor/CIO server | **Actually run** and hit with 22 real HTTP requests — see its own module for details |
-| `composeApp` (Android) | Compose UI + kmpworkmanager integration | Compiles; a real debug APK was built (`./gradlew :sample:composeApp:assembleDebug`) |
+| `composeApp` (Android) | Compose UI + kmpworkmanager integration | Compiles; a real debug APK was built (`./gradlew :sync-sample:composeApp:assembleDebug`) |
 | `composeApp` (iOS) | Same commonMain UI, Darwin engine, `IosWorker` | **Not compiled** — this machine has no Xcode. Kotlin/Native can't build Apple targets off macOS; Gradle just skips them (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI on Linux |
 | `iosApp/` | Xcode host project | Reference Swift files only, not a real `.pbxproj` — see `iosApp/README.md` |
 
 ## Run the chaos server
 
 ```bash
-./gradlew :sample:server:run
+./gradlew :sync-sample:server:run
 ```
 
 Listens on `:8080`. `GET /health` → `200 ok`. `POST /mutations` behaves badly on a rotation: every
@@ -30,7 +30,7 @@ Point `AppConstants.SERVER_HOST` at wherever the server is reachable from the de
 device use your machine's LAN IP instead.
 
 ```bash
-./gradlew :sample:composeApp:installDebug
+./gradlew :sync-sample:composeApp:installDebug
 ```
 
 On the "Stress test" screen: tap **Enqueue offline** *before* starting the server (or with the
@@ -54,7 +54,7 @@ generated factory class name (`AndroidWorkerFactoryGenerated`, confirmed by actu
 and reading its output), and a required `reason: String` parameter on `WorkerResult.Retry` the
 README's own snippet omits. All of that was corrected by decompiling the resolved
 `kmpworkmanager-android-3.0.1` artifact and cross-checking against a real, successful
-`:sample:composeApp:assembleDebug` build that produced an installable APK.
+`:sync-sample:composeApp:assembleDebug` build that produced an installable APK.
 
 The `IosWorker` side (`SyncWorkerIos.kt`, `PlatformHttpClientEngine.ios.kt`,
 `PlatformDataDirectory.ios.kt`) follows the same package/API conventions by analogy but was never

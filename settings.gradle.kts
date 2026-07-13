@@ -21,6 +21,6 @@ dependencyResolutionManagement {
 rootProject.name = "GhostSync"
 
 include(":ghost-sync")
-include(":sample:shared")
-include(":sample:server")
-include(":sample:composeApp")
+include(":sync-sample:shared")
+include(":sync-sample:server")
+include(":sync-sample:composeApp")
