@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.client
 
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpClientPlugin
 import io.ktor.client.plugins.HttpSend
@@ -24,31 +25,27 @@ import kotlinx.coroutines.launch
  * exception with [OfflineQueuedException] so the caller can distinguish "queued for later" from
  * "actually failed."
  *
- * The captured body is whatever bytes 'request' already carries at this point in the pipeline —
- * already serialized by `GhostContentConverter` upstream, so it is never re-encoded to reach the
- * queue. That body isn't always an in-memory [OutgoingContent.ByteArrayContent] though: a file or
- * image upload (`MultiPartFormDataContent`, a streamed file) is an
- * [OutgoingContent.WriteChannelContent] or [OutgoingContent.ReadChannelContent] instead — those
- * still get fully read into bytes here (see [captureBody]) so they queue correctly too, not
- * silently as an empty body.
- *
- * [enqueueLocked] avoids every allocation it reasonably can on the header-copying part of this
- * path: [HeadersBuilder][io.ktor.http.HeadersBuilder] already exposes `entries()` directly (it's
- * backed by the same live map `build()` would otherwise copy into a new [Headers][io.ktor.http.Headers]
- * instance just to read back out), the header map is pre-sized instead of grown by rehashing, and
- * the URL is rendered to a string exactly once and reused for both the queued record and the
- * thrown exception.
+ * Header capture avoids [Map] entirely: [captureHeaders] writes into reusable scratch arrays on
+ * this plugin instance and snapshots them into [FrozenHttpHeaders] with a single [Array.copyOf]
+ * per axis — no hash buckets, no map-entry objects.
  */
 class GhostOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
 ) {
+    private var headerNameScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
+    private var headerValueScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
+
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
             try {
                 execute(request)
-            } catch (_: IOException) {
+            } catch (e: IOException) {
                 val url = request.url.buildString()
-                enqueueLocked(request, url)
+                try {
+                    enqueueLocked(request, url)
+                } catch (capture: BodyCaptureException) {
+                    throw capture
+                }
                 throw OfflineQueuedException(url)
             }
         }
@@ -57,22 +54,7 @@ class GhostOfflineQueuePlugin private constructor(
     private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) {
         val outgoingBody = request.body as? OutgoingContent
         val body = captureBody(outgoingBody)
-
-        val builderEntries = request.headers.entries()
-        val headersInitialCapacity = builderEntries.size + ClientConstants.HEADER_MAP_SLACK
-        val headers = LinkedHashMap<String, String>(headersInitialCapacity)
-        
-        for (entry in builderEntries) {
-            headers[entry.key] = entry.value.firstOrNull().orEmpty()
-        }
-        // request.headers can carry a Content-Type the caller declared explicitly (e.g. via
-        // contentType(...)) that no longer matches what ContentNegotiation put on the wire —
-        // engines send OutgoingContent's own contentType, not that stale label, so a plain
-        // caller-declared mismatch is harmless for the request this plugin is intercepting.
-        // Replaying it later isn't: GhostSyncEngine.send() rebuilds a bare ByteArrayContent from
-        // exactly what's captured here, so a stale label would ship the real (correctly encoded)
-        // bytes under the wrong Content-Type and the server would reject every single replay.
-        outgoingBody?.contentType?.let { headers[HttpHeaders.ContentType] = it.toString() }
+        val headers = captureHeaders(request, outgoingBody)
 
         diskQueue.enqueue(
             method = request.method.value,
@@ -82,29 +64,113 @@ class GhostOfflineQueuePlugin private constructor(
         )
     }
 
-    /** [OutgoingContent.ByteArrayContent] (the common case — a serialized DTO) is already bytes,
-     * no work needed. A file/image upload built with `MultiPartFormDataContent` or a streamed
-     * file is an [OutgoingContent.ReadChannelContent] or [OutgoingContent.WriteChannelContent]
-     * instead — both get drained into an in-memory [ByteChannel] so the exact bytes that would
-     * have gone over the wire are what ends up on disk. */
-    private suspend fun captureBody(content: OutgoingContent?): ByteArray = when (content) {
-        is OutgoingContent.ByteArrayContent -> content.bytes()
+    private fun captureHeaders(
+        request: HttpRequestBuilder,
+        outgoingBody: OutgoingContent?,
+    ): FrozenHttpHeaders {
+        val builderEntries = request.headers.entries()
+        var count = 0
+        for (entry in builderEntries) {
+            count++
+        }
+        ensureHeaderScratch(count)
 
-        is OutgoingContent.ReadChannelContent ->
-            content.readFrom().readRemaining().readBytes()
+        var index = 0
+        for (entry in builderEntries) {
+            headerNameScratch[index] = entry.key
+            headerValueScratch[index] = encodeHeaderValues(entry.value)
+            index++
+        }
 
-        is OutgoingContent.WriteChannelContent -> {
-            val channel = ByteChannel()
-            coroutineScope {
-                launch {
-                    content.writeTo(channel)
-                    channel.close()
+        val wireContentType = outgoingBody?.contentType?.toString()
+        if (wireContentType != null) {
+            var replaced = false
+            for (slot in 0 until index) {
+                if (headerNameScratch[slot].equals(HttpHeaders.ContentType, ignoreCase = true)) {
+                    headerValueScratch[slot] = wireContentType
+                    replaced = true
+                    break
                 }
-                channel.readRemaining().readBytes()
+            }
+            if (!replaced) {
+                ensureHeaderScratch(index + 1)
+                headerNameScratch[index] = HttpHeaders.ContentType
+                headerValueScratch[index] = wireContentType
+                index++
             }
         }
 
-        else -> ClientConstants.EMPTY_BODY
+        val names = Array(index) { headerNameScratch[it] }
+        val values = Array(index) { headerValueScratch[it] }
+        return FrozenHttpHeaders.fromScratch(names, values, index)
+    }
+
+    private fun ensureHeaderScratch(capacity: Int) {
+        if (headerNameScratch.size >= capacity) {
+            return
+        }
+        headerNameScratch = Array(capacity) { "" }
+        headerValueScratch = Array(capacity) { "" }
+    }
+
+    private fun encodeHeaderValues(values: List<String>): String {
+        if (values.isEmpty()) {
+            return ""
+        }
+        if (values.size == 1) {
+            return values[0]
+        }
+        val separator = ClientConstants.HEADER_MULTI_VALUE_SEPARATOR
+        var totalLength = separator.length * (values.size - 1)
+        for (value in values) {
+            totalLength += value.length
+        }
+        val builder = StringBuilder(totalLength)
+        builder.append(values[0])
+        for (valueIndex in 1 until values.size) {
+            builder.append(separator)
+            builder.append(values[valueIndex])
+        }
+        return builder.toString()
+    }
+
+    private suspend fun captureBody(content: OutgoingContent?): ByteArray {
+        if (content == null) {
+            return ClientConstants.EMPTY_BODY
+        }
+        return when (content) {
+            is OutgoingContent.ByteArrayContent -> content.bytes()
+
+            is OutgoingContent.NoContent -> ClientConstants.EMPTY_BODY
+
+            is OutgoingContent.ReadChannelContent -> try {
+                content.readFrom().readRemaining().readBytes()
+            } catch (cause: Throwable) {
+                throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
+            }
+
+            is OutgoingContent.WriteChannelContent -> {
+                val channel = ByteChannel()
+                coroutineScope {
+                    val writeJob = launch {
+                        content.writeTo(channel)
+                    }
+                    try {
+                        writeJob.join()
+                    } catch (cause: Throwable) {
+                        channel.close()
+                        throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
+                    } finally {
+                        channel.close()
+                    }
+                    channel.readRemaining().readBytes()
+                }
+            }
+
+            else -> throw BodyCaptureException(
+                ClientConstants.BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX + content::class.simpleName,
+            )
+        }
     }
 
     companion object Plugin : HttpClientPlugin<GhostOfflineQueueConfig, GhostOfflineQueuePlugin> {
@@ -115,6 +181,11 @@ class GhostOfflineQueuePlugin private constructor(
             block: GhostOfflineQueueConfig.() -> Unit
         ): GhostOfflineQueuePlugin {
             val config = GhostOfflineQueueConfig().apply(block)
+            try {
+                config.diskQueue
+            } catch (_: Exception) {
+                error(ClientConstants.PLUGIN_DISK_QUEUE_MISSING)
+            }
             return GhostOfflineQueuePlugin(config.diskQueue)
         }
 
