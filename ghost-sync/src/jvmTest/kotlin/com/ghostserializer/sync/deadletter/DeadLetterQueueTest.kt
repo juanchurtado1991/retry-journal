@@ -89,6 +89,29 @@ class DeadLetterQueueTest {
     }
 
     @Test
+    fun `recording the same request twice does not duplicate the dead-letter entry`() = runBlocking {
+        // Mirrors what happens if the process dies between GhostSyncEngine.flush's
+        // deadLetterQueue.record(...) and its queue.remove(entry.id): the entry is still live on
+        // the main queue, so the next flush replays it and — if the server still rejects it —
+        // records it again. That must collapse into the same dead-letter entry, not a duplicate.
+        val id1 = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())
+        val id2 = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())
+
+        assertEquals(id1, id2)
+        assertEquals(1, deadLetterQueue.peekAll().size)
+    }
+
+    @Test
+    fun `recording a genuinely different request after a duplicate is not swallowed`() = runBlocking {
+        val id1 = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+        deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+        val id3 = deadLetterQueue.record("POST", "/other", FrozenHttpHeaders.EMPTY, "different-payload".encodeToByteArray())
+
+        assertTrue(id1 != id3)
+        assertEquals(2, deadLetterQueue.peekAll().size)
+    }
+
+    @Test
     fun `recovery processes pending retry journals on initialization`() = runBlocking {
         // Record an entry
         val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())

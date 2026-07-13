@@ -12,7 +12,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.Path
 import okio.Path.Companion.toPath
-import okio.buffer
 
 class DeadLetterQueue(
     private val mainQueue: DiskQueue,
@@ -122,10 +121,7 @@ class DeadLetterQueue(
                 continue
             }
 
-            val journalData = readJournal(file)
-            if (journalData == null) {
-                continue
-            }
+            val journalData = readJournal(file) ?: continue
             if (!mainQueueAlreadyContains(journalData)) {
                 mainQueue.enqueue(
                     method = journalData.method,
@@ -159,8 +155,25 @@ class DeadLetterQueue(
         body: ByteArray,
     ): DeadLetterEntryId {
         ensureRecovered()
+        findExistingRecordId(method, url, body)?.let { return it }
         val id = storage.enqueue(method, url, headers, body)
         return DeadLetterEntryId(id.sequenceId)
+    }
+
+    /** Guards the window between this enqueue and the caller's [DiskQueue.remove] of the original
+     * entry on [mainQueue] (see [com.ghostserializer.sync.engine.GhostSyncEngine.flush]): if the
+     * process dies in that window, the entry is still live on the main queue, and the next
+     * `flush()` replays and dead-letters it again. Recognizing it as already recorded — same
+     * method, url, and body, the exact bytes being replayed — turns that into a no-op instead of
+     * a duplicate entry in the dead-letter queue. */
+    private suspend fun findExistingRecordId(method: String, url: String, body: ByteArray): DeadLetterEntryId? {
+        var existing: DeadLetterEntryId? = null
+        storage.peekAllRaw { sequenceId, meta, entryBody ->
+            if (existing == null && meta.method == method && meta.url == url && entryBody.contentEquals(body)) {
+                existing = DeadLetterEntryId(sequenceId)
+            }
+        }
+        return existing
     }
 
     suspend fun size(): Int {
