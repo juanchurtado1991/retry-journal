@@ -39,6 +39,23 @@ Everything below "Show advanced options" does the same thing at a larger scale �
 handful of plain JSON mutations, two stress-test buttons (1,000 / 10,000) to check throughput, and
 a Ktorfit-generated call to prove the interceptor works no matter how a request was built.
 
+### Why "Sync now" might not finish a big queue in one click
+
+This is expected, not a bug: after a 10,000-entry stress test, tapping **Sync now** once will
+usually *not* drain the whole queue. `GhostSyncEngine.flush()` replays entries one at a time
+against the real chaos server (see the rotation below) — every 20th request stalls 15 seconds,
+longer than the client's 6-second socket timeout, which throws a genuine `IOException`. `flush()`
+treats that exactly like the server going down mid-sync: it **stops immediately**, leaving
+everything still queued for the next attempt, instead of skipping the failure and pressing on.
+
+With ~10,000 entries that stall is going to happen roughly every 20 requests — so one `flush()`
+call only ever gets partway through before stopping, and **Sync now** needs to be tapped again to
+pick up where it left off. This is `GhostSyncEngine.flush()`'s documented behavior (see the root
+README's "How it works" table: `5xx or IOException` → *"stop here, the rest waits for the next
+`flush()`"*) — the demo's button just makes one `flush()` call per tap, it doesn't loop. A real
+background sync job calling `flush()` on a timer would simply pick the rest up on its next run
+without anyone noticing.
+
 ## Run on Android
 
 Android/iOS have no in-process server story, so you run the chaos server yourself:
