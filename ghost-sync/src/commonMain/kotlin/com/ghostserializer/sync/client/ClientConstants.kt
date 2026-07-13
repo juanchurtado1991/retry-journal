@@ -5,7 +5,7 @@ internal object ClientConstants {
     const val OFFLINE_QUEUED_MESSAGE_PREFIX: String = "Request to "
     const val OFFLINE_QUEUED_MESSAGE_SUFFIX: String = " could not be sent and was queued for later delivery"
 
-    /** Shared instead of allocated per request that has no body. */
+    /** Shared instead of allocated per request that has no-body. */
     val EMPTY_BODY: ByteArray = ByteArray(0)
 
     /** Room for the Content-Type entry this plugin may add on top of the builder's own headers,

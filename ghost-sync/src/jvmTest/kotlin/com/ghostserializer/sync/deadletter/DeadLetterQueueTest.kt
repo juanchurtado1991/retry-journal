@@ -65,6 +65,17 @@ class DeadLetterQueueTest {
     }
 
     @Test
+    fun `size reflects records and removals without decoding any record`() = runBlocking {
+        assertEquals(0, deadLetterQueue.size())
+
+        val id = deadLetterQueue.record("POST", "/rejected", emptyMap(), "bad".encodeToByteArray())
+        assertEquals(1, deadLetterQueue.size())
+
+        deadLetterQueue.discard(id)
+        assertEquals(0, deadLetterQueue.size())
+    }
+
+    @Test
     fun `retry and discard are no-ops for an unknown id`() = runBlocking {
         deadLetterQueue.retry(DeadLetterEntryId(42L))
         deadLetterQueue.discard(DeadLetterEntryId(42L))

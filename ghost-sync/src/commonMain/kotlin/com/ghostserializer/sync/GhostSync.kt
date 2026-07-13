@@ -35,14 +35,9 @@ import okio.SYSTEM
  * [io.ktor.http.content.OutgoingContent.WriteChannelContent]/[io.ktor.http.content.OutgoingContent.ReadChannelContent]
  * (a file/image upload, e.g. `MultiPartFormDataContent`) — and the engine replays those same raw
  * bytes. Configure whatever `ContentNegotiation` you want for those — Ghost's `ghost()`,
- * kotlinx. Serialization's `json()`, both together, or none at all — via httpClientConfig; this
- * class installs no content-negotiation converter of its own. A single queued body is capped at
- * [maxRecordFieldSize] (default [DiskQueueConstants.MAX_RECORD_FIELD_SIZE], 64 MiB); `enqueue()`
- * throws [com.ghostserializer.sync.queue.RecordTooLargeException] past that rather than writing
- * something it could never read back. Raise it if your uploads are routinely bigger than that —
- * lowering it doesn't reduce memory use for anything already under the limit (`enqueue()` only
- * ever allocates exactly what you pass it), it just rejects oversized bodies earlier and shrinks
- * the worst-case allocation a corrupted length field could trigger on read.
+ * kotlinx.serialization's `json()`, both together, or none at all — via httpClientConfig; this
+ * class installs no content-negotiation converter of its own — see [create]'s `maxRecordFieldSize`
+ * for the cap on how large a single queued body can be.
  */
 class GhostSync private constructor(
     val diskQueue: DiskQueue,
@@ -64,6 +59,15 @@ class GhostSync private constructor(
     }
 
     companion object {
+        /**
+         * @param maxRecordFieldSize Caps a single queued meta or body field; `enqueue()` throws
+         * [com.ghostserializer.sync.queue.RecordTooLargeException] past this rather than writing
+         * something it could never read back. Raise it if your uploads are routinely bigger than
+         * the default (64 MiB) — lowering it doesn't reduce memory use for anything already under
+         * the limit (`enqueue()` only ever allocates exactly what you pass it), it just rejects
+         * oversized bodies earlier and shrinks the worst-case allocation a corrupted length field
+         * could trigger on read.
+         */
         fun <T : HttpClientEngineConfig> create(
             engineFactory: HttpClientEngineFactory<T>,
             queuePath: Path,

@@ -24,6 +24,9 @@ class DeadLetterQueue(
         return DeadLetterEntryId(id.sequenceId)
     }
 
+    /** O(1): no record bytes read from disk, unlike [peekAll] — safe to poll from a UI. */
+    suspend fun size(): Int = storage.size()
+
     /** Every dead-lettered request, oldest first. Not a hot path — meant for an inspection UI. */
     suspend fun peekAll(): List<DeadLetterEntry> =
         storage.peekAll().map { entry ->

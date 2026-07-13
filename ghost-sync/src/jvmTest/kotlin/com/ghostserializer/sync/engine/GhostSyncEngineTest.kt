@@ -94,6 +94,47 @@ class GhostSyncEngineTest {
     }
 
     @Test
+    fun `onProgress fires once per entry, in order, as each one actually resolves`() = runBlocking {
+        val idBad = queue.enqueue("POST", "https://example.com/bad", emptyMap(), "bad".encodeToByteArray())
+        val idGood = queue.enqueue("POST", "https://example.com/good", emptyMap(), "good".encodeToByteArray())
+        val client = HttpClient(
+            MockEngine { request ->
+                val status = if (request.url.encodedPath == "/bad") HttpStatusCode.BadRequest else HttpStatusCode.OK
+                respond("", status, headersOf())
+            },
+        )
+
+        val progress = mutableListOf<FlushProgress>()
+        engine.flush(client) { progress.add(it) }
+
+        assertEquals(listOf(FlushProgress.DeadLettered(idBad), FlushProgress.Delivered(idGood)), progress)
+    }
+
+    @Test
+    fun `getEntry and getStatus let a caller drive its own step-by-step loop`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", emptyMap(), "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val entry = engine.getEntry()
+        assertEquals(id, entry?.id)
+
+        // getStatus alone has none of flush()'s side effects — the entry is still on the queue.
+        val status = engine.getStatus(client, entry!!)
+        assertEquals(HttpStatusCode.OK, status)
+        assertEquals(id, queue.peek()?.id)
+
+        // The caller owns applying the outcome; queue.remove(...) here mirrors what flush() would
+        // have done automatically for a 2xx.
+        queue.remove(entry.id)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `getEntry returns null once the queue is drained`() = runBlocking {
+        assertEquals(null, engine.getEntry())
+    }
+
+    @Test
     fun `an empty queue flushes instantly with no work done`() = runBlocking {
         val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
 
