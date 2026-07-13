@@ -17,6 +17,7 @@ okio                             = "3.9.0"
 
 # Coroutines (Mutex de DiskQueue, suspend fun flush())
 kotlinx-coroutines               = "1.8.1"
+kotlinx-serialization            = "1.8.1"
 
 # Scheduling — SOLO para sample/composeApp, nunca para :ghost-sync
 kmpworkmanager                   = "3.0.1"
@@ -57,6 +58,7 @@ ktor-server-content-negotiation  = { group = "io.ktor", name = "ktor-server-cont
 
 kotlinx-coroutines-core           = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test           = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+kotlinx-serialization-json        = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 
 kmpworkmanager                    = { group = "dev.brewkits", name = "kmpworkmanager", version.ref = "kmpworkmanager" }
 kmpworkmanager-annotations        = { group = "dev.brewkits", name = "kmpworker-annotations", version.ref = "kmpworkmanager" }
