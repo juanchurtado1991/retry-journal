@@ -2,8 +2,8 @@
 
 Reglas obligatorias para todo el código Kotlin de este repositorio (librería `:ghost-sync` y módulos `sync-sample/*`). Ver el plan de arquitectura para el razonamiento completo detrás de cada decisión de diseño.
 
-1. **No magic strings.** Ninguna literal de texto repetida o significativa suelta en el código: nombres de cabeceras HTTP, extensiones de archivo, nombres de query params, etc. viven en un objeto de constantes.
-2. **No magic numbers.** Igual que la regla 1 pero para literales numéricas: tamaños de buffer, timeouts, códigos de estado HTTP, umbrales de compactación.
+1. **No magic strings.** Ninguna literal de texto significativa suelta en el código — se repita o no —: nombres de cabeceras HTTP, extensiones de archivo, nombres de query params, mensajes de error/UI, etc. viven en un objeto de constantes.
+2. **No magic numbers.** Igual que la regla 1 pero para literales numéricas: tamaños de buffer, timeouts, códigos de estado HTTP, umbrales de compactación, paddings/espaciados de UI.
 3. **Zero allocation.** Evitar asignaciones de heap innecesarias en steady-state. Reutilizar buffers y pools en vez de crear objetos nuevos en cada llamada, siguiendo el patrón `acquireScratchBuffer` / `releaseScratchBuffer` que ya usa Ghost.
 4. **Comparación bitwise cuando haya beneficio real.** No forzarla donde no aporte nada medible; sí usarla donde sustituya una comparación más cara (flags de estado, máscaras).
 5. **No loops redundantes.** Una sola pasada donde sea posible. Nunca iterar dos veces algo que se puede resolver en una.
@@ -19,3 +19,4 @@ Reglas obligatorias para todo el código Kotlin de este repositorio (librería `
 - `:ghost-sync` **no depende de ningún scheduler** (`kmpworkmanager`, `androidx.work`, etc.). `GhostSyncEngine.flush()` es una `suspend fun` agnóstica que cualquier infraestructura de despacho puede invocar. `kmpworkmanager` solo se usa como integración de referencia en `sync-sample/composeApp`.
 - `sync-sample/*` es un árbol de módulos completamente aparte, sin ninguna configuración de publicación — nunca se shipea con `:ghost-sync`. Es solo para validar la librería con una app real (Fase 6).
 - Un solo módulo Gradle publicado (`:ghost-sync`) en vez de dividir en `core`/`client`/`engine`: nadie consume una parte sin las demás, así que dividir sería overhead de Gradle sin beneficio real.
+- `GhostSync` (paquete raíz) es la fachada plug-and-play: arma `DiskQueue`+`DeadLetterQueue`+`GhostSyncEngine`+cliente en una llamada. No instala ningún `ContentNegotiation` — el *payload* del usuario (Ghost, kotlinx.serialization, lo que sea) se configura aparte vía `httpClientConfig`; solo el registro interno de la cola usa Ghost siempre, a máxima velocidad.
