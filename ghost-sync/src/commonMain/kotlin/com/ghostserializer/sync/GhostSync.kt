@@ -35,7 +35,7 @@ import okio.SYSTEM
  * [io.ktor.http.content.OutgoingContent.WriteChannelContent]/[io.ktor.http.content.OutgoingContent.ReadChannelContent]
  * (a file/image upload, e.g. `MultiPartFormDataContent`) — and the engine replays those same raw
  * bytes. Configure whatever `ContentNegotiation` you want for those — Ghost's `ghost()`,
- * kotlinx.serialization's `json()`, both together, or none at all — via httpClientConfig; this
+ * kotlinx. Serialization's `json()`, both together, or none at all — via httpClientConfig; this
  * class installs no content-negotiation converter of its own — see [create]'s `maxRecordFieldSize`
  * for the cap on how large a single queued body can be.
  */
@@ -56,6 +56,8 @@ class GhostSync private constructor(
     override fun close() {
         client.close()
         replayClient.close()
+        diskQueue.close()
+        deadLetterQueue.close()
     }
 
     companion object {

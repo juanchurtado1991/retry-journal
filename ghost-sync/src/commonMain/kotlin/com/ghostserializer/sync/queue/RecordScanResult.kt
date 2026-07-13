@@ -6,10 +6,18 @@ package com.ghostserializer.sync.queue
  * meta/body content itself — so [RecordCodec.scanRecord] never materializes them, unlike
  * [RecordReadResult] (returned by [RecordCodec.readRecord], which [DiskQueue.peek]/`get`/
  * compaction use and does need the content for).
+ *
+ * Refactored to a single mutable carrier to achieve zero heap allocation during recovery scans.
  */
-internal sealed class RecordScanResult {
-    data class Live(val sequenceId: Long, val recordLength: Int) : RecordScanResult()
-    data class Tombstone(val targetSequenceId: Long, val recordLength: Int) : RecordScanResult()
-    object Invalid : RecordScanResult()
-    object EndOfFile : RecordScanResult()
+internal class RecordScanResult {
+    var type: Int = TYPE_EOF
+    var sequenceId: Long = 0L
+    var recordLength: Int = 0
+
+    companion object {
+        const val TYPE_LIVE: Int = 1
+        const val TYPE_TOMBSTONE: Int = 2
+        const val TYPE_INVALID: Int = 3
+        const val TYPE_EOF: Int = 4
+    }
 }

@@ -56,20 +56,25 @@ internal object Crc32 {
     private const val POLYNOMIAL: Int = -0x12477ce0 // 0xEDB88320, reflected IEEE 802.3 polynomial
     private const val BYTE_VALUE_COUNT: Int = 256
     private const val BITS_PER_BYTE: Int = 8
-    private const val LONG_HIGH_BYTE_SHIFT: Int = 56
     private const val BYTE_MASK: Int = 0xFF
-    private const val LONG_BYTE_MASK: Long = 0xFFL
+
+    private const val SHIFT_32_BITS: Int = 32
+    private const val SHIFT_24_BITS: Int = 24
+    private const val SHIFT_16_BITS: Int = 16
+    private const val SHIFT_8_BITS: Int = 8
 
     private val TABLE: IntArray =
         IntArray(size = BYTE_VALUE_COUNT).also { table ->
             for (byteValue in 0 until BYTE_VALUE_COUNT) {
                 var accumulator = byteValue
-                repeat(times = BITS_PER_BYTE) {
+                var bit = 0
+                while (bit < BITS_PER_BYTE) {
                     accumulator = if (accumulator and 1 != 0) {
                         (accumulator ushr 1) xor POLYNOMIAL
                     } else {
                         accumulator ushr 1
                     }
+                    bit++
                 }
                 table[byteValue] = accumulator
             }
@@ -81,29 +86,41 @@ internal object Crc32 {
         length: Int = bytes.size
     ): Int {
         var accumulator = crc
+        var byteIndex = offset
         val end = offset + length
-        for (byteIndex in offset until end) {
+        while (byteIndex < end) {
             accumulator = updateByte(
                 crc = accumulator,
-                byteValue = bytes[byteIndex]
-                    .toInt() and BYTE_MASK
+                byteValue = bytes[byteIndex].toInt() and BYTE_MASK
             )
+            byteIndex++
         }
         return accumulator
     }
 
     fun updateLong(crc: Int, value: Long): Int {
         var accumulator = crc
-        for (shift in LONG_HIGH_BYTE_SHIFT downTo 0 step BITS_PER_BYTE) {
-            val byteValue = ((value ushr shift) and LONG_BYTE_MASK).toInt()
-            accumulator = updateByte(crc = accumulator, byteValue)
-        }
+        val upper = (value ushr SHIFT_32_BITS).toInt()
+        val lower = value.toInt()
+
+        accumulator = updateByte(accumulator, (upper ushr SHIFT_24_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, (upper ushr SHIFT_16_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, (upper ushr SHIFT_8_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, upper and BYTE_MASK)
+
+        accumulator = updateByte(accumulator, (lower ushr SHIFT_24_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, (lower ushr SHIFT_16_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, (lower ushr SHIFT_8_BITS) and BYTE_MASK)
+        accumulator = updateByte(accumulator, lower and BYTE_MASK)
+
         return accumulator
     }
 
-    fun finalize(crc: Int): Int = crc.inv()
+    @Suppress("NOTHING_TO_INLINE")
+    inline fun finalize(crc: Int): Int = crc.inv()
 
-    private fun updateByte(crc: Int, byteValue: Int): Int {
+    @Suppress("NOTHING_TO_INLINE")
+    private inline fun updateByte(crc: Int, byteValue: Int): Int {
         val tableIndex = (crc xor byteValue) and BYTE_MASK
         return (crc ushr BITS_PER_BYTE) xor TABLE[tableIndex]
     }
