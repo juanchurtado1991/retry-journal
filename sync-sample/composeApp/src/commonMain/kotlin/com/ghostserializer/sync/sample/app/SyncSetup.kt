@@ -5,6 +5,8 @@ import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.engine.GhostSyncEngine
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.sample.shared.SampleApiConstants
+import de.jensklingenberg.ktorfit.Ktorfit
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import okio.Path.Companion.toPath
@@ -46,6 +48,25 @@ internal object SyncSetup {
             install(ContentNegotiation) { ghost() }
         }
     }
+
+    /**
+     * Proves [GhostOfflineQueuePlugin] works transparently under Ktorfit-generated calls, not
+     * just hand-written `HttpClient` requests: Ktorfit is built on [liveClient] here, so every
+     * `_MutationApiImpl`-generated call still goes through the same `HttpSend` interceptor chain
+     * — see [MutationApi].
+     */
+    private val ktorfit: Ktorfit by lazy {
+        Ktorfit.Builder()
+            .httpClient(liveClient)
+            .baseUrl(
+                AppStrings.SERVER_URL_SCHEME + AppConstants.SERVER_HOST +
+                    AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT +
+                    AppStrings.SERVER_URL_TRAILING_SLASH,
+            )
+            .build()
+    }
+
+    val mutationApi: MutationApi by lazy { ktorfit.createMutationApi() }
 
     private fun queuePath(fileName: String) = (platformDataDirectory() + "/" + fileName).toPath()
 }

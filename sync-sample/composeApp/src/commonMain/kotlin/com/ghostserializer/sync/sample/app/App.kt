@@ -35,6 +35,10 @@ import kotlinx.coroutines.launch
  * pressing "Enqueue offline" — every POST will fail with a real connection error, which is
  * exactly what `GhostOfflineQueuePlugin` is meant to catch. Start the server
  * (`./gradlew :sync-sample:server:run`) before pressing "Flush now".
+ *
+ * The "Ktorfit" button proves the same offline-queueing works transparently under a
+ * Ktorfit-generated call, not just hand-written `HttpClient.post()` calls like [enqueueMutations]
+ * below — see [SyncSetup.mutationApi] and [MutationApi].
  */
 @Composable
 fun App() {
@@ -52,6 +56,7 @@ private fun StressTestScreen() {
     var deadLetterSize by remember { mutableStateOf(0) }
     var isBusy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf(AppStrings.STATUS_READY) }
+    var ktorfitCallCount by remember { mutableStateOf(0) }
 
     suspend fun refreshCounts() {
         queueSize = SyncSetup.diskQueue.size()
@@ -114,6 +119,30 @@ private fun StressTestScreen() {
                 }
             },
         ) { Text(AppStrings.FLUSH_BUTTON) }
+
+        Button(
+            enabled = !isBusy,
+            onClick = {
+                scope.launch {
+                    isBusy = true
+                    ktorfitCallCount++
+                    runCatching {
+                        SyncSetup.mutationApi.createMutation(
+                            MutationRequest(
+                                id = AppStrings.KTORFIT_DEMO_ID_PREFIX + ktorfitCallCount,
+                                payload = AppStrings.KTORFIT_DEMO_PAYLOAD,
+                                createdAtMillis = ktorfitCallCount.toLong(),
+                            ),
+                        )
+                    }
+                    // Same story as enqueueMutations(): a thrown OfflineQueuedException means
+                    // GhostOfflineQueuePlugin already queued it, even though this call went
+                    // through Ktorfit's generated _MutationApiImpl, not a raw HttpClient.post().
+                    refreshCounts()
+                    isBusy = false
+                }
+            },
+        ) { Text(AppStrings.KTORFIT_DEMO_BUTTON) }
     }
 }
 

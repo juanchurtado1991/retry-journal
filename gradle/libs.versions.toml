@@ -22,6 +22,11 @@ kotlinx-serialization            = "1.8.1"
 # Scheduling — SOLO para sample/composeApp, nunca para :ghost-sync
 kmpworkmanager                   = "3.0.1"
 
+# Ktorfit — SOLO para sync-sample/composeApp (demo). 2.1.0 es la última versión que
+# apunta a Ktor 2.3.x por default; versiones más nuevas fijan Ktor 3.x, incompatible
+# con ghost-ktor (Ktor 2.3.11).
+ktorfit                          = "2.1.0"
+
 # Sample App UI
 androidx-activity                = "1.10.0"
 androidx-lifecycle               = "2.8.2"
@@ -63,6 +68,11 @@ kotlinx-serialization-json        = { group = "org.jetbrains.kotlinx", name = "k
 kmpworkmanager                    = { group = "dev.brewkits", name = "kmpworkmanager", version.ref = "kmpworkmanager" }
 kmpworkmanager-annotations        = { group = "dev.brewkits", name = "kmpworker-annotations", version.ref = "kmpworkmanager" }
 kmpworkmanager-ksp                = { group = "dev.brewkits", name = "kmpworker-ksp", version.ref = "kmpworkmanager" }
+
+ktorfit-lib-light                 = { group = "de.jensklingenberg.ktorfit", name = "ktorfit-lib-light", version.ref = "ktorfit" }
+# Pinned to the exact published KSP-processor variant closest to this project's KSP (1.0.31) —
+# Ktorfit 2.1.0's ktorfit-ksp was only published against KSP 1.0.24-1.0.27, not 1.0.31.
+ktorfit-ksp                       = { group = "de.jensklingenberg.ktorfit", name = "ktorfit-ksp", version = "2.1.0-1.0.27" }
 
 androidx-activity-compose         = { group = "androidx.activity", name = "activity-compose", version.ref = "androidx-activity" }
 androidx-lifecycle-viewmodel      = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "androidx-lifecycle" }

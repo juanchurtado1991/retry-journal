@@ -16,6 +16,9 @@ internal object AppStrings {
 
     const val FLUSHING: String = "Flushing..."
     const val FLUSH_BUTTON: String = "Flush now"
+    const val KTORFIT_DEMO_BUTTON: String = "Ktorfit: enqueue 1"
+    const val KTORFIT_DEMO_ID_PREFIX: String = "ktorfit-mutation-"
+    const val KTORFIT_DEMO_PAYLOAD: String = "via Ktorfit"
     const val FLUSHED_RESULT_PREFIX: String = "Flushed — delivered="
     const val FLUSHED_RESULT_DEAD_LETTERED: String = " deadLettered="
     const val FLUSHED_RESULT_STOPPED_EARLY: String = " stoppedEarly="
@@ -25,6 +28,7 @@ internal object AppStrings {
 
     const val SERVER_URL_SCHEME: String = "http://"
     const val SERVER_URL_PORT_SEPARATOR: String = ":"
+    const val SERVER_URL_TRAILING_SLASH: String = "/"
 
     const val ANDROID_APP_CONTEXT_NOT_INSTALLED: String =
         "AndroidAppContext.install() must run in Application.onCreate() first."

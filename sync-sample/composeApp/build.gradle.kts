@@ -26,6 +26,12 @@ kotlin {
     applyDefaultHierarchyTemplate()
 
     sourceSets {
+        commonMain {
+            // Ktorfit's KSP processor generates the MutationApi implementation once for the
+            // common metadata compilation (kspCommonMainMetadata below) — per-target ksp<Target>
+            // configurations alone only see that target's own sources, never commonMain's.
+            kotlin.srcDir("build/generated/ksp/metadata/commonMain/kotlin")
+        }
         commonMain.dependencies {
             implementation(project(":ghost-sync"))
             implementation(project(":sync-sample:shared"))
@@ -36,6 +42,7 @@ kotlin {
             implementation(libs.kmpworkmanager)
             implementation(libs.kmpworkmanager.annotations)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktorfit.lib.light)
 
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -59,6 +66,19 @@ dependencies {
     add("kspAndroid", libs.kmpworkmanager.ksp)
     add("kspIosArm64", libs.kmpworkmanager.ksp)
     add("kspIosSimulatorArm64", libs.kmpworkmanager.ksp)
+
+    add("kspCommonMainMetadata", libs.ktorfit.ksp)
+    add("kspAndroid", libs.ktorfit.ksp)
+    add("kspIosArm64", libs.ktorfit.ksp)
+    add("kspIosSimulatorArm64", libs.ktorfit.ksp)
+}
+
+// KSP metadata processing must run before anything compiles against its output.
+tasks.configureEach {
+    val isSourcesJar = name.contains("sourcesJar", ignoreCase = true)
+    if ((name.startsWith("compile") || name.startsWith("ksp") || isSourcesJar) && name != "kspCommonMainKotlinMetadata") {
+        dependsOn(tasks.matching { it.name == "kspCommonMainKotlinMetadata" })
+    }
 }
 
 android {
