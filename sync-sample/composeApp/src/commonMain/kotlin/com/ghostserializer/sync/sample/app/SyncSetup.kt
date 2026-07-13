@@ -51,7 +51,7 @@ internal object SyncSetup {
 
     /**
      * Proves [GhostOfflineQueuePlugin] works transparently under Ktorfit-generated calls, not
-     * just hand-written `HttpClient` requests: Ktorfit is built on [liveClient] here, so every
+     * just handwritten `HttpClient` requests: Ktorfit is built on [liveClient] here, so every
      * `_MutationApiImpl`-generated call still goes through the same `HttpSend` interceptor chain
      * — see [MutationApi].
      */
