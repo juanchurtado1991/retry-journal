@@ -1,5 +1,10 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.queue.Crc32.TABLE
+import com.ghostserializer.sync.queue.Crc32.finalize
+import com.ghostserializer.sync.queue.Crc32.update
+
+
 /**
  * A CRC-32 is a **checksum**: you feed it a sequence of bytes and it hands back a single 32-bit
  * number that summarizes them. Feed it the exact same bytes again and you get the exact same
@@ -34,9 +39,15 @@ package com.ghostserializer.sync.queue
  * True hardware-accelerated CRC32 (the x86 `CRC32` / ARMv8 `CRC32` instructions) is off the table
  * entirely: it computes CRC32**C** (the Castagnoli polynomial), not IEEE 802.3, and reaching it
  * from Kotlin needs per-platform native code — which is exactly the dependency this class exists
- * to avoid. Slice-by-1 is the practical ceiling for a pure-Kotlin, multiplatform, small-record
- * checksum; if `:ghost-sync` ever needs to checksum large payloads (bulk file bodies, not typical
- * JSON mutations), slice-by-8 would be the next lever to pull, not before.
+ * to avoid. Slice-by-1 is the practical ceiling for a pure-Kotlin, multiplatform checksum sized
+ * for small records.
+ *
+ * That "small records" assumption is no longer purely hypothetical: [GhostOfflineQueuePlugin][com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
+ * captures file/image upload bodies too (up to [DiskQueueConstants.MAX_RECORD_FIELD_SIZE], 64 MiB),
+ * and those get hashed here same as any other body — twice per record (write, then verify-on-read)
+ * and a third time for any that survive a compaction. Slice-by-8/16 is the next lever to pull if
+ * that turns out to matter in practice; not changed here since an incorrect wider-slice
+ * implementation would silently produce wrong checksums, which is worse than a slower correct one.
  */
 internal object Crc32 {
 
@@ -49,27 +60,33 @@ internal object Crc32 {
     private const val BYTE_MASK: Int = 0xFF
     private const val LONG_BYTE_MASK: Long = 0xFFL
 
-    private val TABLE: IntArray = IntArray(BYTE_VALUE_COUNT).also { table ->
-        for (byteValue in 0 until BYTE_VALUE_COUNT) {
-            var accumulator = byteValue
-            repeat(BITS_PER_BYTE) {
-                accumulator = if (accumulator and 1 != 0) {
-                    (accumulator ushr 1) xor POLYNOMIAL
-                } else {
-                    accumulator ushr 1
+    private val TABLE: IntArray =
+        IntArray(size = BYTE_VALUE_COUNT).also { table ->
+            for (byteValue in 0 until BYTE_VALUE_COUNT) {
+                var accumulator = byteValue
+                repeat(times = BITS_PER_BYTE) {
+                    accumulator = if (accumulator and 1 != 0) {
+                        (accumulator ushr 1) xor POLYNOMIAL
+                    } else {
+                        accumulator ushr 1
+                    }
                 }
+                table[byteValue] = accumulator
             }
-            table[byteValue] = accumulator
         }
-    }
 
-    fun update(crc: Int, bytes: ByteArray, offset: Int = 0, length: Int = bytes.size): Int {
+    fun update(
+        crc: Int, bytes: ByteArray,
+        offset: Int = 0,
+        length: Int = bytes.size
+    ): Int {
         var accumulator = crc
         val end = offset + length
         for (byteIndex in offset until end) {
             accumulator = updateByte(
-                accumulator,
-                bytes[byteIndex].toInt() and BYTE_MASK
+                crc = accumulator,
+                byteValue = bytes[byteIndex]
+                    .toInt() and BYTE_MASK
             )
         }
         return accumulator
@@ -79,7 +96,7 @@ internal object Crc32 {
         var accumulator = crc
         for (shift in LONG_HIGH_BYTE_SHIFT downTo 0 step BITS_PER_BYTE) {
             val byteValue = ((value ushr shift) and LONG_BYTE_MASK).toInt()
-            accumulator = updateByte(accumulator, byteValue)
+            accumulator = updateByte(crc = accumulator, byteValue)
         }
         return accumulator
     }

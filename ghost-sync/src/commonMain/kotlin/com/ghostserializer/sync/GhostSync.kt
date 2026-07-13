@@ -2,9 +2,11 @@ package com.ghostserializer.sync
 
 import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
+import com.ghostserializer.sync.engine.FlushProgress
 import com.ghostserializer.sync.engine.FlushResult
 import com.ghostserializer.sync.engine.GhostSyncEngine
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.DiskQueueConstants
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngineConfig
@@ -28,11 +30,19 @@ import okio.SYSTEM
  *
  * *Your* request/response payloads are a separate, unrelated concern: nothing here, in
  * [GhostOfflineQueuePlugin], or in [GhostSyncEngine] cares what produced a request body — the
- * plugin captures whatever [io.ktor.http.content.OutgoingContent.ByteArrayContent] bytes already
- * exist at send time and the engine replays those same raw bytes. Configure whatever
- * `ContentNegotiation` you want for those — Ghost's `ghost()`, kotlinx.serialization's `json()`,
- * both together, or none at all — via httpClientConfig; this class installs no
- * content-negotiation converter of its own.
+ * plugin captures whatever bytes exist at send time, whether that's an in-memory
+ * [io.ktor.http.content.OutgoingContent.ByteArrayContent] (a serialized DTO) or a streamed
+ * [io.ktor.http.content.OutgoingContent.WriteChannelContent]/[io.ktor.http.content.OutgoingContent.ReadChannelContent]
+ * (a file/image upload, e.g. `MultiPartFormDataContent`) — and the engine replays those same raw
+ * bytes. Configure whatever `ContentNegotiation` you want for those — Ghost's `ghost()`,
+ * kotlinx. Serialization's `json()`, both together, or none at all — via httpClientConfig; this
+ * class installs no content-negotiation converter of its own. A single queued body is capped at
+ * [maxRecordFieldSize] (default [DiskQueueConstants.MAX_RECORD_FIELD_SIZE], 64 MiB); `enqueue()`
+ * throws [com.ghostserializer.sync.queue.RecordTooLargeException] past that rather than writing
+ * something it could never read back. Raise it if your uploads are routinely bigger than that —
+ * lowering it doesn't reduce memory use for anything already under the limit (`enqueue()` only
+ * ever allocates exactly what you pass it), it just rejects oversized bodies earlier and shrinks
+ * the worst-case allocation a corrupted length field could trigger on read.
  */
 class GhostSync private constructor(
     val diskQueue: DiskQueue,
@@ -43,8 +53,10 @@ class GhostSync private constructor(
 ) : Closeable {
 
     /** Delegates to [GhostSyncEngine.flush] using a private client that never risks the
-     * duplicate-enqueue footgun documented there — you never have to think about it. */
-    suspend fun flush(): FlushResult = engine.flush(replayClient)
+     * duplicate-enqueue footgun documented there — you never have to think about it. [onProgress]
+     * is the same per-entry callback [GhostSyncEngine.flush] takes, for a caller that wants to
+     * show the queue draining in real time. */
+    suspend fun flush(onProgress: suspend (FlushProgress) -> Unit = {}): FlushResult = engine.flush(replayClient, onProgress)
 
     override fun close() {
         client.close()
@@ -57,12 +69,13 @@ class GhostSync private constructor(
             queuePath: Path,
             deadLetterPath: Path = defaultDeadLetterPath(queuePath),
             fileSystem: FileSystem = FileSystem.SYSTEM,
+            maxRecordFieldSize: Int = DiskQueueConstants.MAX_RECORD_FIELD_SIZE,
             httpClientConfig: HttpClientConfig<T>.() -> Unit = {},
         ): GhostSync {
-            val queue = DiskQueue(queuePath, fileSystem)
+            val queue = DiskQueue(queuePath, fileSystem, maxRecordFieldSize)
             val deadLetters = DeadLetterQueue(
                 mainQueue = queue,
-                storage = DiskQueue(deadLetterPath, fileSystem)
+                storage = DiskQueue(deadLetterPath, fileSystem, maxRecordFieldSize)
             )
 
             val engine = GhostSyncEngine(queue, deadLetters)

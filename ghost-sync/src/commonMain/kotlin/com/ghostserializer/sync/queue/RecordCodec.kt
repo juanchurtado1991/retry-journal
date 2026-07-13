@@ -47,8 +47,10 @@ internal object RecordCodec {
         return DiskQueueConstants.TOMBSTONE_RECORD_SIZE
     }
 
-    /** Reads one record starting at the source's current position. Never throws on truncation. */
-    fun readRecord(source: BufferedSource): RecordReadResult {
+    /** Reads one record starting at the source's current position. Never throws on truncation.
+     * [maxRecordFieldSize] must be the same value the record was written under — see
+     * [DiskQueue]'s own constructor parameter of the same name. */
+    fun readRecord(source: BufferedSource, maxRecordFieldSize: Int): RecordReadResult {
         if (source.exhausted()) {
             return RecordReadResult.EndOfFile
         }
@@ -58,7 +60,7 @@ internal object RecordCodec {
             val expectedCrc = source.readInt()
 
             when (kind) {
-                RecordKind.Live -> readLivePayload(source, expectedCrc)
+                RecordKind.Live -> readLivePayload(source, expectedCrc, maxRecordFieldSize)
                 RecordKind.Tombstone -> readTombstonePayload(source, expectedCrc)
                 null -> RecordReadResult.Invalid
             }
@@ -67,17 +69,17 @@ internal object RecordCodec {
         }
     }
 
-    private fun readLivePayload(source: BufferedSource, expectedCrc: Int): RecordReadResult {
+    private fun readLivePayload(source: BufferedSource, expectedCrc: Int, maxRecordFieldSize: Int): RecordReadResult {
         val sequenceId = source.readLong()
 
         val metaLen = source.readInt()
-        if (metaLen < 0 || metaLen > DiskQueueConstants.MAX_RECORD_FIELD_SIZE) {
+        if (metaLen < 0 || metaLen > maxRecordFieldSize) {
             return RecordReadResult.Invalid
         }
         val metaBytes = source.readByteArray(metaLen.toLong())
 
         val bodyLen = source.readInt()
-        if (bodyLen < 0 || bodyLen > DiskQueueConstants.MAX_RECORD_FIELD_SIZE) {
+        if (bodyLen < 0 || bodyLen > maxRecordFieldSize) {
             return RecordReadResult.Invalid
         }
         val body = source.readByteArray(bodyLen.toLong())
@@ -105,5 +107,78 @@ internal object RecordCodec {
             return RecordReadResult.Invalid
         }
         return RecordReadResult.Tombstone(targetSequenceId, DiskQueueConstants.TOMBSTONE_RECORD_SIZE)
+    }
+
+    /** Same framing and the same full CRC verification as [readRecord], but for [DiskQueue]'s
+     * crash-recovery scan: it only ever needs [RecordScanResult]'s sequence id and record length
+     * to rebuild the offset index, so meta/body bytes are hashed in bounded chunks
+     * ([DiskQueueConstants.SCAN_CHUNK_SIZE]) instead of read into one allocation the size of the
+     * field — a queue full of large file/image bodies shouldn't need gigabytes of heap just to
+     * open. [maxRecordFieldSize] must be the same value the record was written under. */
+    fun scanRecord(source: BufferedSource, maxRecordFieldSize: Int): RecordScanResult {
+        if (source.exhausted()) {
+            return RecordScanResult.EndOfFile
+        }
+
+        return try {
+            val kind = RecordKind.fromByte(source.readByte())
+            val expectedCrc = source.readInt()
+
+            when (kind) {
+                RecordKind.Live -> scanLivePayload(source, expectedCrc, maxRecordFieldSize)
+                RecordKind.Tombstone -> scanTombstonePayload(source, expectedCrc)
+                null -> RecordScanResult.Invalid
+            }
+        } catch (e: EOFException) {
+            RecordScanResult.Invalid
+        }
+    }
+
+    private fun scanLivePayload(source: BufferedSource, expectedCrc: Int, maxRecordFieldSize: Int): RecordScanResult {
+        val sequenceId = source.readLong()
+
+        val metaLen = source.readInt()
+        if (metaLen < 0 || metaLen > maxRecordFieldSize) {
+            return RecordScanResult.Invalid
+        }
+        var crc = Crc32.updateLong(Crc32.INITIAL_VALUE, sequenceId)
+        crc = hashChunked(source, metaLen, crc)
+
+        val bodyLen = source.readInt()
+        if (bodyLen < 0 || bodyLen > maxRecordFieldSize) {
+            return RecordScanResult.Invalid
+        }
+        crc = hashChunked(source, bodyLen, crc)
+
+        if (Crc32.finalize(crc) != expectedCrc) {
+            return RecordScanResult.Invalid
+        }
+
+        val recordLength = DiskQueueConstants.RECORD_HEADER_SIZE +
+            DiskQueueConstants.SEQUENCE_FIELD_SIZE +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + metaLen +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + bodyLen
+
+        return RecordScanResult.Live(sequenceId, recordLength)
+    }
+
+    private fun scanTombstonePayload(source: BufferedSource, expectedCrc: Int): RecordScanResult {
+        val targetSequenceId = source.readLong()
+        val crc = Crc32.finalize(Crc32.updateLong(Crc32.INITIAL_VALUE, targetSequenceId))
+        if (crc != expectedCrc) {
+            return RecordScanResult.Invalid
+        }
+        return RecordScanResult.Tombstone(targetSequenceId, DiskQueueConstants.TOMBSTONE_RECORD_SIZE)
+    }
+
+    private fun hashChunked(source: BufferedSource, byteCount: Int, initialCrc: Int): Int {
+        var crc = initialCrc
+        var remaining = byteCount.toLong()
+        while (remaining > 0) {
+            val chunkSize = minOf(remaining, DiskQueueConstants.SCAN_CHUNK_SIZE.toLong())
+            crc = Crc32.update(crc, source.readByteArray(chunkSize))
+            remaining -= chunkSize
+        }
+        return crc
     }
 }
