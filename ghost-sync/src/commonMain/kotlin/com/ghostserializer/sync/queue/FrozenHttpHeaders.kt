@@ -7,7 +7,8 @@ import com.ghost.serialization.annotations.GhostSerialization
  * indexed together — no [Map] nodes, no hash buckets. Ghost serializes [List] of [String]; the
  * capture path fills reusable scratch arrays and only materializes these lists once per enqueue.
  *
- * Replay uses [HeaderDispatch] in the engine (compare chain, not map lookup) over the two lists.
+ * Replay uses [HeaderDispatch][com.ghostserializer.sync.engine.HeaderDispatch] in the engine
+ * (compare chain, not map lookup) over the two lists.
  */
 @GhostSerialization
 data class FrozenHttpHeaders(
@@ -18,7 +19,7 @@ data class FrozenHttpHeaders(
         get() = names.size
 
     init {
-        require(names.size == values.size) { "FrozenHttpHeaders names/values size mismatch" }
+        require(names.size == values.size) { SIZE_MISMATCH_MESSAGE }
     }
 
     inline fun forEach(action: (name: String, value: String) -> Unit) {
@@ -37,6 +38,8 @@ data class FrozenHttpHeaders(
     }
 
     companion object {
+        private const val SIZE_MISMATCH_MESSAGE: String = "FrozenHttpHeaders names/values size mismatch"
+
         val EMPTY: FrozenHttpHeaders = FrozenHttpHeaders(emptyList(), emptyList())
 
         fun of(vararg pairs: Pair<String, String>): FrozenHttpHeaders {
