@@ -20,7 +20,12 @@ import io.ktor.utils.io.errors.IOException
  *
  * The captured body is whatever 'request' already carries as [OutgoingContent.ByteArrayContent]
  * at this point in the pipeline — already serialized by `GhostContentConverter` upstream, so it
- * is never re-encoded to reach the queue.
+ * is never re-encoded to reach the queue. [enqueueLocked] avoids every allocation it reasonably
+ * can on this path: [HeadersBuilder][io.ktor.http.HeadersBuilder] already exposes `entries()`
+ * directly (it's backed by the same live map `build()` would otherwise copy into a new [Headers][io.ktor.http.Headers]
+ * instance just to read back out), the header map is pre-sized instead of grown by rehashing, and
+ * the URL is rendered to a string exactly once and reused for both the queued record and the
+ * thrown exception.
  */
 class GhostOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
@@ -30,29 +35,38 @@ class GhostOfflineQueuePlugin private constructor(
             try {
                 execute(request)
             } catch (_: IOException) {
-                enqueueLocked(request)
-                throw OfflineQueuedException(request.url.buildString())
+                val url = request.url.buildString()
+                enqueueLocked(request, url)
+                throw OfflineQueuedException(url)
             }
         }
     }
 
-    private suspend fun enqueueLocked(request: HttpRequestBuilder) {
-        val body = (request.body as? OutgoingContent.ByteArrayContent)?.bytes() ?: ByteArray(0)
-        val headers = request.headers.build().entries()
-            .associate { (name, values) -> name to values.firstOrNull().orEmpty() }
+    private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) {
+        val body = (request.body as? OutgoingContent.ByteArrayContent)?.bytes()
+            ?: ClientConstants.EMPTY_BODY
+
+        val builderEntries = request.headers.entries()
+        val headers = LinkedHashMap<String, String>(builderEntries.size)
+        for (entry in builderEntries) {
+            headers[entry.key] = entry.value.firstOrNull().orEmpty()
+        }
 
         diskQueue.enqueue(
             method = request.method.value,
-            url = request.url.buildString(),
+            url = url,
             headers = headers,
             body = body,
         )
     }
 
     companion object Plugin : HttpClientPlugin<GhostOfflineQueueConfig, GhostOfflineQueuePlugin> {
-        override val key: AttributeKey<GhostOfflineQueuePlugin> = AttributeKey(ClientConstants.PLUGIN_ATTRIBUTE_KEY_NAME)
+        override val key: AttributeKey<GhostOfflineQueuePlugin> =
+            AttributeKey(ClientConstants.PLUGIN_ATTRIBUTE_KEY_NAME)
 
-        override fun prepare(block: GhostOfflineQueueConfig.() -> Unit): GhostOfflineQueuePlugin {
+        override fun prepare(
+            block: GhostOfflineQueueConfig.() -> Unit
+        ): GhostOfflineQueuePlugin {
             val config = GhostOfflineQueueConfig().apply(block)
             return GhostOfflineQueuePlugin(config.diskQueue)
         }

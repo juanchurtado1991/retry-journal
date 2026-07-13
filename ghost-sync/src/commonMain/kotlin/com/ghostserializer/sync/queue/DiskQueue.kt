@@ -52,14 +52,20 @@ class DiskQueue(
             enqueuedAtMillis = currentTimeMillis(),
             attempt = 0,
         )
+
         val metaBytes = Ghost.encodeToBytes(meta)
         val offset = fileLength
 
-        fileSystem.appendingSink(path, mustExist = false).buffer().use { sink ->
-            val written = RecordCodec.writeLive(sink, sequenceId, metaBytes, body)
-            fileLength += written
-            recordLengthsByOffset[offset] = written
-        }
+        fileSystem
+            .appendingSink(path, mustExist = false)
+            .buffer()
+            .use { sink ->
+                val written = RecordCodec
+                    .writeLive(sink, sequenceId, metaBytes, body)
+
+                fileLength += written
+                recordLengthsByOffset[offset] = written
+            }
         liveOffsetsBySequence[sequenceId] = offset
         nextSequenceId++
 
@@ -69,14 +75,20 @@ class DiskQueue(
     /** The oldest live entry, or `null` if the queue is empty. Does not consume it. */
     suspend fun peek(): QueueEntry? = mutex.withLock {
         ensureOpenLocked()
-        val (sequenceId, offset) = liveOffsetsBySequence.entries.firstOrNull() ?: return@withLock null
+        val (sequenceId, offset) = liveOffsetsBySequence.entries.firstOrNull()
+            ?: return@withLock null
         readLiveEntryAtLocked(sequenceId, offset)
     }
 
     /** Every live entry, oldest first. Used for inspection UIs (e.g. a dead-letter list) — not a hot path. */
     suspend fun peekAll(): List<QueueEntry> = mutex.withLock {
         ensureOpenLocked()
-        liveOffsetsBySequence.entries.mapNotNull { (sequenceId, offset) -> readLiveEntryAtLocked(sequenceId, offset) }
+        liveOffsetsBySequence.entries.mapNotNull { (sequenceId, offset) ->
+            readLiveEntryAtLocked(
+                sequenceId,
+                offset
+            )
+        }
     }
 
     /** A specific entry by id, or `null` if it was never enqueued or has already been removed. */
@@ -121,7 +133,12 @@ class DiskQueue(
         return handle.use {
             val source = it.source(offset).buffer()
             when (val result = RecordCodec.readRecord(source)) {
-                is RecordReadResult.Live -> QueueEntry(QueueEntryId(sequenceId), result.meta, result.body)
+                is RecordReadResult.Live -> QueueEntry(
+                    QueueEntryId(sequenceId),
+                    result.meta,
+                    result.body
+                )
+
                 else -> null
             }
         }
@@ -206,8 +223,10 @@ class DiskQueue(
             fileSystem.sink(tempPath).buffer().use { sink ->
                 for ((sequenceId, offset) in liveOffsetsBySequence) {
                     val source = readHandle.source(offset).buffer()
-                    val result = RecordCodec.readRecord(source) as? RecordReadResult.Live ?: continue
-                    val written = RecordCodec.writeLive(sink, sequenceId, result.metaBytes, result.body)
+                    val result =
+                        RecordCodec.readRecord(source) as? RecordReadResult.Live ?: continue
+                    val written =
+                        RecordCodec.writeLive(sink, sequenceId, result.metaBytes, result.body)
                     newOffsetsBySequence[sequenceId] = newOffset
                     newLengthsByOffset[newOffset] = written
                     newOffset += written

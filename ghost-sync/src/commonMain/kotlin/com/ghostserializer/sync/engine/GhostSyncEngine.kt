@@ -36,13 +36,14 @@ class GhostSyncEngine(
         var deadLettered = 0
 
         while (true) {
-            val entry = queue.peek() ?: return FlushResult(delivered, deadLettered, stoppedEarly = false)
+            val entry = queue.peek()
+                ?: return FlushResult(delivered, deadLettered, stoppedEarly = false)
 
             val status = try {
                 send(client, entry)
-            } catch (cause: IOException) {
+            } catch (_: IOException) {
                 return FlushResult(delivered, deadLettered, stoppedEarly = true)
-            } catch (cause: OfflineQueuedException) {
+            } catch (_: OfflineQueuedException) {
                 return FlushResult(delivered, deadLettered, stoppedEarly = true)
             }
 
@@ -53,7 +54,12 @@ class GhostSyncEngine(
                 }
 
                 isClientError(status) -> {
-                    deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+                    deadLetterQueue.record(
+                        entry.meta.method,
+                        entry.meta.url,
+                        entry.meta.headers,
+                        entry.body
+                    )
                     queue.remove(entry.id)
                     deadLettered++
                 }
@@ -87,7 +93,7 @@ class GhostSyncEngine(
 
     private fun isBodyDerivedHeader(name: String): Boolean {
         return name.equals(HttpHeaders.ContentType, ignoreCase = true) ||
-            name.equals(HttpHeaders.ContentLength, ignoreCase = true)
+                name.equals(HttpHeaders.ContentLength, ignoreCase = true)
     }
 
     private fun isClientError(status: HttpStatusCode): Boolean {

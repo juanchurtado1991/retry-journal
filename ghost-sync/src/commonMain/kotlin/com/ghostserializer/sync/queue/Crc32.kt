@@ -21,41 +21,41 @@ internal object Crc32 {
     private const val LONG_BYTE_MASK: Long = 0xFFL
 
     private val TABLE: IntArray = IntArray(BYTE_VALUE_COUNT).also { table ->
-        for (n in 0 until BYTE_VALUE_COUNT) {
-            var c = n
+        for (byteValue in 0 until BYTE_VALUE_COUNT) {
+            var accumulator = byteValue
             repeat(BITS_PER_BYTE) {
-                c = if (c and 1 != 0) {
-                    (c ushr 1) xor POLYNOMIAL
+                accumulator = if (accumulator and 1 != 0) {
+                    (accumulator ushr 1) xor POLYNOMIAL
                 } else {
-                    c ushr 1
+                    accumulator ushr 1
                 }
             }
-            table[n] = c
+            table[byteValue] = accumulator
         }
     }
 
     fun update(crc: Int, bytes: ByteArray, offset: Int = 0, length: Int = bytes.size): Int {
-        var c = crc
+        var accumulator = crc
         val end = offset + length
-        for (i in offset until end) {
-            c = updateByte(c, bytes[i].toInt() and BYTE_MASK)
+        for (byteIndex in offset until end) {
+            accumulator = updateByte(accumulator, bytes[byteIndex].toInt() and BYTE_MASK)
         }
-        return c
+        return accumulator
     }
 
     fun updateLong(crc: Int, value: Long): Int {
-        var c = crc
+        var accumulator = crc
         for (shift in LONG_HIGH_BYTE_SHIFT downTo 0 step BITS_PER_BYTE) {
             val byteValue = ((value ushr shift) and LONG_BYTE_MASK).toInt()
-            c = updateByte(c, byteValue)
+            accumulator = updateByte(accumulator, byteValue)
         }
-        return c
+        return accumulator
     }
 
     fun finalize(crc: Int): Int = crc.inv()
 
     private fun updateByte(crc: Int, byteValue: Int): Int {
-        val index = (crc xor byteValue) and BYTE_MASK
-        return (crc ushr BITS_PER_BYTE) xor TABLE[index]
+        val tableIndex = (crc xor byteValue) and BYTE_MASK
+        return (crc ushr BITS_PER_BYTE) xor TABLE[tableIndex]
     }
 }
