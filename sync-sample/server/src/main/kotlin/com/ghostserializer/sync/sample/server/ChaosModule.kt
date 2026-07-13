@@ -21,7 +21,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Deliberately hostile Ktor server used to exercise [com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
- * and [com.ghostserializer.sync.engine.GhostSyncEngine] under real chaos, per the Fase 6 validation plan:
+ * and [com.ghostserializer.sync.engine.GhostSyncEngine] under real chaos, per validation plan:
  * intermittent 503s, tolerable latency, a genuine 4xx (to exercise the dead-letter path), and a
  * delay long enough to blow past the sample client's socket timeout (to exercise offline queueing).
  */

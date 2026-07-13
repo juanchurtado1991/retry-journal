@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.sample.app
 
 import dev.brewkits.kmpworkmanager.annotations.Worker
-import dev.brewkits.kmpworkmanager.background.domain.IosWorker
+import dev.brewkits.kmpworkmanager.background.data.IosWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
