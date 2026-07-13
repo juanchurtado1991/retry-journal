@@ -1,9 +1,14 @@
 # ghost-sync
 
 **An offline-first HTTP sync engine for Kotlin Multiplatform.** Requests made while offline (or
-during a flaky connection) are captured automatically, persisted crash-safely, and replayed the
-moment connectivity returns — without a database, without a scheduler dependency, and without
-caring what serializer your app uses.
+during a flaky connection) are captured automatically, persisted crash-safely to disk, and
+replayed the moment connectivity returns.
+
+- **No database** — a single append-only file, purpose-built for this, not a table pressed into service
+- **No scheduler dependency** — call `flush()` from a coroutine loop, `WorkManager`, a button, or nothing at all
+- **Any serializer** — Ghost, kotlinx.serialization, or both, your choice
+- **Files and images, not just JSON** — a multipart upload is captured exactly like any other request
+- **Crash-safe** — kill the process mid-write and the queue recovers itself on next open, automatically
 
 Built on the [Ghost](https://github.com/juanchurtado1991/ghost-serializer) serialization engine.
 `:ghost-sync` is a single Gradle module — one artifact, `com.ghostserializer:ghost-sync` — covering
@@ -20,65 +25,58 @@ Get it wrong and you either lose user data (request silently fails) or duplicate
 resends something that already landed).
 
 The usual answer is *"put a table in the local database."* `ghost-sync` deliberately doesn't do
-that, and the reasons are concrete, not aesthetic:
+that:
 
 | | A DB-backed outbox (Room / SQLDelight table) | `ghost-sync` |
 |---|---|---|
 | **Encodings per request** | Your object → DB row/JSON column → **re-encoded again** to send over the wire | Captured **once**, already serialized by your `HttpClient`'s own `ContentNegotiation` — never re-encoded |
-| **Dependency weight** | An embedded SQL engine + ORM/codegen (Room's KSP, SQLDelight's own Gradle plugin and driver-per-platform) just to store "pending HTTP request" | Okio, already transitive through most KMP networking stacks |
-| **Crash safety mechanism** | WAL + fsync + transactions — general-purpose durability built for arbitrary relational writes | A single append-only file with a CRC32 per record — purpose-built for one FIFO stream, nothing to tune |
-| **Schema** | A table (and migrations) to represent "method, url, headers, body" | No schema — the record *is* the request, in the exact shape it left the wire |
-| **Impedance mismatch** | A general-purpose store pressed into service as a queue: `ORDER BY`, polling, indexes you don't need | The format *is* the queue: sequence ids, tombstones, compaction — no translation layer |
+| **Dependency weight** | An embedded SQL engine + ORM/codegen just to store "pending HTTP request" | Okio, already transitive through most KMP networking stacks |
+| **Crash safety** | WAL + fsync + transactions — general-purpose durability built for arbitrary writes | One append-only file with a CRC32 per record — purpose-built for a single FIFO stream |
+| **Schema** | A table (and migrations) to represent "method, url, headers, body" | No schema — the record *is* the request, in the shape it left the wire |
 
-This isn't a claim that databases are bad — Room and SQLDelight are excellent at what they're for:
-querying, filtering, and relating structured local data. An HTTP outbox doesn't need any of that;
-it needs to remember bytes in order and hand them back in order. `ghost-sync` is purpose-built for
-exactly that narrower job, which is what lets it stay small and fast.
+Databases are great at what they're for: querying, filtering, relating structured data. An HTTP
+outbox doesn't need any of that — it needs to remember bytes in order and hand them back in order.
+That narrower job is what lets `ghost-sync` stay small and fast.
 
 ## How it works
 
 ```
-                 ┌─────────────────────┐
-  your app  ───▶ │  HttpClient          │
-                 │  + GhostOfflineQueue  │──── online ────▶  server
-                 │    Plugin             │
-                 └──────────┬───────────┘
-                             │ IOException (offline)
-                             ▼
-                 ┌──────────────────────┐
-                 │  DiskQueue            │   append-only file, CRC32 per record,
-                 │  (append-only, FIFO)  │   sequence ids stable across compaction
-                 └──────────┬───────────┘
-                             │ GhostSyncEngine.flush()  ◀── any scheduler, or none
-                             ▼
-                 ┌──────────────────────┐        4xx        ┌────────────────────┐
-                 │  replay against any   │ ─────────────────▶ │  DeadLetterQueue    │
-                 │  HttpClient            │                    │  (retry / discard)  │
-                 └──────────┬───────────┘                    └────────────────────┘
-                             │ 2xx: remove()   5xx/IOException: stop, retry later
-                             ▼
-                          delivered
+Your app
+  │  HttpClient.post(...)
+  ▼
+GhostOfflineQueuePlugin ── online, 2xx ──▶  delivered
+  │
+  │  offline → IOException
+  ▼
+DiskQueue ── append-only file, CRC32 per record, survives a kill mid-write
+  │
+  │  GhostSyncEngine.flush() ── called by any scheduler, or none at all
+  ▼
+replay each queued entry against a plain HttpClient
 ```
 
-1. **`GhostOfflineQueuePlugin`** installs on your `HttpClient`'s send pipeline (the same extension
-   point Ktor's own `HttpRequestRetry` uses). When a request fails with a connectivity error, it
-   captures the request's already-serialized bytes — whatever your `ContentNegotiation` produced —
-   and appends them to `DiskQueue`, then rethrows as `OfflineQueuedException` so your UI can show
-   "saved for later" instead of a generic error.
-2. **`DiskQueue`** is an append-only file. `enqueue()` appends a record; `remove()` appends a
-   *tombstone* referencing it by a persisted sequence id — nothing already on disk is ever
-   rewritten. A process kill mid-write can only ever corrupt the last, incomplete record, and the
-   queue recovers by truncating it on next open, never by failing to start. Past 80% dead space,
-   it compacts by writing a fresh file and atomically replacing the old one; sequence ids survive
-   compaction, so ids handed out before a compaction stay valid after it.
-3. **`GhostSyncEngine.flush(client)`** reads the queue back against any `HttpClient` you give it:
-   a 2xx removes the entry, a 4xx (a business failure, not a connectivity one) moves it to
-   `DeadLetterQueue` and keeps going, a 5xx or another `IOException` stops the loop with the entry
-   untouched for the next attempt. `flush()` is a plain `suspend fun` — it has no idea what called
-   it, which is the whole point (see [Scheduling](#scheduling-any-of-them-or-none) below).
-4. **`DeadLetterQueue`** holds requests the server actively rejected. `peekAll()` / `retry()` /
-   `discard()` are public, so you can build a "failed requests" screen instead of losing them
-   silently.
+| The replay gets back | What happens |
+|---|---|
+| `2xx` | Delivered — removed from the queue |
+| `4xx` | A business rejection, not a connectivity one — moved to `DeadLetterQueue` |
+| `5xx` or `IOException` | Still offline/down — stop here, the rest waits for the next `flush()` |
+
+- **`GhostOfflineQueuePlugin`** installs on your `HttpClient`'s send pipeline (the same extension
+  point Ktor's own `HttpRequestRetry` uses). On a connectivity failure it captures the exact bytes
+  that were about to go out — a JSON body, a multipart file, anything your `ContentNegotiation`
+  already produced — and appends them to `DiskQueue`, then rethrows as `OfflineQueuedException` so
+  your UI can show "saved for later" instead of a generic error.
+- **`DiskQueue`** never rewrites anything already on disk. `remove()` appends a *tombstone*
+  referencing the entry by a persisted sequence id, instead of touching the original record. A
+  process kill mid-write can only ever corrupt the last, incomplete record — the queue recovers by
+  trimming it on next open, never by failing to start. Past 80% dead space it compacts by writing a
+  fresh file and atomically replacing the old one; sequence ids survive compaction, so an id handed
+  out before one stays valid after it.
+- **`GhostSyncEngine.flush(client)`** is a plain `suspend fun`. It doesn't know or care what called
+  it — see [Scheduling](#scheduling-any-of-them-or-none) below.
+- **`DeadLetterQueue`** holds requests the server actively rejected. `peekAll()` / `retry()` /
+  `discard()` are public, so you can build a "failed requests" screen instead of losing them
+  silently.
 
 ## Install
 
@@ -179,6 +177,62 @@ You can also install both converters together (Ghost's own coexistence pattern �
 `@GhostSerialization` types, `json()` falls back for everything else) and mix them freely across
 endpoints.
 
+## Files and images
+
+`GhostOfflineQueuePlugin` captures whatever bytes your `HttpClient` was actually about to send —
+that includes a multipart file upload, not just a JSON body:
+
+```kotlin
+ghostSync.client.post(url) {
+    setBody(
+        MultiPartFormDataContent(
+            formData {
+                append(
+                    "photo", photoBytes,
+                    Headers.build { append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"") },
+                )
+            },
+        ),
+    )
+}
+```
+
+Offline, the whole file is queued exactly like any other request — no path reference, no
+dependency on the original file still being there whenever connectivity comes back.
+
+A single queued body is capped at **64 MiB** by default — past that, `enqueue()` throws
+`RecordTooLargeException` instead of writing something it could never read back. Raise it if your
+uploads are routinely bigger:
+
+```kotlin
+GhostSync.create(engineFactory, queuePath, maxRecordFieldSize = 200 * 1024 * 1024) { ... }
+```
+
+Queueing a file is a memory/disk tradeoff, not free: the whole body is read into memory once to
+capture it, and a full copy lives on disk until it's delivered. `ghost-sync` is built for
+**retrying a request**, not for being a general file-transfer manager — for very large or
+long-lived uploads, have your app keep its own stable copy of the file and queue a small reference
+to it instead of the file itself.
+
+## Watching sync happen
+
+`flush()` normally just returns one `FlushResult` once the whole queue is drained. Pass
+`onProgress` to react as each entry actually resolves — a UI can show requests draining out of the
+queue in real time instead of only a summary at the end:
+
+```kotlin
+ghostSync.flush { progress ->
+    when (progress) {
+        is FlushProgress.Delivered -> showDelivered(progress.id)
+        is FlushProgress.DeadLettered -> showRejected(progress.id)
+    }
+}
+```
+
+For full manual control — peek one entry, decide what to do with it, repeat — `GhostSyncEngine`
+also exposes `getEntry()` and `getStatus(client, entry)` as building blocks; `flush()` itself is
+built on nothing more than those two.
+
 ## Scheduling: any of them, or none
 
 `GhostSyncEngine.flush()` — and therefore `GhostSync.flush()` — takes no scheduler dependency.
@@ -241,9 +295,13 @@ ghostSync.deadLetterQueue.discard(entry.id)  // gone for good
 ## Build & test
 
 ```bash
-./gradlew :ghost-sync:jvmTest        # 20 unit tests, JVM only, no emulator needed
+./gradlew :ghost-sync:jvmTest        # 30 unit tests, JVM only, no emulator needed
 ./gradlew :sync-sample:server:run    # chaotic Ktor server for manual/full-cycle testing
 ```
+
+Want to see the whole thing running with a UI in under a minute, no emulator or device required?
+`./gradlew :sync-sample:composeApp:run` starts a desktop build with the chaos server embedded in
+the same process — see [sync-sample/README.md](sync-sample/README.md).
 
 iOS targets are automatically skipped by Gradle on non-macOS hosts
 (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI.

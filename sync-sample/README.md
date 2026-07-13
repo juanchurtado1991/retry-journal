@@ -1,104 +1,127 @@
 # Ghost Sync — full-cycle sample
 
-Demonstrates `:ghost-sync` end to end: a chaotic Ktor server, and a Compose Multiplatform app that
-enqueues thousands of mutations offline and flushes them once connectivity returns.
+A Compose Multiplatform app that shows `:ghost-sync` actually working: turn the server off, do
+things, watch requests queue up locally; turn it back on, hit sync, watch them drain out.
 
-| Module | What it is | Verified how |
-|---|---|---|
-| `shared` | `@GhostSerialization` models shared by server and app | Compiles (JVM + Android); KSP generates both serializers |
-| `server` | Chaotic Ktor/CIO server | **Actually run** and hit with 22 real HTTP requests — see its own module for details |
-| `composeApp` (Android) | Compose UI + kmpworkmanager integration + Ktorfit | Compiles; a real debug APK was built (`./gradlew :sync-sample:composeApp:assembleDebug`) |
-| `composeApp` (iOS) | Same commonMain UI, Darwin engine, `IosWorker` | **Not compiled** — this machine has no Xcode. Kotlin/Native can't build Apple targets off macOS; Gradle just skips them (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI on Linux |
-| `composeApp` (Desktop/JVM) | Same commonMain UI, OkHttp engine, no scheduler | **Actually run** via `./gradlew :sync-sample:composeApp:run` — window opens, process stays alive with no exceptions |
-| `iosApp/` | Xcode host project | Reference Swift files only, not a real `.pbxproj` — see `iosApp/README.md` |
+## Try it in 60 seconds
 
-## Run the chaos server
-
-```bash
-./gradlew :sync-sample:server:run
-```
-
-Listens on `:8080`. `GET /health` → `200 ok`. `POST /mutations` behaves badly on a rotation: every
-5th request is slow-but-succeeds, every 7th returns 503, every 13th returns 400, every 20th stalls
-15s (long enough to blow past the sample client's 6s socket timeout). Confirmed by hand: 22
-sequential requests returned exactly the expected pattern (200×18, 503×3, 400×1, hitting request
-numbers 7, 13, 14, 21).
-
-## Run the Android app
-
-Point `PlatformServerHost.android.kt`'s `platformServerHost` at wherever the server is reachable
-from the device: `10.0.2.2` (already set) is the Android **emulator's** alias for the host machine;
-on a physical device use your machine's LAN IP instead.
-
-```bash
-./gradlew :sync-sample:composeApp:installDebug
-```
-
-On the "Stress test" screen: tap **Enqueue offline** *before* starting the server (or with the
-device in airplane mode) to exercise `GhostOfflineQueuePlugin` — every POST fails with a real
-connection error and lands in the `DiskQueue`. Start the server, tap **Flush now** to drain it
-through `GhostSyncEngine`; the periodic `kmpworkmanager` sync (every 15 min) does the same thing
-in the background without any button press.
-
-The **Ktorfit** button does the same offline-queueing/flush dance through a Ktorfit-generated
-`MutationApi` interface instead of a hand-written `HttpClient.post()` call — proof that
-`GhostOfflineQueuePlugin` intercepts transparently no matter how the request was built, since
-Ktorfit's generated code is still just calling the same `HttpClient` under the hood. See
-`SyncSetup.kt` and `MutationApi.kt`.
-
-### Ktorfit + Ktor 2.3.11 version note
-
-Ktorfit's current releases default to Ktor 3.x, which would conflict with `ghost-ktor`'s pinned
-Ktor 2.3.11 in the same module. `2.1.0` is the last Ktorfit release that defaults to Ktor 2.x
-(2.3.12, compatible enough with 2.3.11) — confirmed via its changelog, not assumed. Its Gradle
-plugin's automatic KSP-processor-version resolution doesn't know about this project's exact
-Kotlin/KSP combo (2.1.10 / `1.0.31`) and tries to fetch a `ktorfit-ksp` artifact that doesn't
-exist, so the Gradle plugin (`de.jensklingenberg.ktorfit`) isn't applied here at all — instead
-`ktorfit-ksp:2.1.0-1.0.27` (the closest version actually published to Maven Central, checked via
-`maven-metadata.xml`) is wired in by hand via `add("kspCommonMainMetadata"/"kspAndroid"/..., ...)`,
-same pattern as `kmpworkmanager`. `MutationApi` lives in `commonMain`, which additionally requires
-`kspCommonMainMetadata` (not just the per-target `ksp<Target>` configs) plus registering
-`build/generated/ksp/metadata/commonMain/kotlin` as a `commonMain` source root — confirmed by
-actually finding zero generated output until both were added, then finding
-`_MutationApiImpl.kt` once they were.
-
-## Run the iOS app
-
-See `iosApp/README.md` — needs an actual Xcode project this session couldn't create or verify.
-
-## Run the desktop app
+No device, no emulator, no second terminal — the desktop build embeds the chaos server in the
+same process:
 
 ```bash
 ./gradlew :sync-sample:composeApp:run
 ```
 
-`:ghost-sync` already targeted `jvm` from the start (it only depends on Ghost, which publishes a
-JVM artifact); `composeApp` didn't declare a `jvm("desktop")` target until now. The desktop build
-reuses the same `commonMain` UI and OkHttp engine as Android (OkHttp isn't Android-specific — it's
-a plain JVM library), talks to the chaos server at `localhost` (no NAT alias needed, unlike the
-Android emulator's `10.0.2.2` — see `PlatformServerHost.*.kt`), and stores its queue under
-`~/.ghost-sync-sample/`.
+A window opens with the server already on. That's it.
 
-`kmpworkmanager` publishes Android + iOS only, no JVM variant, so it — and `GhostSyncWorker`, which
-implements its `Worker` interface — live in a new `mobileMain` intermediate source set
-(`androidMain`/`iosMain` depend on it, `desktopMain` doesn't). This is exactly the scheduler-agnostic
-design `:ghost-sync` itself is built around: the desktop build has no periodic background sync, but
-**Flush now** and the Ktorfit button work identically to Android/iOS since neither depends on a
-scheduler — see the root README's "any scheduler, or none" section.
+### What you'll see
 
-## What's verified vs. best-effort in this module
+```
+┌─ Ghost Sync — Demo ──────────────────────────
+│
+│  ●  Server online                     ← a switch: turn the embedded server on/off
+│
+│    12              0
+│  Pending      Dead-lettered           ← live counts, no need to refresh
+│
+│  ●  ●  ●  ●                           ← one chip per pending request —
+│                                          flashes green (delivered) or red
+│                                          (rejected) as Sync now processes it
+│
+│  [ Upload a file ]   [ Sync now ]
+│
+│  ▾ Show advanced options              ← stress-test batches, Ktorfit demo
+│
+│  Activity
+│  +12.3s  Delivered photo.jpg.
+│  +8.1s   Queued mutation-4 — offline.
+```
 
-Everything in `shared` and `server` was compiled and actually run here. In `composeApp`, the
-`kmpworkmanager` integration (`KmpWorkManagerSetup.android.kt`, `SyncWorkerAndroid.kt`,
-`GhostSyncWorker.kt`) was **not** just copied from the library's README — its public README omits
-the real package (`dev.brewkits.kmpworkmanager.background.domain`), the real scheduler accessor
+Try this flow:
+
+1. Flip the switch off. The dot turns red.
+2. Tap **Upload a file** and pick anything from disk. It fails to send (no server) and shows up
+   as a chip under "Pending" instead — that's `GhostOfflineQueuePlugin` catching the connection
+   failure and persisting the file to `DiskQueue`, byte for byte.
+3. Flip the switch back on.
+4. Tap **Sync now**. Watch the chip flash green and disappear — that's `GhostSyncEngine.flush()`
+   replaying the queued request for real, reported back live through `FlushProgress`.
+
+Everything below "Show advanced options" does the same thing at a larger scale — a "Send 5" for a
+handful of plain JSON mutations, two stress-test buttons (1,000 / 10,000) to check throughput, and
+a Ktorfit-generated call to prove the interceptor works no matter how a request was built.
+
+## Run on Android
+
+Android/iOS have no in-process server story, so you run the chaos server yourself:
+
+```bash
+./gradlew :sync-sample:server:run          # in one terminal
+./gradlew :sync-sample:composeApp:installDebug   # in another
+```
+
+`PlatformServerHost.android.kt` already points at `10.0.2.2` — the emulator's alias for the host
+machine's `localhost`. On a physical device, change it to your machine's LAN IP instead. The demo
+screen looks and behaves the same as on desktop, minus the server toggle (there's nothing local to
+switch — a hint on screen explains this).
+
+The chaos server itself: `GET /health` → `200 ok`. `POST /mutations` behaves badly on a rotation —
+every 5th request is slow-but-succeeds, every 7th returns 503, every 13th returns 400, every 20th
+stalls 15s (long enough to blow past the client's 6s socket timeout and force an offline queue).
+`POST /uploads` is simpler — it always succeeds when reachable, since the point of that endpoint is
+proving a real multipart body survives the queue, not exercising the chaos rotation again.
+
+## Run on iOS
+
+See [`iosApp/README.md`](iosApp/README.md) — the Swift side is a reference scaffold, not a real
+buildable Xcode project (this environment has no macOS/Xcode to generate or verify one).
+
+## What's actually running here
+
+| Target | Status |
+|---|---|
+| `shared` | Compiles (JVM + Android); KSP generates both serializers |
+| `server` | Runs for real — hit with real HTTP requests, chaos rotation confirmed by hand |
+| `composeApp` (Desktop/JVM) | Runs for real — `./gradlew :sync-sample:composeApp:run`, embedded server binds the port, window opens, no exceptions |
+| `composeApp` (Android) | Compiles; a real debug APK builds (`assembleDebug`) |
+| `composeApp` (iOS) | **Not compiled** — no macOS/Xcode here. Gradle skips it (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI on Linux |
+| `iosApp/` | Reference Swift files only |
+
+---
+
+## Implementation notes
+
+Deeper detail on decisions that took real investigation to get right — useful if you're extending
+this sample, not necessary just to run it.
+
+### Ktorfit pinned to 2.1.0, wired by hand
+
+Ktorfit's current releases default to Ktor 3.x, which conflicts with `ghost-ktor`'s pinned Ktor
+2.3.11 in the same module. `2.1.0` is the last Ktorfit release that defaults to Ktor 2.x (2.3.12,
+compatible enough with 2.3.11) — confirmed via its changelog, not assumed. Its Gradle plugin's
+automatic KSP-version resolution doesn't know this project's exact Kotlin/KSP combo (2.1.10 /
+`1.0.31`) and tries to fetch a `ktorfit-ksp` artifact that doesn't exist, so the Gradle plugin
+(`de.jensklingenberg.ktorfit`) isn't applied at all — `ktorfit-ksp:2.1.0-1.0.27` (the closest
+version actually published, checked via `maven-metadata.xml`) is wired in by hand instead, same
+pattern as `kmpworkmanager` below. `MutationApi` lives in `commonMain`, which needs
+`kspCommonMainMetadata` (not just the per-target `ksp<Target>` configs) plus registering
+`build/generated/ksp/metadata/commonMain/kotlin` as a `commonMain` source root — confirmed by
+finding zero generated output until both were added.
+
+### kmpworkmanager's real API vs. its README
+
+The `kmpworkmanager` integration (`KmpWorkManagerSetup.android.kt`, `SyncWorkerAndroid.kt`,
+`GhostSyncWorker.kt`) was corrected by decompiling the resolved `kmpworkmanager-android-3.0.1`
+artifact, not copied from its public README, which omits: the real package
+(`dev.brewkits.kmpworkmanager.background.domain`), the real scheduler accessor
 (`KmpWorkManager.getInstance().backgroundTaskScheduler`, not a bare `.scheduler`), the real
-generated factory class name (`AndroidWorkerFactoryGenerated`, confirmed by actually running KSP
-and reading its output), and a required `reason: String` parameter on `WorkerResult.Retry` the
-README's own snippet omits. All of that was corrected by decompiling the resolved
-`kmpworkmanager-android-3.0.1` artifact and cross-checking against a real, successful
-`:sync-sample:composeApp:assembleDebug` build that produced an installable APK.
+generated factory class name (`AndroidWorkerFactoryGenerated`), and a required `reason: String`
+parameter on `WorkerResult.Retry` its own snippet omits. All confirmed against a real, successful
+`assembleDebug` build that produced an installable APK. `kmpworkmanager` publishes Android + iOS
+only — no JVM — so it (and `GhostSyncWorker`) live in a `mobileMain` intermediate source set that
+`desktopMain` doesn't depend on. The desktop build has no periodic background sync as a result, but
+**Sync now** works identically everywhere since it never depended on a scheduler in the first
+place — see the root README's "Scheduling: any of them, or none".
 
-The `IosWorker` side (`SyncWorkerIos.kt`, `PlatformHttpClientEngine.ios.kt`,
-`PlatformDataDirectory.ios.kt`) follows the same package/API conventions by analogy but was never
-compiled — there is no Kotlin/Native Apple toolchain on this machine to verify it against.
+The `IosWorker` side follows the same package/API conventions by analogy but was never compiled —
+no Kotlin/Native Apple toolchain on this machine to verify it against.
