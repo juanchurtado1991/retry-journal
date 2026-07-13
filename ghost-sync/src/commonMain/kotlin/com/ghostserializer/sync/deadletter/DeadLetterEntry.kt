@@ -5,7 +5,7 @@ import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 /**
  * A request that was rejected by the server (4xx) and parked for manual inspection or retry.
  *
- * `equals()`/`hashCode()`/`toString()` are hand-written for the same reason as
+ * `equals()`/`hashCode()`/`toString()` are handwritten for the same reason as
  * [com.ghostserializer.sync.queue.QueueEntry]: the compiler-generated versions would
  * compare/hash [body] (a `ByteArray`) by reference and print it as `[B@...`.
  */

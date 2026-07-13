@@ -2,6 +2,8 @@ package com.ghostserializer.sync.engine
 
 import com.ghostserializer.sync.client.OfflineQueuedException
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
+import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND
+import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.QueueEntry
 import io.ktor.client.HttpClient
@@ -22,7 +24,7 @@ import io.ktor.utils.io.errors.IOException
  * worker, `androidx.work`, a plain coroutine timer, or a server-side cron can all call [flush]
  * the same way. See CONVENTIONS.md for why this engine has no scheduler dependency at all.
  *
- * [flush]'s [client] must **not** have [com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
+ * [flush]'s client must **not** have [com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
  * installed: replaying an entry that fails again would otherwise be silently re-enqueued as a
  * *new*, duplicate record by that plugin while this loop still holds the original — install Ghost
  * content negotiation on it, nothing that intercepts the send pipeline.
@@ -37,14 +39,26 @@ class GhostSyncEngine(
 
         while (true) {
             val entry = queue.peek()
-                ?: return FlushResult(delivered, deadLettered, stoppedEarly = false)
+                ?: return FlushResult(
+                    delivered,
+                    deadLettered,
+                    stoppedEarly = false
+                )
 
             val status = try {
                 send(client, entry)
             } catch (_: IOException) {
-                return FlushResult(delivered, deadLettered, stoppedEarly = true)
+                return FlushResult(
+                    delivered,
+                    deadLettered,
+                    stoppedEarly = true
+                )
             } catch (_: OfflineQueuedException) {
-                return FlushResult(delivered, deadLettered, stoppedEarly = true)
+                return FlushResult(
+                    delivered,
+                    deadLettered,
+                    stoppedEarly = true
+                )
             }
 
             when {
@@ -65,7 +79,11 @@ class GhostSyncEngine(
                 }
 
                 else -> {
-                    return FlushResult(delivered, deadLettered, stoppedEarly = true)
+                    return FlushResult(
+                        delivered,
+                        deadLettered,
+                        stoppedEarly = true
+                    )
                 }
             }
         }
@@ -77,7 +95,12 @@ class GhostSyncEngine(
 
             val contentType = entry.meta.headers[HttpHeaders.ContentType]
             if (contentType != null) {
-                setBody(ByteArrayContent(entry.body, ContentType.parse(contentType)))
+                setBody(
+                    ByteArrayContent(
+                        entry.body,
+                        ContentType.parse(contentType)
+                    )
+                )
             } else {
                 setBody(entry.body)
             }
@@ -97,6 +120,6 @@ class GhostSyncEngine(
     }
 
     private fun isClientError(status: HttpStatusCode): Boolean {
-        return status.value in SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND..SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND
+        return status.value in CLIENT_ERROR_STATUS_LOWER_BOUND..CLIENT_ERROR_STATUS_UPPER_BOUND
     }
 }
