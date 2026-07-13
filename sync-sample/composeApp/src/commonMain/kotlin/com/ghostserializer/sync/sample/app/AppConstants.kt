@@ -4,11 +4,9 @@ internal object AppConstants {
     const val QUEUE_FILE_NAME: String = "ghost-sync-queue.bin"
     const val DEAD_LETTER_FILE_NAME: String = "ghost-sync-dead-letter.bin"
 
-    /** The default "Send N requests" button — small on purpose, so each request's fate (queued vs
+    /** The "Send N JSON requests" button — small on purpose, so each request's fate (queued vs
      * delivered) is easy to follow by eye instead of just watching a big number change. */
     const val SIMPLE_SEND_COUNT: Int = 5
-    const val DEFAULT_MUTATION_COUNT: Int = 1_000
-    const val STRESS_TEST_MUTATION_COUNT: Int = 10_000
 
     /** Below the chaos server's ~15s offline-timeout branch, above its ~3s latency branch. */
     const val CLIENT_SOCKET_TIMEOUT_MS: Long = 6_000L
@@ -27,7 +25,7 @@ internal object AppConstants {
      * `filesDir` or iOS's Documents directory, nothing guarantees this exists on first run. */
     const val DESKTOP_DATA_DIRECTORY_NAME: String = ".ghost-sync-sample"
 
-    const val DESKTOP_WINDOW_TITLE: String = "Ghost Sync — Stress Test (Desktop)"
+    const val DESKTOP_WINDOW_TITLE: String = "Ghost Sync — Demo (Desktop)"
 
     const val SERVER_HEALTH_POLL_INTERVAL_MS: Long = 2_000L
     const val ACTIVITY_LOG_MAX_ENTRIES: Int = 50

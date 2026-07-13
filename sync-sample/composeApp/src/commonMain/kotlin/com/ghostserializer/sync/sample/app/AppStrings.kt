@@ -17,7 +17,7 @@ internal object AppStrings {
     const val STAT_DEAD_LETTERED_TITLE: String = "Dead-lettered"
 
     const val SEND_BUTTON_PREFIX: String = "Send "
-    const val SEND_BUTTON_SUFFIX: String = " requests"
+    const val SEND_BUTTON_SUFFIX: String = " JSON requests"
     const val SYNC_BUTTON: String = "Sync now"
 
     const val UPLOAD_BUTTON: String = "Upload a file"
@@ -33,13 +33,6 @@ internal object AppStrings {
     const val LOG_UPLOAD_QUEUED_PREFIX: String = "Queued "
     const val LOG_UPLOAD_QUEUED_SUFFIX: String = " — offline."
 
-    const val ADVANCED_SHOW: String = "Show advanced options"
-    const val ADVANCED_HIDE: String = "Hide advanced options"
-    const val STRESS_TEST_BUTTON_PREFIX: String = "Stress test: "
-    const val KTORFIT_DEMO_BUTTON: String = "Ktorfit: send 1"
-    const val KTORFIT_DEMO_ID_PREFIX: String = "ktorfit-mutation-"
-    const val KTORFIT_DEMO_PAYLOAD: String = "via Ktorfit"
-
     const val ACTIVITY_LOG_TITLE: String = "Activity"
     const val ACTIVITY_LOG_EMPTY: String = "Nothing yet — try a button above."
     const val LOG_TIMESTAMP_PREFIX: String = "+"
@@ -53,10 +46,9 @@ internal object AppStrings {
     const val LOG_SYNCED_RESULT_PREFIX: String = "Synced — delivered="
     const val LOG_SYNCED_RESULT_DEAD_LETTERED: String = " deadLettered="
     const val LOG_SYNCED_RESULT_STOPPED_EARLY: String = " stoppedEarly="
-    const val LOG_KTORFIT_SENT_PREFIX: String = "Ktorfit: sent mutation #"
 
     const val MUTATION_ID_PREFIX: String = "mutation-"
-    const val MUTATION_PAYLOAD_PREFIX: String = "stress-test-payload-"
+    const val MUTATION_PAYLOAD_PREFIX: String = "demo-payload-"
 
     const val SERVER_URL_SCHEME: String = "http://"
     const val SERVER_URL_PORT_SEPARATOR: String = ":"

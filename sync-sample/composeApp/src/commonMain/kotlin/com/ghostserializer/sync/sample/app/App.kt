@@ -25,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -42,18 +41,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import com.ghostserializer.sync.client.OfflineQueuedException
 import com.ghostserializer.sync.engine.FlushProgress
-import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.sample.shared.MutationRequest
 import com.ghostserializer.sync.sample.shared.SampleApiConstants
-import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -77,9 +70,9 @@ private val appStartMark = TimeSource.Monotonic.markNow()
  * `Sync now` actually resolves each one — driven by [com.ghostserializer.sync.engine.FlushProgress],
  * not a simulated animation.
  *
- * "Show advanced options" holds larger stress-test batch sizes and the same offline-queueing demo
- * through a Ktorfit-generated call instead of a hand-written `HttpClient.post()` — see
- * [SyncSetup.mutationApi] and [MutationApi] — both kept out of the way of the simple flow above.
+ * Every request here — the upload and the JSON mutation alike — goes through [MutationApi], a
+ * Ktorfit-generated interface; see its own doc for why that's a demo choice, not something
+ * `:ghost-sync` requires.
  */
 @Composable
 fun App() {
@@ -97,9 +90,7 @@ private fun DemoScreen() {
     var queueSize by remember { mutableStateOf(0) }
     var deadLetterSize by remember { mutableStateOf(0) }
     var isBusy by remember { mutableStateOf(false) }
-    var ktorfitCallCount by remember { mutableStateOf(0) }
     var serverStatus by remember { mutableStateOf(ServerHealthStatus.Checking) }
-    var showAdvanced by remember { mutableStateOf(false) }
     var queueChips by remember { mutableStateOf<List<QueueChipUiState>>(emptyList()) }
     val logEntries = remember { mutableStateListOf<ActivityLogEntry>() }
 
@@ -173,23 +164,42 @@ private fun DemoScreen() {
 
         QueueVisualization(queueChips)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
-            Button(
-                enabled = !isBusy && FilePicker.isSupported,
-                onClick = {
-                    scope.launch {
-                        isBusy = true
-                        val picked = FilePicker.pickFile()
-                        if (picked != null) {
-                            log(AppStrings.LOG_UPLOADING_PREFIX + picked.name + AppStrings.LOG_UPLOADING_SUFFIX)
-                            val (message, kind) = uploadFile(picked)
-                            refreshCounts()
-                            log(message, kind)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
+                Button(
+                    enabled = !isBusy && FilePicker.isSupported,
+                    onClick = {
+                        scope.launch {
+                            isBusy = true
+                            val picked = FilePicker.pickFile()
+                            if (picked != null) {
+                                log(AppStrings.LOG_UPLOADING_PREFIX + picked.name + AppStrings.LOG_UPLOADING_SUFFIX)
+                                val (message, kind) = uploadFile(picked)
+                                refreshCounts()
+                                log(message, kind)
+                            }
+                            isBusy = false
                         }
-                        isBusy = false
-                    }
-                },
-            ) { Text(AppStrings.UPLOAD_BUTTON) }
+                    },
+                ) { Text(AppStrings.UPLOAD_BUTTON) }
+
+                Button(
+                    enabled = !isBusy,
+                    onClick = {
+                        scope.launch {
+                            isBusy = true
+                            log(AppStrings.LOG_SENDING_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENDING_SUFFIX)
+                            enqueueMutations(AppConstants.SIMPLE_SEND_COUNT)
+                            refreshCounts()
+                            log(AppStrings.LOG_SENT_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENT_SUFFIX, LogKind.Success)
+                            isBusy = false
+                        }
+                    },
+                ) { Text(AppStrings.SEND_BUTTON_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.SEND_BUTTON_SUFFIX) }
+            }
 
             Button(
                 enabled = !isBusy,
@@ -234,48 +244,6 @@ private fun DemoScreen() {
                 AppStrings.FILE_PICKER_UNSUPPORTED_HINT,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        TextButton(onClick = { showAdvanced = !showAdvanced }) {
-            Text(if (showAdvanced) AppStrings.ADVANCED_HIDE else AppStrings.ADVANCED_SHOW)
-        }
-
-        if (showAdvanced) {
-            AdvancedSection(
-                isBusy = isBusy,
-                onSend = { count ->
-                    scope.launch {
-                        isBusy = true
-                        log(AppStrings.LOG_SENDING_PREFIX + count + AppStrings.LOG_SENDING_SUFFIX)
-                        enqueueMutations(count)
-                        refreshCounts()
-                        log(AppStrings.LOG_SENT_PREFIX + count + AppStrings.LOG_SENT_SUFFIX, LogKind.Success)
-                        isBusy = false
-                    }
-                },
-                onKtorfitSend = {
-                    scope.launch {
-                        isBusy = true
-                        ktorfitCallCount++
-                        val callNumber = ktorfitCallCount
-                        runCatching {
-                            SyncSetup.mutationApi.createMutation(
-                                MutationRequest(
-                                    id = AppStrings.KTORFIT_DEMO_ID_PREFIX + callNumber,
-                                    payload = AppStrings.KTORFIT_DEMO_PAYLOAD,
-                                    createdAtMillis = callNumber.toLong(),
-                                ),
-                            )
-                        }
-                        // Same story as enqueueMutations(): a thrown OfflineQueuedException means
-                        // GhostOfflineQueuePlugin already queued it, even though this call went
-                        // through Ktorfit's generated _MutationApiImpl, not a raw HttpClient.post().
-                        refreshCounts()
-                        log(AppStrings.LOG_KTORFIT_SENT_PREFIX + callNumber, LogKind.Success)
-                        isBusy = false
-                    }
-                },
             )
         }
 
@@ -386,29 +354,6 @@ private fun QueueChip(chip: QueueChipUiState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun AdvancedSection(isBusy: Boolean, onSend: (Int) -> Unit, onKtorfitSend: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(AppDimens.CARD_INTERNAL_SPACING),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
-                Button(enabled = !isBusy, onClick = { onSend(AppConstants.SIMPLE_SEND_COUNT) }) {
-                    Text(AppStrings.SEND_BUTTON_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.SEND_BUTTON_SUFFIX)
-                }
-                Button(enabled = !isBusy, onClick = { onSend(AppConstants.DEFAULT_MUTATION_COUNT) }) {
-                    Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT)
-                }
-                Button(enabled = !isBusy, onClick = { onSend(AppConstants.STRESS_TEST_MUTATION_COUNT) }) {
-                    Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT)
-                }
-            }
-            Button(enabled = !isBusy, onClick = onKtorfitSend) { Text(AppStrings.KTORFIT_DEMO_BUTTON) }
-        }
-    }
-}
-
-@Composable
 private fun ActivityLogCard(entries: List<ActivityLogEntry>) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth()) {
@@ -448,49 +393,40 @@ private fun healthUrl(): String =
     AppStrings.SERVER_URL_SCHEME + platformServerHost +
         AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.HEALTH_PATH
 
-private fun uploadUrl(): String =
-    AppStrings.SERVER_URL_SCHEME + platformServerHost +
-        AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.UPLOAD_PATH
-
-/** Posts a real multipart file upload through [SyncSetup.liveClient] — proves
+/** Posts a real multipart file upload through [SyncSetup.mutationApi] (Ktorfit) — proves
  * [com.ghostserializer.sync.client.GhostOfflineQueuePlugin] captures a
- * [io.ktor.http.content.OutgoingContent.WriteChannelContent] body (what `MultiPartFormDataContent`
- * actually is) correctly, not just a typed DTO. [OfflineQueuedException] means the server was
- * unreachable and the file is now sitting in the queue, not lost. */
+ * [io.ktor.http.content.OutgoingContent.WriteChannelContent] body (what a multipart upload
+ * actually is) correctly, not just a typed DTO, no matter which layer built the request.
+ * [OfflineQueuedException] means the server was unreachable and the file is now sitting in the
+ * queue, not lost. */
 private suspend fun uploadFile(file: PickedFile): Pair<String, LogKind> = try {
-    SyncSetup.liveClient.post(uploadUrl()) {
-        setBody(
-            MultiPartFormDataContent(
-                formData {
+    SyncSetup.mutationApi.uploadFile(
+        formData {
+            append(
+                AppStrings.UPLOAD_FORM_FIELD_NAME,
+                file.bytes,
+                Headers.build {
                     append(
-                        AppStrings.UPLOAD_FORM_FIELD_NAME,
-                        file.bytes,
-                        Headers.build {
-                            append(
-                                HttpHeaders.ContentDisposition,
-                                AppStrings.UPLOAD_CONTENT_DISPOSITION_PREFIX + file.name + AppStrings.UPLOAD_CONTENT_DISPOSITION_SUFFIX,
-                            )
-                        },
+                        HttpHeaders.ContentDisposition,
+                        AppStrings.UPLOAD_CONTENT_DISPOSITION_PREFIX + file.name + AppStrings.UPLOAD_CONTENT_DISPOSITION_SUFFIX,
                     )
                 },
-            ),
-        )
-    }
+            )
+        },
+    )
     (AppStrings.LOG_UPLOAD_DELIVERED_PREFIX + file.name + AppStrings.LOG_UPLOAD_DELIVERED_SUFFIX) to LogKind.Success
 } catch (e: OfflineQueuedException) {
     (AppStrings.LOG_UPLOAD_QUEUED_PREFIX + file.name + AppStrings.LOG_UPLOAD_QUEUED_SUFFIX) to LogKind.Info
 }
 
 /**
- * Fires all [count] requests concurrently, bounded by [AppConstants.ENQUEUE_CONCURRENCY]
- * in-flight at once — not sequentially. The chaos server injects a multi-second delay on a
- * fraction of requests (see `ChaosConstants`); awaiting each request before starting the next
- * would make those delays stack up one after another instead of overlapping, turning a
- * 1,000-request enqueue into a multi-minute wait for no benefit.
+ * Fires all [count] requests concurrently through [SyncSetup.mutationApi] (Ktorfit), bounded by
+ * [AppConstants.ENQUEUE_CONCURRENCY] in-flight at once — not sequentially. The chaos server
+ * injects a multi-second delay on a fraction of requests (see `ChaosConstants`); awaiting each
+ * request before starting the next would make those delays stack up one after another instead of
+ * overlapping.
  */
 private suspend fun enqueueMutations(count: Int) {
-    val serverUrl = AppStrings.SERVER_URL_SCHEME + platformServerHost +
-        AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.MUTATIONS_PATH
     val concurrencyLimit = Semaphore(AppConstants.ENQUEUE_CONCURRENCY)
 
     coroutineScope {
@@ -502,12 +438,7 @@ private suspend fun enqueueMutations(count: Int) {
                         payload = AppStrings.MUTATION_PAYLOAD_PREFIX + index,
                         createdAtMillis = index.toLong(),
                     )
-                    runCatching {
-                        SyncSetup.liveClient.post(serverUrl) {
-                            contentType(ContentType.Application.Json)
-                            setBody(request)
-                        }
-                    }
+                    runCatching { SyncSetup.mutationApi.createMutation(request) }
                     // A thrown OfflineQueuedException (or any other failure) is expected and
                     // already handled: the request has either been queued by
                     // GhostOfflineQueuePlugin or actually delivered.
