@@ -1,37 +1,29 @@
 package com.ghostserializer.sync.sample.app
 
 internal object AppStrings {
-    const val SCREEN_TITLE: String = "Ghost Sync — Stress Test"
+    const val SCREEN_TITLE: String = "Ghost Sync — Demo"
     const val APP_SUBTITLE: String =
-        "Offline-first HTTP sync, no database. Stop the server, enqueue requests, start it again, and watch them flush below."
+        "Turn the server off below to see requests queue up locally. Turn it back on and sync."
 
-    const val SERVER_CHECKING_MESSAGE: String = "Checking server…"
-    const val SERVER_ONLINE_MESSAGE: String = "Server is reachable — requests will succeed live, not queue offline."
-    const val SERVER_OFFLINE_MESSAGE: String = "Server is unreachable — perfect for testing offline queueing right now."
+    const val SERVER_CHECKING_LABEL: String = "Checking…"
+    const val SERVER_ONLINE_LABEL: String = "Server online"
+    const val SERVER_OFFLINE_LABEL: String = "Server offline"
+    const val SERVER_TURNED_ON_LOG: String = "Server turned on."
+    const val SERVER_TURNED_OFF_LOG: String = "Server turned off."
+    const val SERVER_EXTERNAL_HINT: String =
+        "This platform can't control the server — run sync-sample:server yourself."
 
-    const val STAT_PENDING_TITLE: String = "Pending in queue"
+    const val STAT_PENDING_TITLE: String = "Pending"
     const val STAT_DEAD_LETTERED_TITLE: String = "Dead-lettered"
 
-    const val STEP1_TITLE: String = "1. Enqueue while offline"
-    const val STEP1_DESCRIPTION: String =
-        "Stop the server (or disconnect your network), then tap a button below. Every request " +
-            "fails and lands safely in the on-disk queue instead of being lost."
-    const val ENQUEUE_BUTTON_PREFIX: String = "Enqueue "
-    const val ENQUEUE_BUTTON_SUFFIX: String = " offline"
+    const val SEND_BUTTON_PREFIX: String = "Send "
+    const val SEND_BUTTON_SUFFIX: String = " requests"
+    const val SYNC_BUTTON: String = "Sync now"
+
+    const val ADVANCED_SHOW: String = "Show advanced options"
+    const val ADVANCED_HIDE: String = "Hide advanced options"
     const val STRESS_TEST_BUTTON_PREFIX: String = "Stress test: "
-
-    const val STEP2_TITLE: String = "2. Sync when back online"
-    const val STEP2_DESCRIPTION: String =
-        "Start the server again, then flush the queue. Every pending request is retried in " +
-            "order; successes are removed, 4xx failures move to the dead-letter list."
-    const val FLUSH_BUTTON: String = "Flush now"
-
-    const val STEP3_TITLE: String = "Bonus: Ktorfit"
-    const val STEP3_DESCRIPTION: String =
-        "The same offline-queueing behavior, but through a Ktorfit-generated API call instead " +
-            "of a hand-written HttpClient.post() — proves the plugin works no matter how the " +
-            "request was built."
-    const val KTORFIT_DEMO_BUTTON: String = "Ktorfit: enqueue 1"
+    const val KTORFIT_DEMO_BUTTON: String = "Ktorfit: send 1"
     const val KTORFIT_DEMO_ID_PREFIX: String = "ktorfit-mutation-"
     const val KTORFIT_DEMO_PAYLOAD: String = "via Ktorfit"
 
@@ -40,14 +32,14 @@ internal object AppStrings {
     const val LOG_TIMESTAMP_PREFIX: String = "+"
 
     const val LOG_APP_READY: String = "Ready."
-    const val LOG_ENQUEUEING_PREFIX: String = "Enqueueing "
-    const val LOG_ENQUEUEING_SUFFIX: String = " requests…"
-    const val LOG_ENQUEUED_PREFIX: String = "Enqueued "
-    const val LOG_ENQUEUED_SUFFIX: String = " requests."
-    const val LOG_FLUSHING: String = "Flushing queue…"
-    const val LOG_FLUSHED_RESULT_PREFIX: String = "Flushed — delivered="
-    const val LOG_FLUSHED_RESULT_DEAD_LETTERED: String = " deadLettered="
-    const val LOG_FLUSHED_RESULT_STOPPED_EARLY: String = " stoppedEarly="
+    const val LOG_SENDING_PREFIX: String = "Sending "
+    const val LOG_SENDING_SUFFIX: String = " requests…"
+    const val LOG_SENT_PREFIX: String = "Sent "
+    const val LOG_SENT_SUFFIX: String = " requests."
+    const val LOG_SYNCING: String = "Syncing…"
+    const val LOG_SYNCED_RESULT_PREFIX: String = "Synced — delivered="
+    const val LOG_SYNCED_RESULT_DEAD_LETTERED: String = " deadLettered="
+    const val LOG_SYNCED_RESULT_STOPPED_EARLY: String = " stoppedEarly="
     const val LOG_KTORFIT_SENT_PREFIX: String = "Ktorfit: sent mutation #"
 
     const val MUTATION_ID_PREFIX: String = "mutation-"

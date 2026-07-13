@@ -5,7 +5,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,10 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -46,8 +46,11 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.TimeSource
@@ -55,36 +58,34 @@ import kotlin.time.TimeSource
 private val appStartMark = TimeSource.Monotonic.markNow()
 
 /**
- * The stress-test screen: enqueue thousands of mutations while the chaos server is unreachable
- * (offline queueing), then flush once it's back — see [ServerStatusBanner] for a live read on
- * whether the server is actually reachable right now, and [ActivityLogCard] for a running history
- * of everything the demo has done.
+ * The demo screen. Where [MockServerController.isSupported] is true (desktop), the chaos server
+ * runs in-process and the switch in [ServerStatusRow] turns it on/off directly — no second
+ * terminal needed. Elsewhere (Android/iOS) it just reports whether a server you started yourself
+ * (`./gradlew :sync-sample:server:run`) is reachable.
  *
- * This module talks to `sync-sample:server` running locally
- * (`./gradlew :sync-sample:server:run`).
- *
- * The "Ktorfit" button proves the same offline-queueing works transparently under a
- * Ktorfit-generated call, not just hand-written `HttpClient.post()` calls like [enqueueMutations]
- * below — see [SyncSetup.mutationApi] and [MutationApi].
+ * "Show advanced options" holds the same offline-queueing demo through a Ktorfit-generated call
+ * instead of a hand-written `HttpClient.post()` — see [SyncSetup.mutationApi] and [MutationApi] —
+ * plus larger stress-test batch sizes, both kept out of the way of the simple flow above.
  */
 @Composable
 fun App() {
     val colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     MaterialTheme(colorScheme = colorScheme) {
         Surface(modifier = Modifier.fillMaxSize()) {
-            StressTestScreen()
+            DemoScreen()
         }
     }
 }
 
 @Composable
-private fun StressTestScreen() {
+private fun DemoScreen() {
     val scope = rememberCoroutineScope()
     var queueSize by remember { mutableStateOf(0) }
     var deadLetterSize by remember { mutableStateOf(0) }
     var isBusy by remember { mutableStateOf(false) }
     var ktorfitCallCount by remember { mutableStateOf(0) }
     var serverStatus by remember { mutableStateOf(ServerHealthStatus.Checking) }
+    var showAdvanced by remember { mutableStateOf(false) }
     val logEntries = remember { mutableStateListOf<ActivityLogEntry>() }
 
     fun log(message: String, kind: LogKind = LogKind.Info) {
@@ -99,20 +100,28 @@ private fun StressTestScreen() {
         deadLetterSize = SyncSetup.deadLetterQueue.peekAll().size
     }
 
+    suspend fun checkServerStatus() {
+        serverStatus = runCatching { SyncSetup.replayClient.get(healthUrl()) }
+            .fold(
+                onSuccess = { if (it.status.isSuccess()) ServerHealthStatus.Online else ServerHealthStatus.Offline },
+                onFailure = { ServerHealthStatus.Offline },
+            )
+    }
+
     LaunchedEffect(Unit) {
+        if (MockServerController.isSupported) {
+            MockServerController.start()
+        }
         refreshCounts()
+        checkServerStatus()
         log(AppStrings.LOG_APP_READY)
     }
 
     LaunchedEffect(Unit) {
         while (true) {
-            serverStatus = runCatching { SyncSetup.replayClient.get(healthUrl()) }
-                .fold(
-                    onSuccess = { if (it.status.isSuccess()) ServerHealthStatus.Online else ServerHealthStatus.Offline },
-                    onFailure = { ServerHealthStatus.Offline },
-                )
-            refreshCounts()
             delay(AppConstants.SERVER_HEALTH_POLL_INTERVAL_MS)
+            checkServerStatus()
+            refreshCounts()
         }
     }
 
@@ -121,66 +130,83 @@ private fun StressTestScreen() {
         verticalArrangement = Arrangement.spacedBy(AppDimens.SECTION_SPACING),
     ) {
         Header()
-        ServerStatusBanner(serverStatus)
+
+        ServerStatusRow(
+            status = serverStatus,
+            controllable = MockServerController.isSupported,
+            enabled = !isBusy,
+            onToggle = {
+                scope.launch {
+                    isBusy = true
+                    if (serverStatus == ServerHealthStatus.Online) {
+                        MockServerController.stop()
+                        log(AppStrings.SERVER_TURNED_OFF_LOG)
+                    } else {
+                        MockServerController.start()
+                        log(AppStrings.SERVER_TURNED_ON_LOG)
+                    }
+                    delay(AppConstants.SERVER_TOGGLE_SETTLE_MS)
+                    checkServerStatus()
+                    isBusy = false
+                }
+            },
+        )
+
         StatsRow(pending = queueSize, deadLettered = deadLetterSize)
 
-        ActionCard(title = AppStrings.STEP1_TITLE, description = AppStrings.STEP1_DESCRIPTION) {
-            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
-                Button(
-                    enabled = !isBusy,
-                    onClick = {
-                        scope.launch {
-                            isBusy = true
-                            log(AppStrings.LOG_ENQUEUEING_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.LOG_ENQUEUEING_SUFFIX)
-                            enqueueMutations(AppConstants.DEFAULT_MUTATION_COUNT)
-                            refreshCounts()
-                            log(AppStrings.LOG_ENQUEUED_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.LOG_ENQUEUED_SUFFIX, LogKind.Success)
-                            isBusy = false
-                        }
-                    },
-                ) { Text(AppStrings.ENQUEUE_BUTTON_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT + AppStrings.ENQUEUE_BUTTON_SUFFIX) }
-
-                Button(
-                    enabled = !isBusy,
-                    onClick = {
-                        scope.launch {
-                            isBusy = true
-                            log(AppStrings.LOG_ENQUEUEING_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT + AppStrings.LOG_ENQUEUEING_SUFFIX)
-                            enqueueMutations(AppConstants.STRESS_TEST_MUTATION_COUNT)
-                            refreshCounts()
-                            log(AppStrings.LOG_ENQUEUED_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT + AppStrings.LOG_ENQUEUED_SUFFIX, LogKind.Success)
-                            isBusy = false
-                        }
-                    },
-                ) { Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT) }
-            }
-        }
-
-        ActionCard(title = AppStrings.STEP2_TITLE, description = AppStrings.STEP2_DESCRIPTION) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
             Button(
                 enabled = !isBusy,
                 onClick = {
                     scope.launch {
                         isBusy = true
-                        log(AppStrings.LOG_FLUSHING)
+                        log(AppStrings.LOG_SENDING_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENDING_SUFFIX)
+                        enqueueMutations(AppConstants.SIMPLE_SEND_COUNT)
+                        refreshCounts()
+                        log(AppStrings.LOG_SENT_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENT_SUFFIX, LogKind.Success)
+                        isBusy = false
+                    }
+                },
+            ) { Text(AppStrings.SEND_BUTTON_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.SEND_BUTTON_SUFFIX) }
+
+            Button(
+                enabled = !isBusy,
+                onClick = {
+                    scope.launch {
+                        isBusy = true
+                        log(AppStrings.LOG_SYNCING)
                         val result = SyncSetup.syncEngine.flush(SyncSetup.replayClient)
                         refreshCounts()
                         log(
-                            AppStrings.LOG_FLUSHED_RESULT_PREFIX + result.delivered +
-                                AppStrings.LOG_FLUSHED_RESULT_DEAD_LETTERED + result.deadLettered +
-                                AppStrings.LOG_FLUSHED_RESULT_STOPPED_EARLY + result.stoppedEarly,
+                            AppStrings.LOG_SYNCED_RESULT_PREFIX + result.delivered +
+                                AppStrings.LOG_SYNCED_RESULT_DEAD_LETTERED + result.deadLettered +
+                                AppStrings.LOG_SYNCED_RESULT_STOPPED_EARLY + result.stoppedEarly,
                             if (result.stoppedEarly) LogKind.Error else LogKind.Success,
                         )
                         isBusy = false
                     }
                 },
-            ) { Text(AppStrings.FLUSH_BUTTON) }
+            ) { Text(AppStrings.SYNC_BUTTON) }
         }
 
-        ActionCard(title = AppStrings.STEP3_TITLE, description = AppStrings.STEP3_DESCRIPTION) {
-            Button(
-                enabled = !isBusy,
-                onClick = {
+        TextButton(onClick = { showAdvanced = !showAdvanced }) {
+            Text(if (showAdvanced) AppStrings.ADVANCED_HIDE else AppStrings.ADVANCED_SHOW)
+        }
+
+        if (showAdvanced) {
+            AdvancedSection(
+                isBusy = isBusy,
+                onStressTest = { count ->
+                    scope.launch {
+                        isBusy = true
+                        log(AppStrings.LOG_SENDING_PREFIX + count + AppStrings.LOG_SENDING_SUFFIX)
+                        enqueueMutations(count)
+                        refreshCounts()
+                        log(AppStrings.LOG_SENT_PREFIX + count + AppStrings.LOG_SENT_SUFFIX, LogKind.Success)
+                        isBusy = false
+                    }
+                },
+                onKtorfitSend = {
                     scope.launch {
                         isBusy = true
                         ktorfitCallCount++
@@ -202,7 +228,7 @@ private fun StressTestScreen() {
                         isBusy = false
                     }
                 },
-            ) { Text(AppStrings.KTORFIT_DEMO_BUTTON) }
+            )
         }
 
         ActivityLogCard(logEntries)
@@ -222,20 +248,42 @@ private fun Header() {
 }
 
 @Composable
-private fun ServerStatusBanner(status: ServerHealthStatus) {
-    val (dotColor, message) = when (status) {
-        ServerHealthStatus.Checking -> MaterialTheme.colorScheme.onSurfaceVariant to AppStrings.SERVER_CHECKING_MESSAGE
-        ServerHealthStatus.Online -> MaterialTheme.colorScheme.primary to AppStrings.SERVER_ONLINE_MESSAGE
-        ServerHealthStatus.Offline -> MaterialTheme.colorScheme.error to AppStrings.SERVER_OFFLINE_MESSAGE
+private fun ServerStatusRow(
+    status: ServerHealthStatus,
+    controllable: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    val (dotColor, label) = when (status) {
+        ServerHealthStatus.Checking -> MaterialTheme.colorScheme.onSurfaceVariant to AppStrings.SERVER_CHECKING_LABEL
+        ServerHealthStatus.Online -> MaterialTheme.colorScheme.primary to AppStrings.SERVER_ONLINE_LABEL
+        ServerHealthStatus.Offline -> MaterialTheme.colorScheme.error to AppStrings.SERVER_OFFLINE_LABEL
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Row(
-            modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppDimens.CARD_INTERNAL_SPACING),
-        ) {
-            Box(modifier = Modifier.size(AppDimens.STATUS_DOT_SIZE).clip(CircleShape).background(dotColor))
-            Text(message, style = MaterialTheme.typography.bodyMedium)
+    Card {
+        Column(modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.CARD_INTERNAL_SPACING),
+                ) {
+                    Box(modifier = Modifier.size(AppDimens.STATUS_DOT_SIZE).clip(CircleShape).background(dotColor))
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (controllable) {
+                    Switch(checked = status == ServerHealthStatus.Online, onCheckedChange = { onToggle() }, enabled = enabled)
+                }
+            }
+            if (!controllable) {
+                Text(
+                    AppStrings.SERVER_EXTERNAL_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -262,15 +310,21 @@ private fun StatCard(title: String, value: Int, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ActionCard(title: String, description: String, content: @Composable ColumnScope.() -> Unit) {
+private fun AdvancedSection(isBusy: Boolean, onStressTest: (Int) -> Unit, onKtorfitSend: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(AppDimens.CARD_PADDING).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(AppDimens.CARD_INTERNAL_SPACING),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            content()
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.BUTTON_SPACING)) {
+                Button(enabled = !isBusy, onClick = { onStressTest(AppConstants.DEFAULT_MUTATION_COUNT) }) {
+                    Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.DEFAULT_MUTATION_COUNT)
+                }
+                Button(enabled = !isBusy, onClick = { onStressTest(AppConstants.STRESS_TEST_MUTATION_COUNT) }) {
+                    Text(AppStrings.STRESS_TEST_BUTTON_PREFIX + AppConstants.STRESS_TEST_MUTATION_COUNT)
+                }
+            }
+            Button(enabled = !isBusy, onClick = onKtorfitSend) { Text(AppStrings.KTORFIT_DEMO_BUTTON) }
         }
     }
 }
@@ -315,23 +369,38 @@ private fun healthUrl(): String =
     AppStrings.SERVER_URL_SCHEME + platformServerHost +
         AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.HEALTH_PATH
 
+/**
+ * Fires all [count] requests concurrently, bounded by [AppConstants.ENQUEUE_CONCURRENCY]
+ * in-flight at once — not sequentially. The chaos server injects a multi-second delay on a
+ * fraction of requests (see `ChaosConstants`); awaiting each request before starting the next
+ * would make those delays stack up one after another instead of overlapping, turning a
+ * 1,000-request enqueue into a multi-minute wait for no benefit.
+ */
 private suspend fun enqueueMutations(count: Int) {
     val serverUrl = AppStrings.SERVER_URL_SCHEME + platformServerHost +
         AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.MUTATIONS_PATH
+    val concurrencyLimit = Semaphore(AppConstants.ENQUEUE_CONCURRENCY)
 
-    repeat(count) { index ->
-        val request = MutationRequest(
-            id = AppStrings.MUTATION_ID_PREFIX + index,
-            payload = AppStrings.MUTATION_PAYLOAD_PREFIX + index,
-            createdAtMillis = index.toLong(),
-        )
-        runCatching {
-            SyncSetup.liveClient.post(serverUrl) {
-                contentType(ContentType.Application.Json)
-                setBody(request)
+    coroutineScope {
+        repeat(count) { index ->
+            launch {
+                concurrencyLimit.withPermit {
+                    val request = MutationRequest(
+                        id = AppStrings.MUTATION_ID_PREFIX + index,
+                        payload = AppStrings.MUTATION_PAYLOAD_PREFIX + index,
+                        createdAtMillis = index.toLong(),
+                    )
+                    runCatching {
+                        SyncSetup.liveClient.post(serverUrl) {
+                            contentType(ContentType.Application.Json)
+                            setBody(request)
+                        }
+                    }
+                    // A thrown OfflineQueuedException (or any other failure) is expected and
+                    // already handled: the request has either been queued by
+                    // GhostOfflineQueuePlugin or actually delivered.
+                }
             }
         }
-        // A thrown OfflineQueuedException (or any other failure) is expected and already handled:
-        // the request has either been queued by GhostOfflineQueuePlugin or actually delivered.
     }
 }

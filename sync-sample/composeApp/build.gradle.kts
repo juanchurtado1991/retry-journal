@@ -84,6 +84,13 @@ kotlin {
         desktopMain.dependencies {
             implementation(libs.ktor.client.okhttp)
             implementation(compose.desktop.currentOs)
+
+            // Lets the desktop build run the chaos server in-process (MockServerController) so
+            // testing needs one command and one window instead of a second terminal.
+            implementation(project(":sync-sample:server"))
+            implementation(libs.ktor.server.core)
+            implementation(libs.ktor.server.cio)
+            implementation(libs.ktor.server.content.negotiation)
         }
     }
 }

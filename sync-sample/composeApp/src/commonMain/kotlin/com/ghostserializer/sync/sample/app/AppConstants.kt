@@ -4,6 +4,9 @@ internal object AppConstants {
     const val QUEUE_FILE_NAME: String = "ghost-sync-queue.bin"
     const val DEAD_LETTER_FILE_NAME: String = "ghost-sync-dead-letter.bin"
 
+    /** The default "Send N requests" button — small on purpose, so each request's fate (queued vs
+     * delivered) is easy to follow by eye instead of just watching a big number change. */
+    const val SIMPLE_SEND_COUNT: Int = 5
     const val DEFAULT_MUTATION_COUNT: Int = 1_000
     const val STRESS_TEST_MUTATION_COUNT: Int = 10_000
 
@@ -29,4 +32,12 @@ internal object AppConstants {
     const val SERVER_HEALTH_POLL_INTERVAL_MS: Long = 2_000L
     const val ACTIVITY_LOG_MAX_ENTRIES: Int = 50
     const val LOG_TIMESTAMP_DECIMALS: Int = 1
+
+    /** How many enqueue requests run concurrently — also wired into OkHttp's dispatcher
+     * (see PlatformHttpClientEngine.*.kt) so it isn't the one silently throttling this back down. */
+    const val ENQUEUE_CONCURRENCY: Int = 64
+
+    /** Gives the embedded server's socket a moment to bind/unbind before the next health check,
+     * so toggling it doesn't race a poll that started just before the toggle finished. */
+    const val SERVER_TOGGLE_SETTLE_MS: Long = 150L
 }
