@@ -27,6 +27,10 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `GhostOfflineQueuePlugin` captures multi-valued headers with a record separator (`\u001e`)
 - `GhostOfflineQueuePlugin` fails closed on body capture errors instead of enqueueing empty payloads
 - `GhostOfflineQueuePlugin` handles `NoContent` bodies (header-only requests)
+- `GhostOfflineQueuePlugin` serializes header/body capture so concurrent failed requests can no longer cross-contaminate each other's queued headers
+- JVM/Android `DiskQueue` instances sharing a queue file no longer crash with `OverlappingFileLockException` when driven from real parallel threads in the same process
+- `DeadLetterQueue.record` is idempotent for an identical replayed entry, closing a crash window that could duplicate a dead-letter record
+- `GhostSyncEngine.flush` rejects an `HttpClient` with `GhostOfflineQueuePlugin` installed instead of silently duplicating entries on replay failure
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
