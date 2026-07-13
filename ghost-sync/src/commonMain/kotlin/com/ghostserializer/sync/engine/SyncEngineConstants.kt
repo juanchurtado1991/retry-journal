@@ -9,4 +9,11 @@ internal object SyncEngineConstants {
 
     /** Transient client errors retried on the next [GhostSyncEngine.flush] instead of dead-lettered. */
     val RETRY_WORTHY_CLIENT_ERROR_STATUSES: Set<Int> = setOf(408, 429)
+
+    const val REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE: String =
+        "GhostSyncEngine.flush() was passed an HttpClient with GhostOfflineQueuePlugin installed. " +
+            "A network failure during replay would be re-captured by the plugin and re-enqueued " +
+            "while the original entry is still on the queue, duplicating it. Use a separate " +
+            "HttpClient without the plugin for replay, or use GhostSync.create(...) + " +
+            "GhostSync.flush(), which wires this correctly for you."
 }

@@ -1,15 +1,18 @@
 package com.ghostserializer.sync.engine
 
+import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import com.ghostserializer.sync.client.OfflineQueuedException
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND
 import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND
 import com.ghostserializer.sync.engine.SyncEngineConstants.HEADER_MULTI_VALUE_SEPARATOR
+import com.ghostserializer.sync.engine.SyncEngineConstants.REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE
 import com.ghostserializer.sync.engine.SyncEngineConstants.RETRY_WORTHY_CLIENT_ERROR_STATUSES
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.QueueEntry
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -25,10 +28,14 @@ class GhostSyncEngine(
     private val queue: DiskQueue,
     private val deadLetterQueue: DeadLetterQueue,
 ) {
+    /** Replaying through a client that re-queues its own failures would duplicate every entry
+     * that fails again mid-replay — see [REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE]. */
     suspend fun flush(
         client: HttpClient,
         onProgress: suspend (FlushProgress) -> Unit = {}
     ): FlushResult {
+        check(client.pluginOrNull(GhostOfflineQueuePlugin) == null) { REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE }
+
         var delivered = 0
         var deadLettered = 0
 

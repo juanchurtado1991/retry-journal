@@ -7,6 +7,7 @@ import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -22,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class GhostSyncEngineTest {
@@ -212,6 +214,22 @@ class GhostSyncEngineTest {
 
         assertEquals("application/x-ghost", replayedContentType)
         assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `flush refuses a client that has the offline-queue plugin installed`() = runBlocking {
+        // Replaying through a client that re-queues its own IOExceptions would duplicate any
+        // entry that fails again mid-flush: the plugin re-enqueues it, and since trySend()
+        // swallows the resulting OfflineQueuedException, the original is never removed either.
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val selfQueuingClient = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { diskQueue = queue }
+        }
+
+        assertFailsWith<IllegalStateException> {
+            engine.flush(selfQueuingClient)
+        }
+        assertEquals(1, queue.peekAll().size)
     }
 
     @Test
