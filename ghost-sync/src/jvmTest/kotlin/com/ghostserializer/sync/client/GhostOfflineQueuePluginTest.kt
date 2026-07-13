@@ -6,7 +6,11 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.ByteArrayContent
+import io.ktor.http.contentType
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.runBlocking
@@ -51,6 +55,28 @@ class GhostOfflineQueuePluginTest {
         assertEquals("POST", queued?.meta?.method)
         assertEquals("https://example.com/mutations", queued?.meta?.url)
         assertEquals("hello-ghost", queued?.body?.decodeToString())
+    }
+
+    @Test
+    fun `queued Content-Type reflects the body actually sent, not a stale caller-declared one`() = runBlocking {
+        // Mirrors what ContentNegotiation does in practice: the caller can declare a Content-Type
+        // via contentType(...) that ends up different from what the negotiated OutgoingContent
+        // actually carries (e.g. a client with only a Ghost converter registered, called with an
+        // explicit but unrelated contentType()). request.headers keeps the caller's stale label;
+        // only the body's own contentType is the one the wire — and any replay — should trust.
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.post("https://example.com/mutations") {
+                contentType(ContentType.Application.Json)
+                setBody(ByteArrayContent("ghost-bytes".encodeToByteArray(), ContentType.parse("application/x-ghost")))
+            }
+        }
+
+        val queued = diskQueue.peek()
+        assertEquals("application/x-ghost", queued?.meta?.headers?.get(HttpHeaders.ContentType))
     }
 
     @Test

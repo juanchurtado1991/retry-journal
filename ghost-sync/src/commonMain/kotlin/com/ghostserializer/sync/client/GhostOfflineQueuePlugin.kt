@@ -6,6 +6,7 @@ import io.ktor.client.plugins.HttpClientPlugin
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.errors.IOException
@@ -43,14 +44,22 @@ class GhostOfflineQueuePlugin private constructor(
     }
 
     private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) {
-        val body = (request.body as? OutgoingContent.ByteArrayContent)?.bytes()
-            ?: ClientConstants.EMPTY_BODY
+        val outgoingBody = request.body as? OutgoingContent.ByteArrayContent
+        val body = outgoingBody?.bytes() ?: ClientConstants.EMPTY_BODY
 
         val builderEntries = request.headers.entries()
-        val headers = LinkedHashMap<String, String>(builderEntries.size)
+        val headers = LinkedHashMap<String, String>(builderEntries.size + ClientConstants.HEADER_MAP_SLACK)
         for (entry in builderEntries) {
             headers[entry.key] = entry.value.firstOrNull().orEmpty()
         }
+        // request.headers can carry a Content-Type the caller declared explicitly (e.g. via
+        // contentType(...)) that no longer matches what ContentNegotiation put on the wire —
+        // engines send OutgoingContent's own contentType, not that stale label, so a plain
+        // caller-declared mismatch is harmless for the request this plugin is intercepting.
+        // Replaying it later isn't: GhostSyncEngine.send() rebuilds a bare ByteArrayContent from
+        // exactly what's captured here, so a stale label would ship the real (correctly encoded)
+        // bytes under the wrong Content-Type and the server would reject every single replay.
+        outgoingBody?.contentType?.let { headers[HttpHeaders.ContentType] = it.toString() }
 
         diskQueue.enqueue(
             method = request.method.value,
