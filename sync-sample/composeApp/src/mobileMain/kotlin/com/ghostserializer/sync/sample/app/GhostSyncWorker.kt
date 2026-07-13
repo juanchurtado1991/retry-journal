@@ -34,6 +34,9 @@ class GhostSyncWorker(
                 )
             }
         } catch (cause: Exception) {
+            if (cause is kotlinx.coroutines.CancellationException) {
+                throw cause
+            }
             retry(reason = AppStrings.WORKER_RETRY_REASON_THREW_PREFIX + cause.message)
         }
     }

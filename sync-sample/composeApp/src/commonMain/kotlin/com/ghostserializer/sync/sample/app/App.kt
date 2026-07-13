@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import com.ghostserializer.sync.client.OfflineQueuedException
 import com.ghostserializer.sync.engine.FlushProgress
+import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.sample.shared.MutationRequest
 import com.ghostserializer.sync.sample.shared.SampleApiConstants
 import io.ktor.client.request.forms.formData
@@ -104,8 +105,9 @@ private fun DemoScreen() {
     suspend fun refreshCounts() {
         queueSize = SyncSetup.diskQueue.size()
         deadLetterSize = SyncSetup.deadLetterQueue.size()
-        queueChips = SyncSetup.diskQueue.peekIds(AppConstants.MAX_VISUALIZED_QUEUE_ITEMS)
-            .map { QueueChipUiState(it, ChipStatus.Pending) }
+        val pendingIds = ArrayList<QueueEntryId>(AppConstants.MAX_VISUALIZED_QUEUE_ITEMS)
+        SyncSetup.diskQueue.peekIds(AppConstants.MAX_VISUALIZED_QUEUE_ITEMS, pendingIds)
+        queueChips = pendingIds.map { QueueChipUiState(it, ChipStatus.Pending) }
     }
 
     suspend fun checkServerStatus() {

@@ -67,6 +67,7 @@ kotlin {
 
         androidMain {
             dependsOn(mobileMain)
+            kotlin.srcDir("build/generated/ksp/android/androidDebug/kotlin")
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)

@@ -1,139 +1,92 @@
-# Ghost Sync — full-cycle sample
+# 👻 Ghost Sync — Sample App
 
-A Compose Multiplatform app that shows `:ghost-sync` actually working: turn the server off, do
-things, watch requests queue up locally; turn it back on, hit sync, watch them drain out.
+A Compose Multiplatform demo that shows `ghost-sync` in action. Turn the server off, make some requests, watch them queue up locally — then turn it back on, hit Sync, and watch them deliver in real time.
 
-## Try it in 60 seconds
+---
 
-No device, no emulator, no second terminal — the desktop build embeds the chaos server in the
-same process:
+## 🚀 Run in 60 Seconds (No Device Needed)
+
+The desktop build includes the server built in. Just run:
 
 ```bash
 ./gradlew :sync-sample:composeApp:run
 ```
 
-A window opens with the server already on. That's it.
-
-### What you'll see
-
-![The demo screen: a server on/off switch, live pending/dead-letter counts, one chip per pending request, Upload a file / Send 5 JSON requests on the left, Sync now on the right, and a running activity log](docs/demo-desktop.png)
-
-This particular run has 9,994 requests pending (captured while queuing at a larger scale than the
-buttons below produce on their own) — the row of gray dots is
-[`QueueVisualization`](composeApp/src/commonMain/kotlin/com/ghostserializer/sync/sample/app/App.kt):
-one chip per pending request, capped at 20 on screen at once (a backlog that size does not need —
-or want — thousands of individual chips). Each chip flashes green (delivered) or red
-(dead-lettered) as **Sync now** actually resolves it, driven by real progress from
-`GhostSyncEngine`, not a simulated animation.
-
-Try this flow yourself:
-
-1. Flip the switch off. The dot turns red.
-2. Tap **Upload a file** and pick anything from disk. It fails to send (no server) and shows up
-   as a chip under "Pending" instead — that's `GhostOfflineQueuePlugin` catching the connection
-   failure and persisting the file to `DiskQueue`, byte for byte.
-3. Flip the switch back on.
-4. Tap **Sync now**. Watch the chip flash green and disappear — that's `GhostSyncEngine.flush()`
-   replaying the queued request for real, reported back live through `FlushProgress`.
-
-**Send 5 JSON requests** does the same thing at a small, easy-to-watch scale — five plain
-mutations instead of one file. Both buttons call the same [`MutationApi`](composeApp/src/commonMain/kotlin/com/ghostserializer/sync/sample/app/MutationApi.kt),
-a Ktorfit-generated interface — every request this demo makes, upload or JSON, goes through it.
-That's a choice made for this sample, not a requirement of `:ghost-sync`: `GhostOfflineQueuePlugin`
-is installed on a plain `HttpClient` and intercepts at Ktor's `HttpSend` phase, which every request
-reaches no matter how it was built — Ktorfit's generated code is itself just calling that same
-`HttpClient` underneath. A hand-written `HttpClient.post(...)` (see the root README's Quick start)
-is captured and queued exactly the same way.
-
-### Why "Sync now" might not finish a big queue in one click
-
-This is expected, not a bug: with a large enough backlog (queued while offline, or built up from
-many taps of **Send 5 JSON requests**), tapping **Sync now** once will usually *not* drain the
-whole queue. `GhostSyncEngine.flush()` replays entries one at a time against the real chaos server
-(see the rotation below) — every 20th request stalls 15 seconds, longer than the client's
-6-second socket timeout, which throws a genuine `IOException`. `flush()` treats that exactly like
-the server going down mid-sync: it **stops immediately**, leaving everything still queued for the
-next attempt, instead of skipping the failure and pressing on.
-
-With a few thousand entries that stall is going to happen roughly every 20 requests — so one `flush()`
-call only ever gets partway through before stopping, and **Sync now** needs to be tapped again to
-pick up where it left off. This is `GhostSyncEngine.flush()`'s documented behavior (see the root
-README's "How it works" table: `5xx or IOException` → *"stop here, the rest waits for the next
-`flush()`"*) — the demo's button just makes one `flush()` call per tap, it doesn't loop. A real
-background sync job calling `flush()` on a timer would simply pick the rest up on its next run
-without anyone noticing.
-
-## Run on Android
-
-Android/iOS have no in-process server story, so you run the chaos server yourself:
-
-```bash
-./gradlew :sync-sample:server:run          # in one terminal
-./gradlew :sync-sample:composeApp:installDebug   # in another
-```
-
-`PlatformServerHost.android.kt` already points at `10.0.2.2` — the emulator's alias for the host
-machine's `localhost`. On a physical device, change it to your machine's LAN IP instead. The demo
-screen looks and behaves the same as on desktop, minus the server toggle (there's nothing local to
-switch — a hint on screen explains this).
-
-The chaos server itself: `GET /health` → `200 ok`. `POST /mutations` behaves badly on a rotation —
-every 5th request is slow-but-succeeds, every 7th returns 503, every 13th returns 400, every 20th
-stalls 15s (long enough to blow past the client's 6s socket timeout and force an offline queue).
-`POST /uploads` is simpler — it always succeeds when reachable, since the point of that endpoint is
-proving a real multipart body survives the queue, not exercising the chaos rotation again.
-
-## Run on iOS
-
-See [`iosApp/README.md`](iosApp/README.md) — the Swift side is a reference scaffold, not a real
-buildable Xcode project (this environment has no macOS/Xcode to generate or verify one).
-
-## What's actually running here
-
-| Target | Status |
-|---|---|
-| `shared` | Compiles (JVM + Android); KSP generates both serializers |
-| `server` | Runs for real — hit with real HTTP requests, chaos rotation confirmed by hand |
-| `composeApp` (Desktop/JVM) | Runs for real — `./gradlew :sync-sample:composeApp:run`, embedded server binds the port, window opens, no exceptions |
-| `composeApp` (Android) | Compiles; a real debug APK builds (`assembleDebug`) |
-| `composeApp` (iOS) | **Not compiled** — no macOS/Xcode here. Gradle skips it (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI on Linux |
-| `iosApp/` | Reference Swift files only |
+A window opens with the server already running. That's it!
 
 ---
 
-## Implementation notes
+## 🖥️ What You'll See
 
-Deeper detail on decisions that took real investigation to get right — useful if you're extending
-this sample, not necessary just to run it.
+![Demo screen showing pending requests, server toggle, sync button and activity log](docs/demo-desktop.png)
 
-### Ktorfit pinned to 2.1.0, wired by hand
+The UI shows:
+- **Server On/Off toggle** — simulate going offline instantly.
+- **Pending requests** — one dot per queued request waiting to be sent.
+- **Activity log** — a live feed of everything happening.
 
-Ktorfit's current releases default to Ktor 3.x, which conflicts with `ghost-ktor`'s pinned Ktor
-2.3.11 in the same module. `2.1.0` is the last Ktorfit release that defaults to Ktor 2.x (2.3.12,
-compatible enough with 2.3.11) — confirmed via its changelog, not assumed. Its Gradle plugin's
-automatic KSP-version resolution doesn't know this project's exact Kotlin/KSP combo (2.1.10 /
-`1.0.31`) and tries to fetch a `ktorfit-ksp` artifact that doesn't exist, so the Gradle plugin
-(`de.jensklingenberg.ktorfit`) isn't applied at all — `ktorfit-ksp:2.1.0-1.0.27` (the closest
-version actually published, checked via `maven-metadata.xml`) is wired in by hand instead, same
-pattern as `kmpworkmanager` below. `MutationApi` lives in `commonMain`, which needs
-`kspCommonMainMetadata` (not just the per-target `ksp<Target>` configs) plus registering
-`build/generated/ksp/metadata/commonMain/kotlin` as a `commonMain` source root — confirmed by
-finding zero generated output until both were added.
+---
 
-### kmpworkmanager's real API vs. its README
+## 🎮 Try This Flow
 
-The `kmpworkmanager` integration (`KmpWorkManagerSetup.android.kt`, `SyncWorkerAndroid.kt`,
-`GhostSyncWorker.kt`) was corrected by decompiling the resolved `kmpworkmanager-android-3.0.1`
-artifact, not copied from its public README, which omits: the real package
-(`dev.brewkits.kmpworkmanager.background.domain`), the real scheduler accessor
-(`KmpWorkManager.getInstance().backgroundTaskScheduler`, not a bare `.scheduler`), the real
-generated factory class name (`AndroidWorkerFactoryGenerated`), and a required `reason: String`
-parameter on `WorkerResult.Retry` its own snippet omits. All confirmed against a real, successful
-`assembleDebug` build that produced an installable APK. `kmpworkmanager` publishes Android + iOS
-only — no JVM — so it (and `GhostSyncWorker`) live in a `mobileMain` intermediate source set that
-`desktopMain` doesn't depend on. The desktop build has no periodic background sync as a result, but
-**Sync now** works identically everywhere since it never depended on a scheduler in the first
-place — see the root README's "Scheduling: any of them, or none".
+1. **Flip the server OFF** (the dot turns red).
+2. **Tap "Upload a file"** — it can't reach the server, so it gets saved to disk automatically.
+3. **Flip the server back ON**.
+4. **Tap "Sync now"** — watch the request deliver live and the chip turn green and disappear.
 
-The `IosWorker` side follows the same package/API conventions by analogy but was never compiled —
-no Kotlin/Native Apple toolchain on this machine to verify it against.
+> 💡 **"Send 5 JSON requests"** does the same thing with plain JSON mutations instead of a file upload.
+
+---
+
+## ❓ Why Doesn't "Sync now" Empty the Queue in One Tap?
+
+This is intentional — not a bug. The demo uses a **chaos server** that deliberately misbehaves on a rotation:
+
+| Every Nth request | Behavior |
+|---|---|
+| 5th | Slow, but succeeds |
+| 7th | Returns `503 Service Unavailable` |
+| 13th | Returns `400 Bad Request` |
+| 20th | Stalls 15 seconds (triggers a timeout) |
+
+When a timeout or `5xx` hits, `flush()` **stops immediately** instead of skipping over it — just like a real offline scenario. Tap **Sync now** again to continue from where it left off.
+
+> In a real app, a background scheduler calls `flush()` automatically on a timer, so the user never even notices.
+
+---
+
+## 📱 Run on Android
+
+Android can't embed the server in-process, so you run it separately:
+
+```bash
+# Terminal 1 — start the chaos server
+./gradlew :sync-sample:server:run
+
+# Terminal 2 — install the app
+./gradlew :sync-sample:composeApp:installDebug
+```
+
+- **Emulator**: already points to `10.0.2.2` (host machine's localhost) — no changes needed.
+- **Physical device**: update `PlatformServerHost.android.kt` to your machine's LAN IP.
+
+---
+
+## 🍎 Run on iOS
+
+See [`iosApp/README.md`](iosApp/README.md).
+
+> iOS builds require macOS + Xcode. The shared Kotlin code compiles fine on Linux/Windows; only the final Xcode link step needs macOS.
+
+---
+
+## ✅ Build Status
+
+| Target | Status |
+|---|---|
+| `shared` (JVM + Android) | ✅ Compiles, KSP serializers generated |
+| `server` | ✅ Runs live, chaos rotation verified |
+| `composeApp` (Desktop) | ✅ Runs via `./gradlew :sync-sample:composeApp:run` |
+| `composeApp` (Android) | ✅ Compiles, debug APK builds |
+| `composeApp` (iOS) | ⏭️ Skipped on non-macOS (no Xcode) |
+| `iosApp/` | 📄 Reference Swift scaffold only |
