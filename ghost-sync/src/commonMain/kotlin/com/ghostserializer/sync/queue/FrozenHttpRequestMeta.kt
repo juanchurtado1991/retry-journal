@@ -18,7 +18,6 @@ import com.ghost.serialization.annotations.GhostSerialization
 data class FrozenHttpRequestMeta(
     val method: String,
     val url: String,
-    val headers: Map<String, String>,
+    val headers: FrozenHttpHeaders,
     val enqueuedAtMillis: Long,
-    val attempt: Int,
 )
