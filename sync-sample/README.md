@@ -9,6 +9,7 @@ enqueues thousands of mutations offline and flushes them once connectivity retur
 | `server` | Chaotic Ktor/CIO server | **Actually run** and hit with 22 real HTTP requests — see its own module for details |
 | `composeApp` (Android) | Compose UI + kmpworkmanager integration + Ktorfit | Compiles; a real debug APK was built (`./gradlew :sync-sample:composeApp:assembleDebug`) |
 | `composeApp` (iOS) | Same commonMain UI, Darwin engine, `IosWorker` | **Not compiled** — this machine has no Xcode. Kotlin/Native can't build Apple targets off macOS; Gradle just skips them (`kotlin.native.ignoreDisabledTargets=true`), same as `ghost-serializer`'s own CI on Linux |
+| `composeApp` (Desktop/JVM) | Same commonMain UI, OkHttp engine, no scheduler | **Actually run** via `./gradlew :sync-sample:composeApp:run` — window opens, process stays alive with no exceptions |
 | `iosApp/` | Xcode host project | Reference Swift files only, not a real `.pbxproj` — see `iosApp/README.md` |
 
 ## Run the chaos server
@@ -25,9 +26,9 @@ numbers 7, 13, 14, 21).
 
 ## Run the Android app
 
-Point `AppConstants.SERVER_HOST` at wherever the server is reachable from the device:
-`10.0.2.2` (already set) is the Android **emulator's** alias for the host machine; on a physical
-device use your machine's LAN IP instead.
+Point `PlatformServerHost.android.kt`'s `platformServerHost` at wherever the server is reachable
+from the device: `10.0.2.2` (already set) is the Android **emulator's** alias for the host machine;
+on a physical device use your machine's LAN IP instead.
 
 ```bash
 ./gradlew :sync-sample:composeApp:installDebug
@@ -64,6 +65,26 @@ actually finding zero generated output until both were added, then finding
 ## Run the iOS app
 
 See `iosApp/README.md` — needs an actual Xcode project this session couldn't create or verify.
+
+## Run the desktop app
+
+```bash
+./gradlew :sync-sample:composeApp:run
+```
+
+`:ghost-sync` already targeted `jvm` from the start (it only depends on Ghost, which publishes a
+JVM artifact); `composeApp` didn't declare a `jvm("desktop")` target until now. The desktop build
+reuses the same `commonMain` UI and OkHttp engine as Android (OkHttp isn't Android-specific — it's
+a plain JVM library), talks to the chaos server at `localhost` (no NAT alias needed, unlike the
+Android emulator's `10.0.2.2` — see `PlatformServerHost.*.kt`), and stores its queue under
+`~/.ghost-sync-sample/`.
+
+`kmpworkmanager` publishes Android + iOS only, no JVM variant, so it — and `GhostSyncWorker`, which
+implements its `Worker` interface — live in a new `mobileMain` intermediate source set
+(`androidMain`/`iosMain` depend on it, `desktopMain` doesn't). This is exactly the scheduler-agnostic
+design `:ghost-sync` itself is built around: the desktop build has no periodic background sync, but
+**Flush now** and the Ktorfit button work identically to Android/iOS since neither depends on a
+scheduler — see the root README's "any scheduler, or none" section.
 
 ## What's verified vs. best-effort in this module
 

@@ -1,7 +1,6 @@
 package com.ghostserializer.sync.sample.app
 
 internal object AppConstants {
-    const val SERVER_HOST: String = "10.0.2.2" // Android emulator's alias for the host machine's localhost.
     const val QUEUE_FILE_NAME: String = "ghost-sync-queue.bin"
     const val DEAD_LETTER_FILE_NAME: String = "ghost-sync-dead-letter.bin"
 
@@ -20,4 +19,10 @@ internal object AppConstants {
     /** Must match the identifier registered with BGTaskScheduler in iosApp's AppDelegate and
      * listed under BGTaskSchedulerPermittedIdentifiers in Info.plist — see sync-sample/iosApp/. */
     const val IOS_BACKGROUND_TASK_ID: String = "ghost_sync_task"
+
+    /** A per-user, app-private directory under the desktop user's home — unlike Android's
+     * `filesDir` or iOS's Documents directory, nothing guarantees this exists on first run. */
+    const val DESKTOP_DATA_DIRECTORY_NAME: String = ".ghost-sync-sample"
+
+    const val DESKTOP_WINDOW_TITLE: String = "Ghost Sync — Stress Test (Desktop)"
 }

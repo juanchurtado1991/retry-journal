@@ -23,6 +23,12 @@ kotlin {
         }
     }
 
+    jvm("desktop") {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+
     applyDefaultHierarchyTemplate()
 
     sourceSets {
@@ -39,8 +45,6 @@ kotlin {
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kmpworkmanager)
-            implementation(libs.kmpworkmanager.annotations)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.ktorfit.lib.light)
 
@@ -51,13 +55,35 @@ kotlin {
             implementation(compose.components.resources)
         }
 
+        // kmpworkmanager publishes Android + iOS only (no JVM variant), so its dependents
+        // (GhostSyncWorker.kt) live here, not in commonMain — desktop never sees this source set.
+        val mobileMain by creating {
+            dependsOn(commonMain.get())
+        }
+        mobileMain.dependencies {
+            implementation(libs.kmpworkmanager)
+            implementation(libs.kmpworkmanager.annotations)
+        }
+
+        androidMain {
+            dependsOn(mobileMain)
+        }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.androidx.activity.compose)
         }
 
+        iosMain {
+            dependsOn(mobileMain)
+        }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+        }
+
+        val desktopMain by getting
+        desktopMain.dependencies {
+            implementation(libs.ktor.client.okhttp)
+            implementation(compose.desktop.currentOs)
         }
     }
 }
@@ -107,4 +133,10 @@ android {
 compose.resources {
     publicResClass = false
     packageOfResClass = "com.ghostserializer.sync.sample.app.resources"
+}
+
+compose.desktop {
+    application {
+        mainClass = "com.ghostserializer.sync.sample.app.MainKt"
+    }
 }

@@ -147,7 +147,7 @@ private fun StressTestScreen() {
 }
 
 private suspend fun enqueueMutations(count: Int) {
-    val serverUrl = AppStrings.SERVER_URL_SCHEME + AppConstants.SERVER_HOST +
+    val serverUrl = AppStrings.SERVER_URL_SCHEME + platformServerHost +
         AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT + SampleApiConstants.MUTATIONS_PATH
 
     repeat(count) { index ->

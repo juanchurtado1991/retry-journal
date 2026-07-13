@@ -59,7 +59,7 @@ internal object SyncSetup {
         Ktorfit.Builder()
             .httpClient(liveClient)
             .baseUrl(
-                AppStrings.SERVER_URL_SCHEME + AppConstants.SERVER_HOST +
+                AppStrings.SERVER_URL_SCHEME + platformServerHost +
                     AppStrings.SERVER_URL_PORT_SEPARATOR + SampleApiConstants.DEFAULT_PORT +
                     AppStrings.SERVER_URL_TRAILING_SLASH,
             )
