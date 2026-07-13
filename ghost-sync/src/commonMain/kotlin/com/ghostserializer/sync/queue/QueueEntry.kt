@@ -3,7 +3,7 @@ package com.ghostserializer.sync.queue
 /**
  * A live, decoded record read back from a [DiskQueue].
  *
- * `equals()`/`hashCode()`/`toString()` are hand-written, not the compiler-generated data class
+ * `equals()`/`hashCode()`/`toString()` are handwritten, not the compiler-generated data class
  * versions: the default ones compare/hash [body] by reference (it's a `ByteArray`), so two
  * entries with byte-for-byte identical bodies would compare unequal, and the default `toString()`
  * would print the array's identity (`[B@...`) instead of anything useful.
