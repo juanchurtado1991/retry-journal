@@ -13,6 +13,7 @@ import io.ktor.utils.io.core.Closeable
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.SYSTEM
 
 /**
  * The plug-and-play entry point: one call wires [DiskQueue] + [DeadLetterQueue] + [GhostSyncEngine]
@@ -30,7 +31,7 @@ import okio.Path.Companion.toPath
  * plugin captures whatever [io.ktor.http.content.OutgoingContent.ByteArrayContent] bytes already
  * exist at send time and the engine replays those same raw bytes. Configure whatever
  * `ContentNegotiation` you want for those — Ghost's `ghost()`, kotlinx.serialization's `json()`,
- * both together, or none at all — via [httpClientConfig]; this class installs no
+ * both together, or none at all — via httpClientConfig; this class installs no
  * content-negotiation converter of its own.
  */
 class GhostSync private constructor(
@@ -59,7 +60,11 @@ class GhostSync private constructor(
             httpClientConfig: HttpClientConfig<T>.() -> Unit = {},
         ): GhostSync {
             val queue = DiskQueue(queuePath, fileSystem)
-            val deadLetters = DeadLetterQueue(mainQueue = queue, storage = DiskQueue(deadLetterPath, fileSystem))
+            val deadLetters = DeadLetterQueue(
+                mainQueue = queue,
+                storage = DiskQueue(deadLetterPath, fileSystem)
+            )
+
             val engine = GhostSyncEngine(queue, deadLetters)
 
             val client = HttpClient(engineFactory) {
@@ -70,7 +75,13 @@ class GhostSync private constructor(
                 httpClientConfig()
             }
 
-            return GhostSync(queue, deadLetters, engine, client, replayClient)
+            return GhostSync(
+                queue,
+                deadLetters,
+                engine,
+                client,
+                replayClient
+            )
         }
 
         private fun defaultDeadLetterPath(queuePath: Path): Path =
