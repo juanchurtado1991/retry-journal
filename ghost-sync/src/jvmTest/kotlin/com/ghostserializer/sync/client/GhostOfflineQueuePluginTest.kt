@@ -4,6 +4,8 @@ import com.ghostserializer.sync.queue.DiskQueue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -24,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class GhostOfflineQueuePluginTest {
 
@@ -77,6 +80,31 @@ class GhostOfflineQueuePluginTest {
 
         val queued = diskQueue.peek()
         assertEquals("application/x-ghost", queued?.meta?.headers?.get(HttpHeaders.ContentType))
+    }
+
+    @Test
+    fun `a multipart file upload's real bytes are queued, not dropped`() = runBlocking {
+        // MultiPartFormDataContent (and any streamed file body) is an
+        // OutgoingContent.WriteChannelContent, not a ByteArrayContent — a caller building a
+        // typed DTO never hits this path, but a real file/image upload always does.
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.post("https://example.com/upload") {
+                setBody(
+                    MultiPartFormDataContent(
+                        formData {
+                            append("file", "not-actually-empty".encodeToByteArray())
+                        },
+                    ),
+                )
+            }
+        }
+
+        val queued = diskQueue.peek()
+        assertTrue((queued?.body?.size ?: 0) > 0, "expected the multipart body to be captured, got ${queued?.body?.size ?: 0} bytes")
     }
 
     @Test
