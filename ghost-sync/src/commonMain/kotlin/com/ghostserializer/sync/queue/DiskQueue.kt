@@ -1,6 +1,8 @@
 package com.ghostserializer.sync.queue
 
 import com.ghost.serialization.Ghost
+import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD
+import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okio.FileSystem
@@ -170,11 +172,17 @@ class DiskQueue(
                     }
 
                     is RecordReadResult.Tombstone -> {
-                        val deadOffset = liveOffsetsBySequence.remove(result.targetSequenceId)
-                        val deadLength = deadOffset?.let { recordLengthsByOffset.remove(it) }
+                        val deadOffset = liveOffsetsBySequence
+                            .remove(result.targetSequenceId)
+
+                        val deadLength = deadOffset?.let {
+                            recordLengthsByOffset.remove(it)
+                        }
+
                         if (deadLength != null) {
                             deadBytes += deadLength + result.recordLength
                         }
+
                         offset += result.recordLength
                     }
 
@@ -207,11 +215,11 @@ class DiskQueue(
             return
         }
         val deadRatio = deadBytes.toDouble() / fileLength.toDouble()
-        if (deadRatio < DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD) {
+        if (deadRatio < COMPACTION_DEAD_RATIO_THRESHOLD) {
             return
         }
 
-        val tempPath = (path.toString() + DiskQueueConstants.COMPACTION_FILE_SUFFIX).toPath()
+        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
         fileSystem.delete(tempPath, mustExist = false)
 
         val newOffsetsBySequence = LinkedHashMap<Long, Long>()
@@ -223,10 +231,16 @@ class DiskQueue(
             fileSystem.sink(tempPath).buffer().use { sink ->
                 for ((sequenceId, offset) in liveOffsetsBySequence) {
                     val source = readHandle.source(offset).buffer()
-                    val result =
-                        RecordCodec.readRecord(source) as? RecordReadResult.Live ?: continue
-                    val written =
-                        RecordCodec.writeLive(sink, sequenceId, result.metaBytes, result.body)
+                    val result = RecordCodec.readRecord(source) as? RecordReadResult.Live
+                        ?: continue
+
+                    val written = RecordCodec.writeLive(
+                        sink,
+                        sequenceId,
+                        result.metaBytes,
+                        result.body
+                    )
+
                     newOffsetsBySequence[sequenceId] = newOffset
                     newLengthsByOffset[newOffset] = written
                     newOffset += written

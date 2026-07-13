@@ -21,7 +21,9 @@ data class DeadLetterEntry(
         if (other !is DeadLetterEntry) {
             return false
         }
-        return id == other.id && meta == other.meta && body.contentEquals(other.body)
+        return id == other.id &&
+                meta == other.meta &&
+                body.contentEquals(other.body)
     }
 
     override fun hashCode(): Int {

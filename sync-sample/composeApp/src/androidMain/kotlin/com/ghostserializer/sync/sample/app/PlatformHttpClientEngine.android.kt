@@ -7,7 +7,13 @@ import java.util.concurrent.TimeUnit
 internal actual fun platformHttpClientEngine(): HttpClientEngine =
     OkHttp.create {
         config {
-            connectTimeout(AppConstants.CLIENT_SOCKET_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            readTimeout(AppConstants.CLIENT_SOCKET_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            connectTimeout(
+                AppConstants.CLIENT_SOCKET_TIMEOUT_MS,
+                TimeUnit.MILLISECONDS
+            )
+            readTimeout(
+                AppConstants.CLIENT_SOCKET_TIMEOUT_MS,
+                TimeUnit.MILLISECONDS
+            )
         }
     }

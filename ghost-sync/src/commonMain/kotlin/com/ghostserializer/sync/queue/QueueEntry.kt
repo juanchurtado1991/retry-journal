@@ -14,10 +14,16 @@ data class QueueEntry(
     val body: ByteArray,
 ) {
     override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is QueueEntry) return false
+        if (this === other) {
+            return true
+        }
+        if (other !is QueueEntry) {
+            return false
+        }
 
-        return id == other.id && meta == other.meta && body.contentEquals(other.body)
+        return id == other.id &&
+                meta == other.meta &&
+                body.contentEquals(other.body)
     }
 
     override fun hashCode(): Int {

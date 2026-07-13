@@ -3,7 +3,7 @@ package com.ghostserializer.sync.queue
 internal sealed class RecordReadResult {
 
     /**
-     * `equals()`/`hashCode()`/`toString()` are hand-written for the same reason as
+     * `equals()`/`hashCode()`/`toString()` are handwritten for the same reason as
      * [QueueEntry]: two `ByteArray` fields ([metaBytes], [body]) that the compiler-generated
      * versions would compare/hash by reference and print as `[B@...`.
      */
@@ -15,14 +15,18 @@ internal sealed class RecordReadResult {
         val recordLength: Int,
     ) : RecordReadResult() {
         override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is Live) return false
-            
+            if (this === other) {
+                return true
+            }
+            if (other !is Live) {
+                return false
+            }
+
             return sequenceId == other.sequenceId &&
-                meta == other.meta &&
-                metaBytes.contentEquals(other.metaBytes) &&
-                body.contentEquals(other.body) &&
-                recordLength == other.recordLength
+                    meta == other.meta &&
+                    metaBytes.contentEquals(other.metaBytes) &&
+                    body.contentEquals(other.body) &&
+                    recordLength == other.recordLength
         }
 
         override fun hashCode(): Int {
@@ -36,7 +40,7 @@ internal sealed class RecordReadResult {
 
         override fun toString(): String =
             "${this::class.simpleName}(sequenceId=$sequenceId, meta=$meta, metaBytes.size=${metaBytes.size}, " +
-                "body.size=${body.size}, recordLength=$recordLength)"
+                    "body.size=${body.size}, recordLength=$recordLength)"
 
         private companion object {
             const val HASH_MULTIPLIER: Int = 31
