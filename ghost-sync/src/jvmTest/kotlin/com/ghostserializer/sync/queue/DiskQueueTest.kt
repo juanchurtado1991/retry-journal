@@ -1,5 +1,10 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.peekAll
+import com.ghostserializer.sync.peekIds
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
@@ -36,7 +41,7 @@ class DiskQueueTest {
         queue.enqueue(
             method = "POST",
             url = "https://example.com/a",
-            headers = mapOf("Content-Type" to "application/json"),
+            headers = FrozenHttpHeaders.of("Content-Type" to "application/json"),
             body = "body-a".encodeToByteArray(),
         )
 
@@ -52,9 +57,9 @@ class DiskQueueTest {
     @Test
     fun `entries are served in FIFO order`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        val idA = queue.enqueue("POST", "/a", emptyMap(), "a".encodeToByteArray())
-        queue.enqueue("POST", "/b", emptyMap(), "b".encodeToByteArray())
-        queue.enqueue("POST", "/c", emptyMap(), "c".encodeToByteArray())
+        val idA = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        queue.enqueue("POST", "/c", FrozenHttpHeaders.EMPTY, "c".encodeToByteArray())
 
         assertEquals(idA, queue.peek()?.id)
         queue.remove(idA)
@@ -64,7 +69,7 @@ class DiskQueueTest {
     @Test
     fun `remove is idempotent for unknown or already-removed ids`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        val id = queue.enqueue("GET", "/x", emptyMap(), ByteArray(0))
+        val id = queue.enqueue("GET", "/x", FrozenHttpHeaders.EMPTY, ByteArray(0))
 
         queue.remove(id)
         queue.remove(id)
@@ -76,8 +81,8 @@ class DiskQueueTest {
     @Test
     fun `a fresh instance sees entries enqueued and removed by a previous instance`() = runBlocking {
         val first = DiskQueue(queuePath)
-        val idA = first.enqueue("POST", "/a", emptyMap(), "a".encodeToByteArray())
-        first.enqueue("POST", "/b", emptyMap(), "b".encodeToByteArray())
+        val idA = first.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        first.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
         first.remove(idA)
 
         val reopened = DiskQueue(queuePath)
@@ -90,14 +95,14 @@ class DiskQueueTest {
     @Test
     fun `reopening after an abrupt cut recovers every complete record and drops the partial tail`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        queue.enqueue("POST", "/first", emptyMap(), "first-body".encodeToByteArray())
-        queue.enqueue("POST", "/second", emptyMap(), "second-body".encodeToByteArray())
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
 
         // Simulate a process kill mid-write of a third record: its header promises a 50-byte
         // body but only 10 bytes ever made it to disk before the process died. The two prior
         // records are untouched.
         FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
-            sink.writeByte(RecordKind.Live.byteValue.toInt())
+            sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
             sink.writeInt(0x1234)
             sink.writeLong(999L)
             sink.writeInt(50)
@@ -112,7 +117,7 @@ class DiskQueueTest {
         assertEquals("/second", entries[1].meta.url)
 
         // The recovered queue must still be writable — the corrupt tail was truncated, not just skipped.
-        reopened.enqueue("POST", "/third", emptyMap(), "third-body".encodeToByteArray())
+        reopened.enqueue("POST", "/third", FrozenHttpHeaders.EMPTY, "third-body".encodeToByteArray())
         assertEquals(3, reopened.peekAll().size)
     }
 
@@ -121,8 +126,8 @@ class DiskQueueTest {
         val queue = DiskQueue(queuePath)
         assertEquals(0, queue.size())
 
-        val idA = queue.enqueue("POST", "/a", emptyMap(), "a".encodeToByteArray())
-        queue.enqueue("POST", "/b", emptyMap(), "b".encodeToByteArray())
+        val idA = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
         assertEquals(2, queue.size())
 
         queue.remove(idA)
@@ -132,9 +137,9 @@ class DiskQueueTest {
     @Test
     fun `peekIds returns the oldest ids first without decoding any record, capped at the limit`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        val idA = queue.enqueue("POST", "/a", emptyMap(), "a".encodeToByteArray())
-        val idB = queue.enqueue("POST", "/b", emptyMap(), "b".encodeToByteArray())
-        queue.enqueue("POST", "/c", emptyMap(), "c".encodeToByteArray())
+        val idA = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        queue.enqueue("POST", "/c", FrozenHttpHeaders.EMPTY, "c".encodeToByteArray())
 
         assertEquals(listOf(idA, idB), queue.peekIds(limit = 2))
         assertEquals(3, queue.peekIds(limit = 10).size)
@@ -155,12 +160,12 @@ class DiskQueueTest {
         val queue = DiskQueue(queuePath, maxRecordFieldSize = customLimit)
 
         // Under the constructor's own limit: fine.
-        queue.enqueue("POST", "/small", emptyMap(), ByteArray(customLimit))
+        queue.enqueue("POST", "/small", FrozenHttpHeaders.EMPTY, ByteArray(customLimit))
 
         // One byte past THIS queue's configured limit, even though it's nowhere near the
         // library's 64 MiB default — the configured value is what's actually enforced.
         assertFailsWith<RecordTooLargeException> {
-            queue.enqueue("POST", "/big", emptyMap(), ByteArray(customLimit + 1))
+            queue.enqueue("POST", "/big", FrozenHttpHeaders.EMPTY, ByteArray(customLimit + 1))
         }
 
         assertEquals(1, queue.size())
@@ -172,7 +177,7 @@ class DiskQueueTest {
         val oversized = ByteArray(DiskQueueConstants.MAX_RECORD_FIELD_SIZE + 1)
 
         assertFailsWith<RecordTooLargeException> {
-            queue.enqueue("POST", "/big", emptyMap(), oversized)
+            queue.enqueue("POST", "/big", FrozenHttpHeaders.EMPTY, oversized)
         }
 
         // Nothing was written — the queue is still empty, not silently corrupted.
@@ -182,8 +187,8 @@ class DiskQueueTest {
     @Test
     fun `the fast recovery scan still detects a corrupted body, not just a truncated one`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        queue.enqueue("POST", "/first", emptyMap(), "first-body".encodeToByteArray())
-        val idB = queue.enqueue("POST", "/second", emptyMap(), "second-body".encodeToByteArray())
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
 
         // Flip a byte inside "/second"'s body on disk directly — a full record is present (no
         // truncation), but its CRC no longer matches. The fast scan (RecordCodec.scanRecord)
@@ -220,7 +225,7 @@ class DiskQueueTest {
     fun `compaction shrinks the file once dead bytes cross the threshold and preserves live entries and ids`() =
         runBlocking {
             val queue = DiskQueue(queuePath)
-            val ids = (1..10).map { i -> queue.enqueue("POST", "/item-$i", emptyMap(), "payload-$i".encodeToByteArray()) }
+            val ids = (1..10).map { i -> queue.enqueue("POST", "/item-$i", FrozenHttpHeaders.EMPTY, "payload-$i".encodeToByteArray()) }
 
             val survivor = ids.last()
             ids.dropLast(1).forEach { queue.remove(it) }
@@ -241,4 +246,140 @@ class DiskQueueTest {
             reopened.remove(survivor)
             assertTrue(reopened.isEmpty())
         }
+
+    @Test
+    fun `read handle is cached and not closed or churned on multiple reads`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
+
+        val readHandleField = DiskQueue::class.java.getDeclaredField("readHandle")
+        readHandleField.isAccessible = true
+
+        assertNull(readHandleField.get(queue))
+
+        queue.peek()
+        val handle1 = readHandleField.get(queue)
+        kotlin.test.assertNotNull(handle1)
+
+        queue.peek()
+        val handle2 = readHandleField.get(queue)
+        assertEquals(handle1, handle2)
+    }
+
+    @Test
+    fun `isolated corruption in the middle is skipped and subsequent valid records are recovered`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id1 = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val id2 = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+        val id3 = queue.enqueue("POST", "/third", FrozenHttpHeaders.EMPTY, "third-body".encodeToByteArray())
+
+        // Corrupt "/second"'s record bytes.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val marker = "second-body".encodeToByteArray()
+        val bodyStart = bytes.indexOfSubarray(marker)
+        bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        // "/first" and "/third" must be recovered, "/second" (corrupted) must be skipped.
+        assertEquals(2, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/third", entries[1].meta.url)
+    }
+
+    @Test
+    fun `sequence id is preserved and monotonic after out-of-order removal compaction and restart`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val ids = (0..10).map { queue.enqueue("POST", "/$it", FrozenHttpHeaders.EMPTY, ByteArray(0)) }
+
+        // Remove all except the first one, including the last one.
+        (1..10).forEach { queue.remove(ids[it]) }
+
+        // Check nextSequenceId by reopening and enqueuing a new item.
+        val reopened = DiskQueue(queuePath)
+        val newId = reopened.enqueue("POST", "/new", FrozenHttpHeaders.EMPTY, ByteArray(0))
+
+        // The new ID sequenceId must be strictly greater than the maximum sequenceId previously assigned (which was ids.last().sequenceId = 10, so newId must be 11 or greater).
+        assertTrue(newId.sequenceId > ids.last().sequenceId, "newId sequence ID should be greater than previous max")
+    }
+
+    @Test
+    fun `scanning a truncated record at the end does not perform a slow byte-by-byte scan`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
+            sink.writeInt(0x1234) // crc
+            sink.writeLong(999L) // seq
+            sink.writeInt(10_000) // meta length
+            sink.write(ByteArray(5)) // write only 5 bytes
+        }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+        assertEquals(1, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+    }
+
+    @Test
+    fun `peek skips over corrupted records and returns the next valid one instead of null`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id1 = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val id2 = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+
+        // Corrupt "/first"'s record bytes.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val marker = "first-body".encodeToByteArray()
+        val bodyStart = bytes.indexOfSubarray(marker)
+        bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        // peek() should skip the corrupted "/first" and return "/second".
+        val peeked = queue.peek()
+        kotlin.test.assertNotNull(peeked)
+        assertEquals("/second", peeked.meta.url)
+        assertEquals(id2, peeked.id)
+    }
+
+    @Test
+    fun `two DiskQueue instances on the same path serialize concurrent writes safely`() = runBlocking {
+        val path = queuePath
+        val queueA = DiskQueue(path)
+        val queueB = DiskQueue(path)
+
+        coroutineScope {
+            List(20) { index ->
+                async {
+                    val queue = if (index % 2 == 0) {
+                        queueA
+                    } else {
+                        queueB
+                    }
+                    queue.enqueue(
+                        method = "POST",
+                        url = "https://example.com/$index",
+                        headers = FrozenHttpHeaders.EMPTY,
+                        body = "body-$index".encodeToByteArray(),
+                    )
+                }
+            }.awaitAll()
+        }
+
+        val reopened = DiskQueue(path)
+        assertEquals(20, reopened.size())
+    }
+
+    @Test
+    fun `enqueue rejects a record whose packed on-disk length would overflow the index`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val hugeBody = ByteArray(DiskQueueConstants.MAX_RECORD_FIELD_SIZE)
+
+        assertFailsWith<RecordTooLargeException> {
+            queue.enqueue("POST", "https://example.com/huge", FrozenHttpHeaders.EMPTY, hugeBody)
+        }
+        assertTrue(queue.isEmpty())
+    }
 }

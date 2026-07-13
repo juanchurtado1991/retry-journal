@@ -1,6 +1,9 @@
 package com.ghostserializer.sync.deadletter
 
+import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.QueueEntry
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
@@ -33,7 +36,7 @@ class DeadLetterQueueTest {
 
     @Test
     fun `a recorded entry shows up in peekAll and not on the main queue`() = runBlocking {
-        deadLetterQueue.record("POST", "/rejected", emptyMap(), "bad-payload".encodeToByteArray())
+        deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "bad-payload".encodeToByteArray())
 
         val entries = deadLetterQueue.peekAll()
 
@@ -44,7 +47,7 @@ class DeadLetterQueueTest {
 
     @Test
     fun `retry moves the entry back onto the main queue and off the dead-letter queue`() = runBlocking {
-        val id = deadLetterQueue.record("POST", "/rejected", mapOf("X" to "1"), "payload".encodeToByteArray())
+        val id = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())
 
         deadLetterQueue.retry(id)
 
@@ -56,7 +59,7 @@ class DeadLetterQueueTest {
 
     @Test
     fun `discard drops the entry for good without touching the main queue`() = runBlocking {
-        val id = deadLetterQueue.record("POST", "/rejected", emptyMap(), ByteArray(0))
+        val id = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, ByteArray(0))
 
         deadLetterQueue.discard(id)
 
@@ -68,7 +71,7 @@ class DeadLetterQueueTest {
     fun `size reflects records and removals without decoding any record`() = runBlocking {
         assertEquals(0, deadLetterQueue.size())
 
-        val id = deadLetterQueue.record("POST", "/rejected", emptyMap(), "bad".encodeToByteArray())
+        val id = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
         assertEquals(1, deadLetterQueue.size())
 
         deadLetterQueue.discard(id)
@@ -83,5 +86,73 @@ class DeadLetterQueueTest {
         assertTrue(deadLetterQueue.peekAll().isEmpty())
         assertTrue(mainQueue.isEmpty())
         assertNull(mainQueue.peek())
+    }
+
+    @Test
+    fun `recovery processes pending retry journals on initialization`() = runBlocking {
+        // Record an entry
+        val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())
+
+        // We will simulate a crash right after the entry has been removed from storage but before mainQueue.enqueue completes.
+        // To do this, we manually write the retry journal file with the entry content, and remove it from the dead-letter queue storage.
+        val dlqStorage = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val entry = dlqStorage.peek()!!
+
+        val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
+
+        // Let's write the journal file using reflection
+        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
+            isAccessible = true
+        }
+        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+
+        // Remove from storage to simulate the "removed from storage" state of the crash
+        dlqStorage.remove(entry.id)
+        assertTrue(dlqStorage.isEmpty())
+
+        // Now create a fresh main queue and dead letter queue (simulating a crash restart)
+        val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
+        val dlqStorage2 = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+
+        assertTrue(mainQueue2.isEmpty())
+
+        val deadLetterQueue2 = DeadLetterQueue(mainQueue2, dlqStorage2)
+
+        // Accessing the queue should trigger recovery
+        assertEquals(0, deadLetterQueue2.size())
+
+        // The entry should be recovered and present in mainQueue2!
+        val recovered = mainQueue2.peek()
+        kotlin.test.assertNotNull(recovered)
+        assertEquals("/rejected", recovered.meta.url)
+        assertEquals("payload", recovered.body.decodeToString())
+
+        // The journal file should have been cleaned up
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile))
+    }
+
+    @Test
+    fun `recovery does not duplicate an entry already present on the main queue`() = runBlocking {
+        val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+        val dlqStorage = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val entry = dlqStorage.peek()!!
+
+        mainQueue.enqueue("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+
+        val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
+        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
+            isAccessible = true
+        }
+        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        dlqStorage.remove(entry.id)
+
+        val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
+        val dlqStorage2 = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val deadLetterQueue2 = DeadLetterQueue(mainQueue2, dlqStorage2)
+
+        deadLetterQueue2.size()
+
+        assertEquals(1, mainQueue2.size())
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile))
     }
 }

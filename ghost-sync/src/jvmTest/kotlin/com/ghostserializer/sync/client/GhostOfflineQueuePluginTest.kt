@@ -79,7 +79,7 @@ class GhostOfflineQueuePluginTest {
         }
 
         val queued = diskQueue.peek()
-        assertEquals("application/x-ghost", queued?.meta?.headers?.get(HttpHeaders.ContentType))
+        assertEquals("application/x-ghost", queued?.meta?.headers?.findValue(HttpHeaders.ContentType))
     }
 
     @Test
@@ -116,5 +116,58 @@ class GhostOfflineQueuePluginTest {
         client.post("https://example.com/mutations") { setBody("hello-ghost") }
 
         assertNull(diskQueue.peek())
+    }
+
+    @Test
+    fun `multi-valued headers are preserved with the record separator`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.post("https://example.com/mutations") {
+                headers.append("X-Custom", "value1")
+                headers.append("X-Custom", "value2")
+            }
+        }
+
+        val queued = diskQueue.peek()
+        assertEquals(
+            "value1${ClientConstants.HEADER_MULTI_VALUE_SEPARATOR}value2",
+            queued?.meta?.headers?.findValue("X-Custom"),
+        )
+    }
+
+    @Test
+    fun `body capture failure does not enqueue an empty payload`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        val badBody = object : io.ktor.http.content.OutgoingContent.ReadChannelContent() {
+            override fun readFrom(): io.ktor.utils.io.ByteReadChannel {
+                throw IllegalStateException("Channel already consumed")
+            }
+        }
+
+        assertFailsWith<BodyCaptureException> {
+            client.post("https://example.com/mutations") {
+                setBody(badBody)
+            }
+        }
+
+        assertNull(diskQueue.peek())
+    }
+
+    @Test
+    fun `installing plugin without configuring diskQueue throws informative exception`() {
+        val exception = assertFailsWith<IllegalStateException> {
+            HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }) {
+                install(GhostOfflineQueuePlugin) {
+                    // diskQueue is not set
+                }
+            }
+        }
+        assertEquals(ClientConstants.PLUGIN_DISK_QUEUE_MISSING, exception.message)
     }
 }
