@@ -2,10 +2,12 @@ package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.peekIds
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -346,26 +348,35 @@ class DiskQueueTest {
 
     @Test
     fun `two DiskQueue instances on the same path serialize concurrent writes safely`() = runBlocking {
+        // Dispatchers.Default runs on a real thread pool: DiskQueue's cross-process file lock
+        // (PlatformQueueFileLock) must genuinely block a contending thread here, not just look
+        // safe because everything happened to run on one thread. Plain runBlocking without an
+        // explicit dispatcher is single-threaded, so 20 coroutines on it never actually overlap
+        // at the OS level and this test would pass even if the lock implementation were broken —
+        // see PlatformQueueFileLock's own doc for the JVM-specific failure mode that hid behind
+        // that false confidence (OverlappingFileLockException instead of blocking).
         val path = queuePath
         val queueA = DiskQueue(path)
         val queueB = DiskQueue(path)
 
-        coroutineScope {
-            List(20) { index ->
-                async {
-                    val queue = if (index % 2 == 0) {
-                        queueA
-                    } else {
-                        queueB
+        withContext(Dispatchers.Default) {
+            coroutineScope {
+                List(20) { index ->
+                    async {
+                        val queue = if (index % 2 == 0) {
+                            queueA
+                        } else {
+                            queueB
+                        }
+                        queue.enqueue(
+                            method = "POST",
+                            url = "https://example.com/$index",
+                            headers = FrozenHttpHeaders.EMPTY,
+                            body = "body-$index".encodeToByteArray(),
+                        )
                     }
-                    queue.enqueue(
-                        method = "POST",
-                        url = "https://example.com/$index",
-                        headers = FrozenHttpHeaders.EMPTY,
-                        body = "body-$index".encodeToByteArray(),
-                    )
-                }
-            }.awaitAll()
+                }.awaitAll()
+            }
         }
 
         val reopened = DiskQueue(path)
