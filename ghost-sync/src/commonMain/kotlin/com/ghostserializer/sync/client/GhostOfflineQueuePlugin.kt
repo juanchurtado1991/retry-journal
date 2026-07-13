@@ -50,7 +50,7 @@ class GhostOfflineQueuePlugin private constructor(
     }
 
     companion object Plugin : HttpClientPlugin<GhostOfflineQueueConfig, GhostOfflineQueuePlugin> {
-        override val key: AttributeKey<GhostOfflineQueuePlugin> = AttributeKey("GhostOfflineQueuePlugin")
+        override val key: AttributeKey<GhostOfflineQueuePlugin> = AttributeKey(ClientConstants.PLUGIN_ATTRIBUTE_KEY_NAME)
 
         override fun prepare(block: GhostOfflineQueueConfig.() -> Unit): GhostOfflineQueuePlugin {
             val config = GhostOfflineQueueConfig().apply(block)

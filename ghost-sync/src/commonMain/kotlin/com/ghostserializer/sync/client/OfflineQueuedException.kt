@@ -6,4 +6,4 @@ package com.ghostserializer.sync.client
  * generic error — the request was not lost, it is just not sent yet.
  */
 class OfflineQueuedException(url: String) :
-    Exception("Request to $url could not be sent and was queued for later delivery")
+    Exception(ClientConstants.OFFLINE_QUEUED_MESSAGE_PREFIX + url + ClientConstants.OFFLINE_QUEUED_MESSAGE_SUFFIX)

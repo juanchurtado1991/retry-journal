@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.ghost)
     alias(libs.plugins.dokka)
+    // Not needed by :ghost-sync's own code (FrozenHttpRequestMeta is @GhostSerialization) — only
+    // by GhostSyncSerializerAgnosticTest, which proves the payload layer works with
+    // kotlinx.serialization content negotiation too, not just Ghost's.
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -31,7 +35,8 @@ kotlin {
                 api(libs.ghost.ktor)
                 implementation(libs.okio)
                 implementation(libs.kotlinx.coroutines.core)
-                implementation(libs.ktor.client.core)
+                // api: GhostSync's public API surfaces HttpClient/HttpClientEngineFactory/HttpClientConfig directly.
+                api(libs.ktor.client.core)
                 implementation(libs.ktor.client.content.negotiation)
             }
         }
@@ -44,6 +49,8 @@ kotlin {
 
         jvmTest.dependencies {
             implementation(libs.ktor.client.cio)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktor.serialization.kotlinx.json)
         }
     }
 }

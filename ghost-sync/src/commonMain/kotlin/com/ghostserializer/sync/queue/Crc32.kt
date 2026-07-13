@@ -14,11 +14,16 @@ internal object Crc32 {
     const val INITIAL_VALUE: Int = -1 // 0xFFFFFFFF
 
     private const val POLYNOMIAL: Int = -0x12477ce0 // 0xEDB88320, reflected IEEE 802.3 polynomial
+    private const val BYTE_VALUE_COUNT: Int = 256
+    private const val BITS_PER_BYTE: Int = 8
+    private const val LONG_HIGH_BYTE_SHIFT: Int = 56
+    private const val BYTE_MASK: Int = 0xFF
+    private const val LONG_BYTE_MASK: Long = 0xFFL
 
-    private val TABLE: IntArray = IntArray(256).also { table ->
-        for (n in 0 until 256) {
+    private val TABLE: IntArray = IntArray(BYTE_VALUE_COUNT).also { table ->
+        for (n in 0 until BYTE_VALUE_COUNT) {
             var c = n
-            repeat(8) {
+            repeat(BITS_PER_BYTE) {
                 c = if (c and 1 != 0) {
                     (c ushr 1) xor POLYNOMIAL
                 } else {
@@ -33,15 +38,15 @@ internal object Crc32 {
         var c = crc
         val end = offset + length
         for (i in offset until end) {
-            c = updateByte(c, bytes[i].toInt() and 0xFF)
+            c = updateByte(c, bytes[i].toInt() and BYTE_MASK)
         }
         return c
     }
 
     fun updateLong(crc: Int, value: Long): Int {
         var c = crc
-        for (shift in 56 downTo 0 step 8) {
-            val byteValue = ((value ushr shift) and 0xFFL).toInt()
+        for (shift in LONG_HIGH_BYTE_SHIFT downTo 0 step BITS_PER_BYTE) {
+            val byteValue = ((value ushr shift) and LONG_BYTE_MASK).toInt()
             c = updateByte(c, byteValue)
         }
         return c
@@ -50,7 +55,7 @@ internal object Crc32 {
     fun finalize(crc: Int): Int = crc.inv()
 
     private fun updateByte(crc: Int, byteValue: Int): Int {
-        val index = (crc xor byteValue) and 0xFF
-        return (crc ushr 8) xor TABLE[index]
+        val index = (crc xor byteValue) and BYTE_MASK
+        return (crc ushr BITS_PER_BYTE) xor TABLE[index]
     }
 }
