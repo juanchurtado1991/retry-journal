@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.sample.server
 
 internal object ChaosConstants {
-    /** A request request count that is an exact multiple of this triggers each chaos mode. */
+    /** A request count that is an exact multiple of this triggers each chaos mode. */
     const val EVERY_NTH_OFFLINE_TIMEOUT: Int = 20
     const val EVERY_NTH_BAD_REQUEST: Int = 13
     const val EVERY_NTH_SERVICE_UNAVAILABLE: Int = 7

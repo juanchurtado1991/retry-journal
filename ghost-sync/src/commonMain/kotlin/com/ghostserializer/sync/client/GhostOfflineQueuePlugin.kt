@@ -18,7 +18,7 @@ import io.ktor.utils.io.errors.IOException
  * exception with [OfflineQueuedException] so the caller can distinguish "queued for later" from
  * "actually failed."
  *
- * The captured body is whatever [request] already carries as [OutgoingContent.ByteArrayContent]
+ * The captured body is whatever 'request' already carries as [OutgoingContent.ByteArrayContent]
  * at this point in the pipeline — already serialized by `GhostContentConverter` upstream, so it
  * is never re-encoded to reach the queue.
  */
@@ -29,7 +29,7 @@ class GhostOfflineQueuePlugin private constructor(
         client.plugin(HttpSend).intercept { request ->
             try {
                 execute(request)
-            } catch (cause: IOException) {
+            } catch (_: IOException) {
                 enqueueLocked(request)
                 throw OfflineQueuedException(request.url.buildString())
             }

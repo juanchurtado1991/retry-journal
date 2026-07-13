@@ -17,6 +17,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Deliberately hostile Ktor server used to exercise [com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
@@ -40,7 +41,7 @@ fun Application.chaosModule() {
 
             when {
                 requestNumber % ChaosConstants.EVERY_NTH_OFFLINE_TIMEOUT == 0 -> {
-                    delay(ChaosConstants.OFFLINE_TIMEOUT_DELAY_MS)
+                    delay(ChaosConstants.OFFLINE_TIMEOUT_DELAY_MS.milliseconds)
                     call.respondGhost(MutationAck(request.id, System.currentTimeMillis()))
                 }
 
@@ -53,7 +54,7 @@ fun Application.chaosModule() {
                 }
 
                 requestNumber % ChaosConstants.EVERY_NTH_LATENCY == 0 -> {
-                    delay(ChaosConstants.LATENCY_DELAY_MS)
+                    delay(ChaosConstants.LATENCY_DELAY_MS.milliseconds)
                     call.respondGhost(MutationAck(request.id, System.currentTimeMillis()))
                 }
 

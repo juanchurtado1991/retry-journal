@@ -10,6 +10,7 @@ internal enum class RecordKind(val byteValue: Byte) {
     Tombstone(2);
 
     companion object {
-        fun fromByte(value: Byte): RecordKind? = entries.firstOrNull { it.byteValue == value }
+        fun fromByte(value: Byte): RecordKind? =
+            entries.firstOrNull { it.byteValue == value }
     }
 }
