@@ -16,14 +16,15 @@ A window opens with the server already on. That's it.
 
 ### What you'll see
 
-![The demo screen: a server on/off switch, live pending/dead-letter counts, one chip per pending request, an Upload a file / Sync now pair of buttons, and a running activity log](docs/demo-desktop.png)
+![The demo screen: a server on/off switch, live pending/dead-letter counts, one chip per pending request, Upload a file / Send 5 JSON requests on the left, Sync now on the right, and a running activity log](docs/demo-desktop.png)
 
-This particular run has 9,994 requests pending — the row of gray dots is
+This particular run has 9,994 requests pending (captured while queuing at a larger scale than the
+buttons below produce on their own) — the row of gray dots is
 [`QueueVisualization`](composeApp/src/commonMain/kotlin/com/ghostserializer/sync/sample/app/App.kt):
-one chip per pending request, capped at 20 on screen at once (a stress test does not need — or
-want — 10,000 individual chips). Each chip flashes green (delivered) or red (dead-lettered) as
-**Sync now** actually resolves it, driven by real progress from `GhostSyncEngine`, not a simulated
-animation.
+one chip per pending request, capped at 20 on screen at once (a backlog that size does not need —
+or want — thousands of individual chips). Each chip flashes green (delivered) or red
+(dead-lettered) as **Sync now** actually resolves it, driven by real progress from
+`GhostSyncEngine`, not a simulated animation.
 
 Try this flow yourself:
 
@@ -35,20 +36,26 @@ Try this flow yourself:
 4. Tap **Sync now**. Watch the chip flash green and disappear — that's `GhostSyncEngine.flush()`
    replaying the queued request for real, reported back live through `FlushProgress`.
 
-Everything below "Show advanced options" does the same thing at a larger scale — a "Send 5" for a
-handful of plain JSON mutations, two stress-test buttons (1,000 / 10,000) to check throughput, and
-a Ktorfit-generated call to prove the interceptor works no matter how a request was built.
+**Send 5 JSON requests** does the same thing at a small, easy-to-watch scale — five plain
+mutations instead of one file. Both buttons call the same [`MutationApi`](composeApp/src/commonMain/kotlin/com/ghostserializer/sync/sample/app/MutationApi.kt),
+a Ktorfit-generated interface — every request this demo makes, upload or JSON, goes through it.
+That's a choice made for this sample, not a requirement of `:ghost-sync`: `GhostOfflineQueuePlugin`
+is installed on a plain `HttpClient` and intercepts at Ktor's `HttpSend` phase, which every request
+reaches no matter how it was built — Ktorfit's generated code is itself just calling that same
+`HttpClient` underneath. A hand-written `HttpClient.post(...)` (see the root README's Quick start)
+is captured and queued exactly the same way.
 
 ### Why "Sync now" might not finish a big queue in one click
 
-This is expected, not a bug: after a 10,000-entry stress test, tapping **Sync now** once will
-usually *not* drain the whole queue. `GhostSyncEngine.flush()` replays entries one at a time
-against the real chaos server (see the rotation below) — every 20th request stalls 15 seconds,
-longer than the client's 6-second socket timeout, which throws a genuine `IOException`. `flush()`
-treats that exactly like the server going down mid-sync: it **stops immediately**, leaving
-everything still queued for the next attempt, instead of skipping the failure and pressing on.
+This is expected, not a bug: with a large enough backlog (queued while offline, or built up from
+many taps of **Send 5 JSON requests**), tapping **Sync now** once will usually *not* drain the
+whole queue. `GhostSyncEngine.flush()` replays entries one at a time against the real chaos server
+(see the rotation below) — every 20th request stalls 15 seconds, longer than the client's
+6-second socket timeout, which throws a genuine `IOException`. `flush()` treats that exactly like
+the server going down mid-sync: it **stops immediately**, leaving everything still queued for the
+next attempt, instead of skipping the failure and pressing on.
 
-With ~10,000 entries that stall is going to happen roughly every 20 requests — so one `flush()`
+With a few thousand entries that stall is going to happen roughly every 20 requests — so one `flush()`
 call only ever gets partway through before stopping, and **Sync now** needs to be tapped again to
 pick up where it left off. This is `GhostSyncEngine.flush()`'s documented behavior (see the root
 README's "How it works" table: `5xx or IOException` → *"stop here, the rest waits for the next
