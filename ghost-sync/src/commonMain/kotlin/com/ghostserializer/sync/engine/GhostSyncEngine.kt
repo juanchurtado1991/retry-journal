@@ -93,7 +93,9 @@ class GhostSyncEngine(
         val meta = entry.meta
         val response: HttpResponse = client.request(meta.url) {
             method = HttpMethod.parse(meta.method)
-            val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
+            val contentType = applyHeaders(meta.headers)
+                ?.let(::parseContentTypeOrNull)
+            
             setBody(
                 if (contentType != null) {
                     ByteArrayContent(entry.body, contentType)

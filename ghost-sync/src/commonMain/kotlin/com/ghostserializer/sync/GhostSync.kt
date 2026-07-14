@@ -51,7 +51,9 @@ class GhostSync private constructor(
      * duplicate-enqueue footgun documented there — you never have to think about it. [onProgress]
      * is the same per-entry callback [GhostSyncEngine.flush] takes, for a caller that wants to
      * show the queue draining in real time. */
-    suspend fun flush(onProgress: suspend (FlushProgress) -> Unit = {}): FlushResult = engine.flush(replayClient, onProgress)
+    suspend fun flush(
+        onProgress: suspend (FlushProgress) -> Unit = {}
+    ): FlushResult = engine.flush(replayClient, onProgress)
 
     /** Closes every owned resource even if an earlier one throws while closing — a failure
      * closing [client] (the underlying engine tearing down sockets, say) must not leak
