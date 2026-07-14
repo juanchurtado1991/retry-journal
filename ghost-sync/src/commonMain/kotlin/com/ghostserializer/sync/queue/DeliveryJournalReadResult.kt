@@ -1,12 +1,12 @@
 package com.ghostserializer.sync.queue
 
-/** Outcome of reading a [DeliveryJournal] file — [CorruptPending] preserves recovery when CRC fails. */
+/** Outcome of reading a per-sequence [DeliveryJournal] file. */
 internal sealed class DeliveryJournalReadResult {
     data object Absent : DeliveryJournalReadResult()
 
-    data class Valid(val pending: PendingDelivery) : DeliveryJournalReadResult()
+    data class Valid(val outcome: String) : DeliveryJournalReadResult()
 
-    /** Magic/header present but CRC or outcome invalid — skip HTTP and retry local removal. */
+    /** CRC invalid — skip HTTP and retry local removal for [CorruptPending.sequenceId]. */
     data class CorruptPending(
         val sequenceId: Long,
         val outcome: String,

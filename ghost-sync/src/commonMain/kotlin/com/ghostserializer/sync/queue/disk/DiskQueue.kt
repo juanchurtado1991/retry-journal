@@ -8,6 +8,7 @@ import com.ghostserializer.sync.queue.LifecycleGate
 import com.ghostserializer.sync.queue.QueueEntry
 import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.queue.RecordFileHandles
+import com.ghostserializer.sync.queue.QueueInvariants
 import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.platform.PlatformQueueFileLock
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
@@ -135,14 +136,15 @@ class DiskQueue(
      * [com.ghostserializer.sync.queue.ReplayClaim] so a second flusher in another process cannot send the same head entry
      * concurrently. Call [completeHeadReplay] after a successful delivery/dead-letter, or
      * [abortHeadReplayClaim] when replay stops early without removing the entry. */
-    suspend fun prepareHeadForReplay(): HeadReplayPrepareResult = withQueueLock {
+    internal suspend fun prepareHeadForReplay(): HeadReplayPrepareResult = withQueueLock {
         ensureOpenLocked()
         val claimPath = ReplayClaim.claimPath(path)
         ReplayClaim.clearIfStale(fileSystem, claimPath)
-        DeliveryJournal.clearIfOrphan(fileSystem, path, liveOffsetsBySequence.keys)
+        DeliveryJournal.migrateLegacyJournalIfPresent(fileSystem, path)
 
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
+        DeliveryJournal.clearStaleJournalsLocked(this, scan.entry?.id?.sequenceId)
 
         val entry = scan.entry
         if (entry == null) {
@@ -156,7 +158,7 @@ class DiskQueue(
 
     /** Removes a replayed entry and clears its [ReplayClaim] — call after 2xx delivery or
      * dead-letter persistence. Always clears the claim in `finally`, even when removal fails. */
-    suspend fun completeHeadReplay(entryId: QueueEntryId) = withQueueLock {
+    internal suspend fun completeHeadReplay(entryId: QueueEntryId) = withQueueLock {
         ensureOpenLocked()
         val claimPath = ReplayClaim.claimPath(path)
         try {
@@ -188,7 +190,7 @@ class DiskQueue(
     }
 
     /** Clears the [ReplayClaim] without removing the entry — call when replay stops early. */
-    suspend fun abortHeadReplayClaim() = withQueueLock {
+    internal suspend fun abortHeadReplayClaim() = withQueueLock {
         ensureOpenLocked()
         ReplayClaim.delete(fileSystem, ReplayClaim.claimPath(path))
     }
@@ -271,6 +273,10 @@ class DiskQueue(
 
     internal fun isHeadBlockedByActiveClaimLocked(): Boolean =
         DiskQueueHeadOps.isHeadBlockedByActiveClaimLocked(this)
+
+    internal suspend fun assertInvariantsHold() = withQueueLock {
+        QueueInvariants.assertHoldLocked(this)
+    }
 
     /** Closes this queue. [LifecycleGate] serializes [close] against new [withQueueLock]
      * operations so there is no TOCTOU window between an in-flight check and marking the

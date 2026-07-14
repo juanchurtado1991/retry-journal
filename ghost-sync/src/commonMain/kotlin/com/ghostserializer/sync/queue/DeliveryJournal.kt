@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.record.Crc32
 import okio.BufferedSource
@@ -8,28 +9,33 @@ import okio.Path
 import okio.Path.Companion.toPath
 
 /**
- * Durable marker that a head entry's HTTP side-effect already succeeded but local removal has not
- * finished yet — lets the next [com.ghostserializer.sync.engine.GhostSyncEngine.flush] skip the
- * network round-trip and retry [com.ghostserializer.sync.queue.disk.DiskQueue.completeHeadReplay]
- * only, closing the duplicate-delivery window when tombstone flush fails after a 2xx or after a
- * successful dead-letter [com.ghostserializer.sync.deadletter.DeadLetterQueue.record].
+ * Per-sequence durable marker that a head entry's HTTP side-effect already succeeded but local
+ * removal has not finished yet — lets [com.ghostserializer.sync.engine.HeadReplayExecutor] skip
+ * the network round-trip and retry [com.ghostserializer.sync.queue.disk.DiskQueue.completeHeadReplay]
+ * only.
+ *
+ * One file per sequence: `<queuePath>.delivery-pending.<sequenceId>`.
  */
 internal object DeliveryJournal {
 
     const val OUTCOME_DELIVERED: String = "delivered"
     const val OUTCOME_DEAD_LETTERED: String = "dead_lettered"
 
-    fun journalPath(queuePath: Path): Path =
-        (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX).toPath()
+    fun journalPath(queuePath: Path, sequenceId: Long): Path =
+        (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX + sequenceId).toPath()
 
-    fun read(fileSystem: FileSystem, queuePath: Path): DeliveryJournalReadResult {
-        val path = journalPath(queuePath)
+    fun read(
+        fileSystem: FileSystem,
+        queuePath: Path,
+        sequenceId: Long,
+    ): DeliveryJournalReadResult {
+        val path = journalPath(queuePath, sequenceId)
         if (!fileSystem.exists(path)) {
             return DeliveryJournalReadResult.Absent
         }
         return try {
             fileSystem.read(path) {
-                parseContent()
+                parseContent(sequenceId)
             } ?: DeliveryJournalReadResult.Absent
         } catch (_: Exception) {
             DeliveryJournalReadResult.Absent
@@ -40,7 +46,7 @@ internal object DeliveryJournal {
         fileSystem: FileSystem,
         queuePath: Path,
         sequenceId: Long,
-    ): Boolean = pendingForSequence(read(fileSystem, queuePath), sequenceId) != null
+    ): Boolean = read(fileSystem, queuePath, sequenceId) !is DeliveryJournalReadResult.Absent
 
     fun write(
         fileSystem: FileSystem,
@@ -48,14 +54,12 @@ internal object DeliveryJournal {
         sequenceId: Long,
         outcome: String,
     ) {
-        val path = journalPath(queuePath)
+        val path = journalPath(queuePath, sequenceId)
         val tempPath = (path.toString() + DiskQueueConstants.DELIVERY_JOURNAL_TEMP_SUFFIX).toPath()
-        val crc = computeCrc(sequenceId, outcome)
+        val crc = computeCrc(outcome)
         fileSystem.delete(tempPath, mustExist = false)
         fileSystem.write(tempPath) {
             writeUtf8(DiskQueueConstants.DELIVERY_JOURNAL_MAGIC)
-            writeByte(DiskQueueConstants.NEWLINE_BYTE)
-            writeUtf8(sequenceId.toString())
             writeByte(DiskQueueConstants.NEWLINE_BYTE)
             writeUtf8(outcome)
             writeByte(DiskQueueConstants.NEWLINE_BYTE)
@@ -64,21 +68,78 @@ internal object DeliveryJournal {
         fileSystem.atomicMove(tempPath, path)
     }
 
-    fun delete(fileSystem: FileSystem, queuePath: Path) {
-        fileSystem.delete(journalPath(queuePath), mustExist = false)
+    fun delete(fileSystem: FileSystem, queuePath: Path, sequenceId: Long) {
+        fileSystem.delete(journalPath(queuePath, sequenceId), mustExist = false)
     }
 
-    fun clearIfOrphan(fileSystem: FileSystem, queuePath: Path, liveSequenceIds: Set<Long>) {
-        when (val result = read(fileSystem, queuePath)) {
-            is DeliveryJournalReadResult.Absent -> Unit
-            is DeliveryJournalReadResult.Valid -> {
-                if (!liveSequenceIds.contains(result.pending.sequenceId)) {
-                    delete(fileSystem, queuePath)
+    fun migrateLegacyJournalIfPresent(fileSystem: FileSystem, queuePath: Path) {
+        val legacyPath = legacyJournalPath(queuePath)
+        if (!fileSystem.exists(legacyPath)) {
+            return
+        }
+        val migrated = try {
+            fileSystem.read(legacyPath) {
+                parseLegacyContent()
+            }
+        } catch (_: Exception) {
+            null
+        }
+        fileSystem.delete(legacyPath, mustExist = false)
+        if (migrated != null) {
+            write(fileSystem, queuePath, migrated.sequenceId, migrated.outcome)
+        }
+    }
+
+    fun clearStaleJournalsLocked(
+        queue: DiskQueue,
+        headSequenceId: Long?,
+    ) {
+        migrateLegacyJournalIfPresent(queue.fileSystem, queue.path)
+        val liveIds = queue.liveOffsetsBySequence.keys
+        val prefix = queue.path.name + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX
+        val parent = queue.path.parent ?: DiskQueueConstants.CURRENT_DIRECTORY_PATH.toPath()
+        if (!queue.fileSystem.exists(parent)) {
+            return
+        }
+        for (file in queue.fileSystem.list(parent)) {
+            if (!file.name.startsWith(prefix)) {
+                continue
+            }
+            val sequenceId = file.name.removePrefix(prefix).toLongOrNull()
+            if (sequenceId == null) {
+                queue.fileSystem.delete(file, mustExist = false)
+            } else {
+                val orphan = !liveIds.contains(sequenceId)
+                val nonHead = headSequenceId != null && sequenceId != headSequenceId
+                if (orphan || nonHead) {
+                    queue.fileSystem.delete(file, mustExist = false)
                 }
             }
-            is DeliveryJournalReadResult.CorruptPending -> {
-                if (!liveSequenceIds.contains(result.sequenceId)) {
-                    delete(fileSystem, queuePath)
+        }
+    }
+
+    fun assertNoStaleJournalsLocked(
+        queue: DiskQueue,
+        headSequenceId: Long?,
+    ) {
+        val liveIds = queue.liveOffsetsBySequence.keys
+        val prefix = queue.path.name + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX
+        val parent = queue.path.parent ?: DiskQueueConstants.CURRENT_DIRECTORY_PATH.toPath()
+        if (!queue.fileSystem.exists(parent)) {
+            return
+        }
+        for (file in queue.fileSystem.list(parent)) {
+            if (!file.name.startsWith(prefix)) {
+                continue
+            }
+            val sequenceId = file.name.removePrefix(prefix).toLongOrNull()
+            require(sequenceId != null) { "unexpected journal file ${file.name}" }
+            require(liveIds.contains(sequenceId)) {
+                "orphan delivery journal for sequence $sequenceId"
+            }
+            if (headSequenceId != null) {
+                require(sequenceId == headSequenceId) {
+                    "delivery journal for non-head sequence $sequenceId (head is $headSequenceId)"
                 }
             }
         }
@@ -89,23 +150,14 @@ internal object DeliveryJournal {
         sequenceId: Long,
     ): PendingDelivery? = when (result) {
         is DeliveryJournalReadResult.Absent -> null
-        is DeliveryJournalReadResult.Valid -> {
-            if (result.pending.sequenceId == sequenceId) {
-                result.pending
-            } else {
-                null
-            }
-        }
-        is DeliveryJournalReadResult.CorruptPending -> {
-            if (result.sequenceId == sequenceId) {
-                PendingDelivery(result.sequenceId, result.outcome)
-            } else {
-                null
-            }
-        }
+        is DeliveryJournalReadResult.Valid -> PendingDelivery(sequenceId, result.outcome)
+        is DeliveryJournalReadResult.CorruptPending -> PendingDelivery(sequenceId, result.outcome)
     }
 
-    private fun BufferedSource.parseContent(): DeliveryJournalReadResult? {
+    private fun legacyJournalPath(queuePath: Path): Path =
+        (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
+
+    private fun BufferedSource.parseContent(expectedSequenceId: Long): DeliveryJournalReadResult? {
         val magicLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
         if (magicLineBreak <= 0L) {
             return null
@@ -115,40 +167,60 @@ internal object DeliveryJournal {
             return DeliveryJournalReadResult.Absent
         }
         skip(1)
-        val sequenceLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
-        if (sequenceLineBreak <= 0L) {
-            return corruptFromPartialSequence(null)
-        }
-        val sequenceId = readUtf8(sequenceLineBreak).toLongOrNull()
-        skip(1)
         val outcomeLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
         if (outcomeLineBreak <= 0L) {
-            return corruptFromPartialSequence(sequenceId, outcome = "")
+            return null
         }
         val outcome = readUtf8(outcomeLineBreak)
         skip(1)
         if (exhausted()) {
-            return corruptFromPartialSequence(sequenceId, outcome)
+            return corruptFromPartialOutcome(expectedSequenceId, outcome)
         }
-        val storedCrc = readUtf8().toUIntOrNull()
-        if (sequenceId == null || storedCrc == null) {
-            return corruptFromPartialSequence(sequenceId, outcome)
-        }
+        val storedCrc = readUtf8().toUIntOrNull() ?: return corruptFromPartialOutcome(expectedSequenceId, outcome)
         if (!isValidOutcome(outcome)) {
-            return corruptFromPartialSequence(sequenceId, outcome)
+            return null
         }
-        val expectedCrc = computeCrc(sequenceId, outcome)
+        val expectedCrc = computeCrc(outcome)
         if (storedCrc != expectedCrc) {
-            return DeliveryJournalReadResult.CorruptPending(sequenceId, outcome)
+            return DeliveryJournalReadResult.CorruptPending(expectedSequenceId, outcome)
         }
-        return DeliveryJournalReadResult.Valid(PendingDelivery(sequenceId, outcome))
+        return DeliveryJournalReadResult.Valid(outcome)
     }
 
-    private fun corruptFromPartialSequence(
-        sequenceId: Long?,
-        outcome: String = "",
+    private fun BufferedSource.parseLegacyContent(): PendingDelivery? {
+        val magicLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
+        if (magicLineBreak <= 0L) {
+            return parseLegacyV0()
+        }
+        val magic = readUtf8(magicLineBreak)
+        if (magic != DiskQueueConstants.DELIVERY_JOURNAL_MAGIC) {
+            return null
+        }
+        skip(1)
+        val sequenceLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
+        if (sequenceLineBreak <= 0L) {
+            return null
+        }
+        val sequenceId = readUtf8(sequenceLineBreak).toLongOrNull() ?: return null
+        skip(1)
+        val outcomeLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
+        if (outcomeLineBreak <= 0L) {
+            return null
+        }
+        val outcome = readUtf8(outcomeLineBreak)
+        if (!isValidOutcome(outcome)) {
+            return null
+        }
+        return PendingDelivery(sequenceId, outcome)
+    }
+
+    private fun BufferedSource.parseLegacyV0(): PendingDelivery? = null
+
+    private fun corruptFromPartialOutcome(
+        sequenceId: Long,
+        outcome: String,
     ): DeliveryJournalReadResult? {
-        if (sequenceId == null || !isValidOutcome(outcome)) {
+        if (!isValidOutcome(outcome)) {
             return null
         }
         return DeliveryJournalReadResult.CorruptPending(sequenceId, outcome)
@@ -157,9 +229,8 @@ internal object DeliveryJournal {
     private fun isValidOutcome(outcome: String): Boolean =
         outcome == OUTCOME_DELIVERED || outcome == OUTCOME_DEAD_LETTERED
 
-    private fun computeCrc(sequenceId: Long, outcome: String): UInt {
-        val bytes = (sequenceId.toString() + "\n" + outcome).encodeToByteArray()
-        val crc = Crc32.finalize(Crc32.update(Crc32.INITIAL_VALUE, bytes))
+    private fun computeCrc(outcome: String): UInt {
+        val crc = Crc32.finalize(Crc32.update(Crc32.INITIAL_VALUE, outcome.encodeToByteArray()))
         return crc.toUInt()
     }
 }
