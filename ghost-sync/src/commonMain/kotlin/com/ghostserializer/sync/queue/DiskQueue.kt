@@ -114,9 +114,7 @@ class DiskQueue(
     }
 
     private fun ensureNotClosedLocked() {
-        if (closed) {
-            error(DiskQueueConstants.QUEUE_CLOSED_MESSAGE)
-        }
+        if (closed) error(DiskQueueConstants.QUEUE_CLOSED_MESSAGE)
     }
 
     /** Another process may have appended while this instance held stale in-memory indexes — rescan
@@ -388,7 +386,7 @@ class DiskQueue(
             val scanResult = RecordScanResult()
 
             while (offset < totalSize) {
-                RecordCodec.scanRecord(currentSource, maxRecordFieldSize, scanBuffer, scanResult)
+                RecordScanCodec.scanRecord(currentSource, maxRecordFieldSize, scanBuffer, scanResult)
                 when (scanResult.type) {
                     RecordScanResult.TYPE_LIVE -> {
                         val seqId = scanResult.sequenceId

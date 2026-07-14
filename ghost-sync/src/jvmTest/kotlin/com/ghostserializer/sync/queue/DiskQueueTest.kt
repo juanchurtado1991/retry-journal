@@ -197,7 +197,7 @@ class DiskQueueTest {
         val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
 
         // Flip a byte inside "/second"'s body on disk directly — a full record is present (no
-        // truncation), but its CRC no longer matches. The fast scan (RecordCodec.scanRecord)
+        // truncation), but its CRC no longer matches. The fast scan (RecordScanCodec.scanRecord)
         // hashes bodies in chunks without materializing them; this proves that path still
         // verifies every byte instead of trusting the length fields alone.
         val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
