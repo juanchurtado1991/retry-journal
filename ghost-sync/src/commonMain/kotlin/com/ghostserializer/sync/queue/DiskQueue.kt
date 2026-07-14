@@ -1,9 +1,6 @@
 package com.ghostserializer.sync.queue
 
 import com.ghost.serialization.Ghost
-import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD
-import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
-import com.ghostserializer.sync.queue.DiskQueueConstants.INDEX_OFFSET_BITS
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
 import kotlinx.coroutines.sync.Mutex
@@ -14,7 +11,6 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.SYSTEM
 import okio.buffer
-import okio.use
 
 /**
  * Append-only, crash-safe FIFO queue backed by a single file. Nothing is ever rewritten in
@@ -22,6 +18,9 @@ import okio.use
  * (never rewrites it), and compaction only ever replaces the whole file atomically. This is the
  * append-only + atomic-rename pattern proven by kmpworkmanager's own queue, deliberately avoiding
  * square/tape's in-place 16-byte header rewrite (its root corruption cause on abrupt shutdown).
+ * The crash-recovery scan lives in [DiskQueueRecovery], reclaiming dead space lives in
+ * [DiskQueueCompactor] — both stateless, operating only on the file and whatever state this class
+ * hands them, so they're safe to reason about independently of this class's own bookkeeping.
  *
  * All public operations are serialized by a single [Mutex] within one process, and by an advisory
  * file lock (`<queuePath>.lock`) across processes sharing the same queue file — a foreground app
@@ -31,13 +30,14 @@ import okio.use
  * never stalls on unreadable data; [size] and [peekIds] only count entries that can actually be read.
  *
  * **Threading contract, two parts callers need to know:**
- * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
+ * - Every suspend function here does block file I/O (Okio's [FileSystem] is synchronous, and
  *   so is [PlatformQueueFileLock]) on whatever thread the calling coroutine happens to be running
- *   on. Drive this class from [kotlinx.coroutines.Dispatchers.IO] (or an equivalently
+ *   on. Drive this class from [kotlinx.coroutines.Dispatchers.Default] (or an equivalently
  *   blocking-friendly dispatcher) — calling it from [kotlinx.coroutines.Dispatchers.Default]'s
  *   CPU-sized pool risks starving other CPU-bound work sharing that pool under real contention.
  * - [close] is **not** synchronized with [Mutex] the way every other operation is: it's a plain,
- *   non-suspending function (matching the `Closeable`-style contract [GhostSync] implements), so
+ *   non-suspending function (matching the `Closeable`-style contract
+ *   [com.ghostserializer.sync.GhostSync] implements), so
  *   it can't take a suspend-only lock without either blocking a thread it shouldn't or becoming
  *   suspend itself and breaking that contract. Calling [close] while another coroutine has an
  *   operation in flight on the same instance is undefined behavior — the same caveat as closing
@@ -69,7 +69,8 @@ class DiskQueue(
         fileSystem,
     )
 
-    /** Sequence id -> packed length and offset (length shl 38 or offset), in FIFO order. */
+    /** Sequence id -> packed length and offset — see [PackedIndexEntry] for the bit layout — in
+     * FIFO order. */
     private val liveOffsetsBySequence = LinkedHashMap<Long, Long>()
     private var fileLength = 0L
     private var deadBytes = 0L
@@ -84,12 +85,6 @@ class DiskQueue(
     /** Reused across writes instead of reopened per call — [appendSinkLocked]/[closeAppendSinkLocked]. */
     private var appendSink: BufferedSink? = null
     private var readHandle: okio.FileHandle? = null
-
-    private fun pack(length: Int, offset: Long): Long =
-        (length.toLong() shl INDEX_OFFSET_BITS) or offset
-
-    private fun unpackLength(packed: Long): Int = (packed ushr INDEX_OFFSET_BITS).toInt()
-    private fun unpackOffset(packed: Long): Long = packed and OFFSET_MASK
 
     private fun readHandleLocked(): okio.FileHandle =
         readHandle ?: fileSystem.openReadOnly(path).also { readHandle = it }
@@ -208,7 +203,7 @@ class DiskQueue(
         sink.flush()
 
         fileLength += written
-        liveOffsetsBySequence[sequenceId] = pack(written, offset)
+        liveOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(written, offset)
         nextSequenceId++
         captureDiskMetadataLocked()
 
@@ -223,7 +218,7 @@ class DiskQueue(
         while (true) {
             val (sequenceId, packed) = liveOffsetsBySequence.entries.firstOrNull()
                 ?: break
-            val entry = readLiveEntryAtLocked(sequenceId, unpackOffset(packed))
+            val entry = readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
             if (entry != null) {
                 result = entry
                 break
@@ -239,7 +234,7 @@ class DiskQueue(
         scrubUnreadableEntriesLocked()
         val before = outResult.size
         for ((sequenceId, packed) in liveOffsetsBySequence) {
-            val entry = readLiveEntryAtLocked(sequenceId, unpackOffset(packed))
+            val entry = readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
             if (entry != null) {
                 outResult.add(entry)
             }
@@ -251,7 +246,7 @@ class DiskQueue(
     suspend fun get(id: QueueEntryId): QueueEntry? = withQueueLock {
         ensureOpenLocked()
         val packed = liveOffsetsBySequence[id.sequenceId] ?: return@withQueueLock null
-        readLiveEntryAtLocked(id.sequenceId, unpackOffset(packed))
+        readLiveEntryAtLocked(id.sequenceId, PackedIndexEntry.unpackOffset(packed))
     }
 
     /** Idempotent: removing an already-removed or unknown id is a no-op. */
@@ -288,7 +283,7 @@ class DiskQueue(
                     break
                 }
                 val packed = liveOffsetsBySequence[sequenceId] ?: continue
-                if (readLiveEntryAtLocked(sequenceId, unpackOffset(packed)) != null) {
+                if (readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed)) != null) {
                     outResult.add(QueueEntryId(sequenceId))
                     count++
                 }
@@ -301,7 +296,7 @@ class DiskQueue(
             ensureOpenLocked()
             scrubUnreadableEntriesLocked()
             for ((sequenceId, packed) in liveOffsetsBySequence) {
-                val entry = readLiveEntryAtLocked(sequenceId, unpackOffset(packed))
+                val entry = readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
                 if (entry != null) {
                     action(sequenceId, entry.meta, entry.body)
                 }
@@ -311,7 +306,7 @@ class DiskQueue(
     private fun scrubUnreadableEntriesLocked() {
         scrubScratchCount = 0
         for ((sequenceId, packed) in liveOffsetsBySequence) {
-            if (readLiveEntryAtLocked(sequenceId, unpackOffset(packed)) == null) {
+            if (readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed)) == null) {
                 if (scrubScratchCount >= scrubScratch.size) {
                     scrubScratch = scrubScratch.copyOf(scrubScratch.size shl 1)
                 }
@@ -325,7 +320,7 @@ class DiskQueue(
 
     private fun removeLocked(targetSequenceId: Long) {
         val packed = liveOffsetsBySequence.remove(targetSequenceId) ?: return
-        val removedLength = unpackLength(packed)
+        val removedLength = PackedIndexEntry.unpackLength(packed)
 
         val sink = appendSinkLocked()
         fileLength += RecordCodec.writeTombstone(sink, targetSequenceId)
@@ -367,149 +362,34 @@ class DiskQueue(
         if (opened) {
             return
         }
-        if (!fileSystem.exists(path)) {
-            opened = true
-            captureDiskMetadataLocked()
-            return
-        }
-
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
-        fileSystem.delete(tempPath, mustExist = false)
-
-        val totalSize = fileSystem.metadata(path).size ?: 0L
-        val handle = fileSystem.openReadOnly(path)
-        try {
-            var offset = 0L
-            var lastValidOffset = 0L
-            var currentSource = handle.source(offset).buffer()
-            val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
-            val scanResult = RecordScanResult()
-
-            while (offset < totalSize) {
-                RecordScanCodec.scanRecord(currentSource, maxRecordFieldSize, scanBuffer, scanResult)
-                when (scanResult.type) {
-                    RecordScanResult.TYPE_LIVE -> {
-                        val seqId = scanResult.sequenceId
-                        val len = scanResult.recordLength
-                        liveOffsetsBySequence[seqId] = pack(len, offset)
-                        if (seqId >= nextSequenceId) {
-                            nextSequenceId = seqId + 1
-                        }
-                        offset += len
-                        lastValidOffset = offset
-                    }
-
-                    RecordScanResult.TYPE_TOMBSTONE -> {
-                        val targetSeqId = scanResult.sequenceId
-                        val len = scanResult.recordLength
-                        val packed = liveOffsetsBySequence.remove(targetSeqId)
-                        if (packed != null) {
-                            val deadLength = unpackLength(packed)
-                            deadBytes += deadLength + len
-                        }
-
-                        if (targetSeqId >= nextSequenceId) {
-                            nextSequenceId = targetSeqId + 1
-                        }
-
-                        offset += len
-                        lastValidOffset = offset
-                    }
-
-                    RecordScanResult.TYPE_INVALID -> {
-                        val advance = if (scanResult.recordLength > 0) {
-                            scanResult.recordLength
-                        } else {
-                            1
-                        }
-                        offset += advance
-                        deadBytes += advance
-                        currentSource.close()
-                        currentSource = handle.source(offset).buffer()
-                    }
-
-                    RecordScanResult.TYPE_EOF -> {
-                        break
-                    }
-                }
-            }
-            currentSource.close()
-
-            if (lastValidOffset < totalSize) {
-                truncateToLocked(lastValidOffset)
-            }
-            fileLength = lastValidOffset
-            opened = true
-            captureDiskMetadataLocked()
-        } finally {
-            handle.close()
-        }
-    }
-
-    private fun truncateToLocked(validLength: Long) {
-        fileSystem.openReadWrite(path).use { it.resize(validLength) }
+        val result = DiskQueueRecovery.recover(fileSystem, path, maxRecordFieldSize)
+        liveOffsetsBySequence.clear()
+        liveOffsetsBySequence.putAll(result.liveOffsetsBySequence)
+        nextSequenceId = result.nextSequenceId
+        deadBytes = result.deadBytes
+        fileLength = result.fileLength
+        opened = true
+        captureDiskMetadataLocked()
     }
 
     private fun compactIfNeededLocked() {
-        if (fileLength <= 0L) {
-            return
-        }
-        val deadRatio = deadBytes.toDouble() / fileLength.toDouble()
-        if (deadRatio < COMPACTION_DEAD_RATIO_THRESHOLD) {
-            return
-        }
-
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
-        fileSystem.delete(tempPath, mustExist = false)
-
-        val newOffsetsBySequence = LinkedHashMap<Long, Long>()
-        var newOffset = 0L
-
-        val readHandle = fileSystem.openReadOnly(path)
-        try {
-            fileSystem.sink(tempPath).buffer().use { sink ->
-                for ((sequenceId, packed) in liveOffsetsBySequence) {
-                    val offset = unpackOffset(packed)
-                    val source = readHandle.source(offset).buffer()
-                    try {
-                        when (val result = RecordCodec.readRecord(source, maxRecordFieldSize)) {
-                            is RecordReadResult.Live -> {
-                                val written = RecordCodec.writeLive(
-                                    sink,
-                                    sequenceId,
-                                    result.metaBytes,
-                                    result.body
-                                )
-                                newOffsetsBySequence[sequenceId] = pack(written, newOffset)
-                                newOffset += written
-                            }
-
-                            else -> {
-                                val writtenTombstone = RecordCodec.writeTombstone(sink, sequenceId)
-                                newOffset += writtenTombstone
-                            }
-                        }
-                    } finally {
-                        source.close()
-                    }
-                }
-
-                if (nextSequenceId > 0 && !liveOffsetsBySequence.containsKey(nextSequenceId - 1)) {
-                    val writtenTombstone = RecordCodec.writeTombstone(sink, nextSequenceId - 1)
-                    newOffset += writtenTombstone
-                }
-            }
-        } finally {
-            readHandle.close()
-        }
+        val plan = DiskQueueCompactor.planCompaction(
+            fileSystem,
+            path,
+            maxRecordFieldSize,
+            liveOffsetsBySequence,
+            fileLength,
+            deadBytes,
+            nextSequenceId,
+        ) ?: return
 
         closeAppendSinkLocked()
         closeReadHandleLocked()
-        fileSystem.atomicMove(tempPath, path)
+        fileSystem.atomicMove(plan.tempPath, path)
 
         liveOffsetsBySequence.clear()
-        liveOffsetsBySequence.putAll(newOffsetsBySequence)
-        fileLength = newOffset
+        liveOffsetsBySequence.putAll(plan.liveOffsetsBySequence)
+        fileLength = plan.fileLength
         deadBytes = 0L
         captureDiskMetadataLocked()
     }
@@ -526,9 +406,5 @@ class DiskQueue(
         } finally {
             closeReadHandleLocked()
         }
-    }
-
-    private companion object {
-        const val OFFSET_MASK: Long = (1L shl INDEX_OFFSET_BITS) - 1L
     }
 }
