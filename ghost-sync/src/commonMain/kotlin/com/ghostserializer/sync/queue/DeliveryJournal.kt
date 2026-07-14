@@ -123,7 +123,7 @@ internal object DeliveryJournal {
         skip(1)
         val outcomeLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
         if (outcomeLineBreak <= 0L) {
-            return corruptFromPartialSequence(sequenceId)
+            return corruptFromPartialSequence(sequenceId, outcome = "")
         }
         val outcome = readUtf8(outcomeLineBreak)
         skip(1)
@@ -135,7 +135,7 @@ internal object DeliveryJournal {
             return corruptFromPartialSequence(sequenceId, outcome)
         }
         if (!isValidOutcome(outcome)) {
-            return corruptFromPartialSequence(sequenceId, OUTCOME_DELIVERED)
+            return corruptFromPartialSequence(sequenceId, outcome)
         }
         val expectedCrc = computeCrc(sequenceId, outcome)
         if (storedCrc != expectedCrc) {
@@ -146,17 +146,12 @@ internal object DeliveryJournal {
 
     private fun corruptFromPartialSequence(
         sequenceId: Long?,
-        outcome: String = OUTCOME_DELIVERED,
+        outcome: String = "",
     ): DeliveryJournalReadResult? {
-        if (sequenceId == null) {
+        if (sequenceId == null || !isValidOutcome(outcome)) {
             return null
         }
-        val resolvedOutcome = if (isValidOutcome(outcome)) {
-            outcome
-        } else {
-            OUTCOME_DELIVERED
-        }
-        return DeliveryJournalReadResult.CorruptPending(sequenceId, resolvedOutcome)
+        return DeliveryJournalReadResult.CorruptPending(sequenceId, outcome)
     }
 
     private fun isValidOutcome(outcome: String): Boolean =

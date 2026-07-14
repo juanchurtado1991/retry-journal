@@ -103,7 +103,11 @@ internal object DiskQueueHeadOps {
             queue.fileSystem,
             ReplayClaim.claimPath(queue.path),
         ) ?: return false
-        return queue.liveOffsetsBySequence.containsKey(claim.sequenceId)
+        if (!queue.liveOffsetsBySequence.containsKey(claim.sequenceId)) {
+            return false
+        }
+        val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull() ?: return false
+        return headSequenceId == claim.sequenceId
     }
 }
 
