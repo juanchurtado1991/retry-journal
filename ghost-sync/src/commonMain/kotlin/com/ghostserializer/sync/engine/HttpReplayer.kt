@@ -12,12 +12,14 @@ import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLParserException
 import io.ktor.http.content.ByteArrayContent
+import io.ktor.utils.io.discard
 import io.ktor.utils.io.errors.IOException
 
 /**
@@ -41,24 +43,32 @@ internal class HttpReplayer {
     suspend fun send(client: HttpClient, entry: QueueEntry): HttpStatusCode {
         assertSafeToReplayWith(client)
 
-        val meta = entry.meta
-        if (urlFailsToParse(meta.url)) {
+        if (urlFailsToParse(entry.meta.url)) {
             return HttpStatusCode.BadRequest
         }
 
-        val response: HttpResponse = client.request(meta.url) {
-            method = parseMethodOrFallback(meta.method)
-            val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
-            setBody(
-                if (contentType != null) {
-                    ByteArrayContent(entry.body, contentType)
-                } else {
-                    entry.body
-                },
-            )
+        val response: HttpResponse = client.request(entry.meta.url) {
+            configureReplayRequest(entry)
         }
-        return response.status
+        return try {
+            response.status
+        } finally {
+            response.bodyAsChannel().discard()
+        }
     }
+
+    private fun HttpRequestBuilder.configureReplayRequest(entry: QueueEntry) {
+        method = parseMethodOrFallback(entry.meta.method)
+        val contentType = applyHeaders(entry.meta.headers)?.let(::parseContentTypeOrNull)
+        setBody(buildReplayBody(entry.body, contentType))
+    }
+
+    private fun buildReplayBody(body: ByteArray, contentType: ContentType?) =
+        if (contentType != null) {
+            ByteArrayContent(body, contentType)
+        } else {
+            body
+        }
 
     /** Returns true when [url] cannot be parsed into a replayable request URL — checked before
      * [send] touches the network so a corrupt stored URL dead-letters instead of stalling the
@@ -101,32 +111,35 @@ internal class HttpReplayer {
         headers.forEach { name, value ->
             when (HeaderDispatch.slotFor(name)) {
                 HeaderDispatch.SLOT_CONTENT_TYPE -> contentType = value
-                HeaderDispatch.SLOT_CONTENT_LENGTH -> Unit
-                else -> appendHeaderValues(name, value)
+                HeaderDispatch.SLOT_SKIP -> Unit
+                else -> appendSplitHeaderValues(name, value)
             }
         }
         return contentType
     }
 
-    private fun HttpRequestBuilder.appendHeaderValues(name: String, value: String) {
-        var separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR)
-        if (separatorIndex < 0) {
-            header(name, value)
-            return
+    private fun HttpRequestBuilder.appendSplitHeaderValues(name: String, value: String) {
+        for (segment in splitHeaderValues(value)) {
+            header(name, segment)
         }
+    }
+
+    private fun splitHeaderValues(value: String): List<String> {
+        if (value.indexOf(HEADER_MULTI_VALUE_SEPARATOR) < 0) {
+            return listOf(value)
+        }
+        val segments = mutableListOf<String>()
         var start = 0
+        var separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR, start)
         while (start <= value.length) {
-            val end = if (separatorIndex < 0) {
-                value.length
-            } else {
-                separatorIndex
-            }
-            header(name, value.substring(start, end))
+            val end = if (separatorIndex < 0) value.length else separatorIndex
+            segments.add(value.substring(start, end))
             if (separatorIndex < 0) {
                 break
             }
             start = separatorIndex + 1
             separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR, start)
         }
+        return segments
     }
 }
