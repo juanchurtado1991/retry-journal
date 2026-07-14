@@ -1,30 +1,21 @@
 package com.ghostserializer.sync.sample.app
 
-import com.ghostserializer.sync.engine.GhostSyncEngine
+import com.ghostserializer.sync.GhostSyncRuntime
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 
 /**
- * The actual sync logic, written once in commonMain — kmpworkmanager's pattern has thin platform
- * adapters (`AndroidWorker`/`IosWorker` implementations annotated `@Worker`) delegate to a plain,
- * testable class like this one. This class lives in the sample, never in `:ghost-sync` — see
- * CONVENTIONS.md.
- *
- * `Worker`/`WorkerResult`/`WorkerEnvironment` live in `dev.brewkits.kmpworkmanager.background.domain`
- * — confirmed by decompiling the resolved `kmpworkmanager-android` artifact (the library's own
- * README omits the package on these, and its `WorkerResult.Retry(delayMs, attemptCap)` snippet
- * omits a third, non-optional `reason: String` constructor parameter that the real class
- * requires). The iOS side wasn't independently verified on this machine (Linux, no Xcode), but
- * KMP libraries keep a shared interface in one commonMain package, so the same package for
- * `IosWorker` is a safe bet.
+ * Background sync worker — delegates to [GhostSyncRuntime] from `:ghost-sync` so flush is
+ * serialized with the UI and respects the same lifecycle coordinator. Platform adapters
+ * ([SyncWorkerAndroid], [SyncWorkerIos]) are thin kmpworkmanager shells.
  */
 class GhostSyncWorker(
-    private val engine: GhostSyncEngine = SyncSetup.syncEngine,
+    private val runtime: GhostSyncRuntime = SyncSetup.runtime,
 ) : Worker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
-            val result = engine.flush(SyncSetup.replayClient)
+            val result = runtime.flushWhenOnline() ?: return retry(AppStrings.WORKER_RETRY_REASON_OFFLINE)
             if (result.stoppedEarly) {
                 retry(reason = AppStrings.WORKER_RETRY_REASON_STOPPED_EARLY)
             } else {

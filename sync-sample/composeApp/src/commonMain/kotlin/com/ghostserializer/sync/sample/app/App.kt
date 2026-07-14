@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -111,20 +112,29 @@ private fun DemoScreen() {
     }
 
     suspend fun checkServerStatus() {
-        serverStatus = runCatching { SyncSetup.replayClient.get(healthUrl()) }
+        val online = runCatching { SyncSetup.liveClient.get(healthUrl()) }
             .fold(
-                onSuccess = { if (it.status.isSuccess()) ServerHealthStatus.Online else ServerHealthStatus.Offline },
-                onFailure = { ServerHealthStatus.Offline },
+                onSuccess = { it.status.isSuccess() },
+                onFailure = { false },
             )
+        serverStatus = if (online) ServerHealthStatus.Online else ServerHealthStatus.Offline
+        SyncSetup.reportConnectivity(online)
     }
 
     LaunchedEffect(Unit) {
         if (MockServerController.isSupported) {
             MockServerController.start()
         }
+        SyncSetup.runtime.start(autoFlushOnOnline = true)
         refreshCounts()
         checkServerStatus()
         log(AppStrings.LOG_APP_READY)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            SyncSetup.runtime.stop()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -209,7 +219,7 @@ private fun DemoScreen() {
                     scope.launch {
                         isBusy = true
                         log(AppStrings.LOG_SYNCING)
-                        val result = SyncSetup.syncEngine.flush(SyncSetup.replayClient) { progress ->
+                        val result = SyncSetup.runtime.flush { progress ->
                             val (id, status) = when (progress) {
                                 is FlushProgress.Delivered -> progress.id to ChipStatus.Delivered
                                 is FlushProgress.DeadLettered -> progress.id to ChipStatus.DeadLettered

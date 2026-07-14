@@ -59,6 +59,7 @@ internal object AppStrings {
 
     const val WORKER_RETRY_REASON_STOPPED_EARLY: String =
         "flush stopped early: a 5xx or network failure left work in the queue"
+    const val WORKER_RETRY_REASON_OFFLINE: String = "skipped flush: connectivity signal is offline"
     const val WORKER_RETRY_REASON_THREW_PREFIX: String = "flush threw: "
     const val WORKER_SUCCESS_MESSAGE_PREFIX: String = "delivered="
     const val WORKER_SUCCESS_MESSAGE_DEAD_LETTERED: String = " deadLettered="
