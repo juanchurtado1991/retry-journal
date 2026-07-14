@@ -2,15 +2,16 @@ package com.ghostserializer.sync.engine
 
 import com.ghostserializer.sync.queue.QueueEntry
 
-/** Result of inspecting the main queue head without claiming it for replay. */
+/** Read-only state of the main queue head — use with [GhostSyncEngine.getHeadState]. */
 sealed class QueueHeadState {
     data object Empty : QueueHeadState()
 
-    /** Another process holds a non-stale [com.ghostserializer.sync.queue.ReplayClaim] on the head. */
+    /** Another process holds a non-stale replay claim on the FIFO head. */
     data object Blocked : QueueHeadState()
 
-    /** Server side-effect already recorded; local removal is still pending ([DeliveryJournal]). */
-    data class PendingLocalRemoval(val entry: QueueEntry) : QueueHeadState()
+    /** Ready for HTTP replay on the next [GhostSyncEngine.flush]. */
+    data class AwaitingReplay(val entry: QueueEntry) : QueueHeadState()
 
-    data class Ready(val entry: QueueEntry) : QueueHeadState()
+    /** Server side-effect recorded; next [GhostSyncEngine.flush] finishes local removal only. */
+    data class AwaitingLocalRemoval(val entry: QueueEntry) : QueueHeadState()
 }

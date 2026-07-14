@@ -4,7 +4,7 @@ internal object GhostSyncConstants {
     const val DEFAULT_DEAD_LETTER_PATH_SUFFIX: String = ".deadletter"
 
     const val CLOSE_WHILE_REPLAY_IN_FLIGHT_MESSAGE: String =
-        "GhostSync.close() called while a replay session (flush() or engine.getStatus()) is still " +
+        "GhostSync.close() called while a replay session (flush()) is still " +
             "in flight on this instance. Make sure every replay call has completed before closing — " +
             "otherwise closing replayClient can cut a request out from under it."
 

@@ -25,17 +25,13 @@ import io.ktor.utils.io.errors.IOException
 /**
  * Replays one queued [QueueEntry] over the wire — the only place [GhostSyncEngine] touches Ktor
  * request-building mechanics. Split out on purpose: [assertSafeToReplayWith] and [send] are now
- * the single implementation both [GhostSyncEngine.flush] and [GhostSyncEngine.getStatus] go
- * through, instead of each keeping its own copy of the plugin-installed-client guard — the exact
- * duplication that once let one of the two drift out of sync with the other.
+ * the single implementation [HeadReplayExecutor] uses for replay.
  */
 internal class HttpReplayer {
 
-    /** flush calls this eagerly so a misconfigured client fails immediately, even against an
-     * empty queue; [send] also calls it so a caller driving its own [GhostSyncEngine.getStatus]
-     * loop can't skip it. Replaying through a client that re-queues its own failures would
-     * duplicate every entry that fails again mid-replay — see
-     * [REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE]. */
+    /** Called before replay so a misconfigured client fails immediately, even against an empty
+     * queue. Replaying through a client that re-queues its own failures would duplicate every
+     * entry that fails again mid-replay — see [REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE]. */
     fun assertSafeToReplayWith(client: HttpClient) {
         check(client.pluginOrNull(GhostOfflineQueuePlugin) == null) { REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE }
     }
