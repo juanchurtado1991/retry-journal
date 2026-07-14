@@ -12,7 +12,10 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - GitHub Actions CI (`ciTestJvm` + multi-target compile)
 - Maven Central publish wiring via `com.vanniktech.maven.publish`
 - Apache 2.0 LICENSE
-- 76 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- 90 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- `ReplayClaim` — cross-process `<queuePath>.replay-claim` marker so two processes sharing a queue file cannot both replay the same head entry and duplicate a non-idempotent POST
+- `LifecycleGate` — serializes `enter`/`leave` against `close()` on [DiskQueue], [GhostSyncEngine], and [GhostOfflineQueuePlugin], eliminating the TOCTOU window where `close()` could proceed while a new operation was starting
+- `GhostSyncEngine.getEntryAndStatus()` reads head entry and queue status under the same replay [Mutex] as `flush()`, closing duplicate manual-replay footguns
 
 ### Fixed
 - `DiskQueue.enqueue` rejects records whose packed on-disk length would overflow the 26-bit index **before** writing
@@ -55,6 +58,10 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `RequestCapture` captures headers in a single pass over `request.headers.entries()` instead of counting then iterating twice
 - `GhostOfflineQueuePlugin` treats wrapped [IOException]s in the cause chain as connectivity failures worth queueing, not only a top-level [IOException]
 - `GhostOfflineQueuePlugin` tracks in-flight request count so `GhostSync.close()` can refuse to proceed while `client` is mid-request
+- `HttpReplayer` returns a synthetic 400 when a stored URL (or other request-build fault) throws during replay, routing the entry through dead-letter instead of permanently stalling the queue behind it
+- `RequestCapture` reads channel body bytes before closing the write channel, avoiding read-after-close on slow producers
+- `GhostSync.close()` calls `closeForShutdown()` on the engine and plugin before closing Ktor clients, so lifecycle gates reject new work while in-flight replay/requests finish
+- `DiskQueueRecovery` clears stale `ReplayClaim` files on open so a crash mid-replay does not block the queue forever
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)

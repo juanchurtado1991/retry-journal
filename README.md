@@ -64,7 +64,9 @@ dependencies {
 > **iOS note:** iOS targets compile on macOS only. Verification steps are tracked in [`ios_techdebt.md`](ios_techdebt.md).
 
 ### Important constraints
-- **Cross-process safe:** multiple processes can share the same queue file — `DiskQueue` acquires an advisory lock at `<queuePath>.lock` on every operation.
+- **Cross-process safe:** multiple processes can share the same queue file — `DiskQueue` acquires an advisory lock at `<queuePath>.lock` on every operation, and `flush()` writes a short-lived replay claim at `<queuePath>.replay-claim` so two processes cannot both replay the same head entry at once.
+- **At-least-once replay:** a `flush()` cancelled after the server already returned 2xx but before the entry is removed may deliver the same request again on the next `flush()`. Use idempotent endpoints or server-side dedup keys for non-idempotent mutations.
+- **Close guards are synchronized:** `close()` on `DiskQueue`, `GhostSyncEngine`, `GhostOfflineQueuePlugin`, and `GhostSync` uses an internal lifecycle gate so new operations cannot start in the window between an in-flight check and marking the instance closed (the usual TOCTOU race).
 - **Version `0.1.0`:** pre-release — see [CHANGELOG.md](CHANGELOG.md) for known limitations.
 
 ---
