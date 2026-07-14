@@ -1,9 +1,9 @@
 package com.ghostserializer.sync.deadletter
 
-import com.ghostserializer.sync.queue.DiskQueue
-import com.ghostserializer.sync.queue.DiskQueueConstants.CURRENT_DIRECTORY_PATH
-import com.ghostserializer.sync.queue.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
-import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.CURRENT_DIRECTORY_PATH
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 import com.ghostserializer.sync.queue.LifecycleGate

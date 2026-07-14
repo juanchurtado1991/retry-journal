@@ -2,6 +2,8 @@ package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.indexOfSubarray
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueIndexSync
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
@@ -13,8 +15,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Covers [DiskQueueCompactor] — reclaiming dead space once the dead-byte ratio crosses
- * [DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD], and that ids/sequence numbers survive it. */
+/** Covers [com.ghostserializer.sync.queue.disk.DiskQueueCompactor] — reclaiming dead space once the dead-byte ratio crosses
+ * [com.ghostserializer.sync.queue.disk.DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD], and that ids/sequence numbers survive it. */
 class DiskQueueCompactionTest {
 
     private lateinit var queuePath: Path

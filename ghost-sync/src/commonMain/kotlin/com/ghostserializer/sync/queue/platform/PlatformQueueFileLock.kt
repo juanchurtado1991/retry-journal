@@ -7,7 +7,7 @@ import okio.Path
 
 /** Advisory exclusive lock for a queue file — serializes access across processes that share the
  * same `queuePath`. Intra-process concurrency is still handled by
- * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]'s own `Mutex`. */
+ * [DiskQueue][com.ghostserializer.sync.queue.disk.DiskQueue]'s own `Mutex`. */
 internal expect class PlatformQueueFileLock(lockPath: Path, fileSystem: FileSystem) {
     fun acquire()
     fun release()

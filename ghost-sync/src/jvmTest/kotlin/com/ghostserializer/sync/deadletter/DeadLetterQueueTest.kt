@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.deadletter
 
 import com.ghostserializer.sync.peekAll
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 import com.ghostserializer.sync.queue.QueueEntry

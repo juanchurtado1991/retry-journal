@@ -1,7 +1,8 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
 import com.ghost.serialization.Ghost
-import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.record.RecordCodec
@@ -41,11 +42,11 @@ internal object DiskQueueEnqueueOps {
             )
         }
         val packedLength = computePackedLiveRecordLength(metaBytes, body)
-        if (packedLength > MAX_PACKABLE_RECORD_LENGTH) {
+        if (packedLength > DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH) {
             throw RecordTooLargeException(
                 DiskQueueConstants.RECORD_FIELD_NAME,
                 packedLength,
-                MAX_PACKABLE_RECORD_LENGTH,
+                DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH,
             )
         }
     }

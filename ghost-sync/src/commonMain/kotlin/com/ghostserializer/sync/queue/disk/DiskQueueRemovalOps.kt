@@ -1,5 +1,6 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.record.RecordCodec
 import okio.IOException

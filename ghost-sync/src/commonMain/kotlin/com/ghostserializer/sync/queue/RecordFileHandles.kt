@@ -7,7 +7,7 @@ import okio.Path
 import okio.buffer
 
 /**
- * Owns the two OS-level handles [DiskQueue] keeps open across calls instead of reopening one per
+ * Owns the two OS-level handles [com.ghostserializer.sync.queue.disk.DiskQueue] keeps open across calls instead of reopening one per
  * operation: an appending sink for writes, a read-only handle for reads. Both are opened lazily on
  * first use. Closing is defensive — if the underlying `close()` throws, the cached reference is
  * still cleared in a `finally`, so a later reopen isn't blocked by a stale, already-closed handle.

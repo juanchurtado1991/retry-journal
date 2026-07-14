@@ -25,7 +25,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import com.ghostserializer.sync.queue.HeadReplayPrepareResult
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -522,7 +523,7 @@ class DiskQueueTest {
 
     /** Reaches into [DiskQueue]'s private live-offset index and swaps the packed offsets
      * recorded for two sequence ids, so each id's index entry now points at the *other* id's
-     * on-disk record — the exact mismatch [DiskQueue.readLiveEntryAtLocked]'s sequenceId check
+     * on-disk record — the exact mismatch [com.ghostserializer.sync.queue.disk.readLiveEntryAtLocked]'s sequenceId check
      * guards against. */
     private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
         val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }

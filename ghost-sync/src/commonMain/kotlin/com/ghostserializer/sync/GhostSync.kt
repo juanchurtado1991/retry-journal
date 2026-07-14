@@ -5,8 +5,8 @@ import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.engine.FlushProgress
 import com.ghostserializer.sync.engine.FlushResult
 import com.ghostserializer.sync.engine.GhostSyncEngine
-import com.ghostserializer.sync.queue.DiskQueue
-import com.ghostserializer.sync.queue.DiskQueueConstants
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngineConfig

@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.queue.record
 
 import com.ghost.serialization.Ghost
-import com.ghostserializer.sync.queue.DiskQueueConstants
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 import okio.Buffer

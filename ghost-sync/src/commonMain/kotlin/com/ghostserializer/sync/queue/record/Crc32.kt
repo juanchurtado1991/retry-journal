@@ -11,12 +11,12 @@ import com.ghostserializer.sync.queue.record.Crc32.update
  * number back; change even one bit anywhere in the input and the number almost certainly comes
  * out different. It cannot repair damaged data or say *which* byte changed — it can only tell you
  * "these bytes match what was checksummed before" or "they don't," which is exactly what
- * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue] needs: every record written to disk is
+ * [DiskQueue][com.ghostserializer.sync.queue.disk.DiskQueue] needs: every record written to disk is
  * checksummed, and every record read back is checksummed again and compared. If a write was
  * interrupted partway through — the process was killed mid-`enqueue()` — the checksums won't
- * match, and [DiskQueue][com.ghostserializer.sync.queue.DiskQueue] treats that as "this is where
+ * match, and [DiskQueue][com.ghostserializer.sync.queue.disk.DiskQueue] treats that as "this is where
  * the valid data ends," truncating the corrupt tail instead of crashing or reading garbage back
- * as if it were a real request. See [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]'s own
+ * as if it were a real request. See [DiskQueue][com.ghostserializer.sync.queue.disk.DiskQueue]'s own
  * doc for why that recovery path matters.
  *
  * This implementation is the IEEE 802.3 variant (reflected), the same algorithm used by Ethernet,
@@ -45,7 +45,7 @@ import com.ghostserializer.sync.queue.record.Crc32.update
  * for small records.
  *
  * That "small records" assumption is no longer purely hypothetical: [GhostOfflineQueuePlugin][com.ghostserializer.sync.client.GhostOfflineQueuePlugin]
- * captures file/image upload bodies too (up to [MAX_RECORD_FIELD_SIZE][com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE], 64 MiB),
+ * captures file/image upload bodies too (up to [MAX_RECORD_FIELD_SIZE][com.ghostserializer.sync.queue.disk.DiskQueueConstants.MAX_RECORD_FIELD_SIZE], 64 MiB),
  * and those get hashed here same as any other body — twice per record (write, then verify-on-read)
  * and a third time for any that survive a compaction. Slice-by-8/16 is the next lever to pull if
  * that turns out to matter in practice; not changed here since an incorrect wider-slice

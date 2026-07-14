@@ -1,12 +1,12 @@
 package com.ghostserializer.sync.queue.record
 
-import com.ghostserializer.sync.queue.DiskQueueConstants
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import okio.BufferedSource
 import okio.EOFException
 
 /**
  * Same on-disk framing and the same full CRC verification as [RecordCodec.readRecord], but for
- * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]'s crash-recovery scan: it only ever needs
+ * [DiskQueue][com.ghostserializer.sync.queue.disk.DiskQueue]'s crash-recovery scan: it only ever needs
  * [RecordScanResult]'s sequence id and record length to rebuild the offset index, so meta/body
  * bytes are hashed in bounded chunks ([DiskQueueConstants.SCAN_CHUNK_SIZE]) instead of read into
  * one allocation the size of the field — a queue full of large file/image bodies shouldn't need

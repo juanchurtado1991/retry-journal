@@ -1,4 +1,6 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
+
+import com.ghostserializer.sync.queue.ReplayClaim
 
 /** Applies a [DiskQueueCompactionPlan] produced by [DiskQueueCompactor.planCompaction]. */
 internal object DiskQueueCompactionOps {

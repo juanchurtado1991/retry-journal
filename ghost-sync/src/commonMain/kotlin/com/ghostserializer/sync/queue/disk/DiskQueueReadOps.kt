@@ -1,5 +1,7 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.QueueEntry
+import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.queue.record.RecordCodec
 import com.ghostserializer.sync.queue.record.RecordReadResult
 import okio.buffer

@@ -1,8 +1,16 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
-import com.ghostserializer.sync.queue.DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE
-import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
+import com.ghostserializer.sync.queue.DeliveryJournal
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
+import com.ghostserializer.sync.queue.HeadReplayPrepareResult
+import com.ghostserializer.sync.queue.LifecycleGate
+import com.ghostserializer.sync.queue.QueueEntry
+import com.ghostserializer.sync.queue.QueueEntryId
+import com.ghostserializer.sync.queue.RecordFileHandles
+import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.platform.PlatformQueueFileLock
+import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import com.ghostserializer.sync.queue.platform.systemFileSystem
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.platform.ioDispatcher
@@ -45,11 +53,11 @@ import okio.Path.Companion.toPath
 class DiskQueue(
     internal val path: Path,
     internal val fileSystem: FileSystem,
-    internal val maxRecordFieldSize: Int = MAX_RECORD_FIELD_SIZE,
+    internal val maxRecordFieldSize: Int = DiskQueueConstants.MAX_RECORD_FIELD_SIZE,
 ) {
     constructor(
         path: Path,
-        maxRecordFieldSize: Int = MAX_RECORD_FIELD_SIZE,
+        maxRecordFieldSize: Int = DiskQueueConstants.MAX_RECORD_FIELD_SIZE,
     ) : this(path, systemFileSystem(), maxRecordFieldSize)
 
     init {
@@ -80,7 +88,7 @@ class DiskQueue(
 
     private val lifecycleGate = LifecycleGate(
         closedMessage = DiskQueueConstants.QUEUE_CLOSED_MESSAGE,
-        closeWhileBusyMessage = CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE,
+        closeWhileBusyMessage = DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE,
     )
 
     /** [ioDispatcher] instead of trusting the caller's own dispatcher: every operation here does
@@ -124,13 +132,14 @@ class DiskQueue(
     }
 
     /** Prepares the oldest readable entry for replay: writes a cross-process
-     * [ReplayClaim] so a second flusher in another process cannot send the same head entry
+     * [com.ghostserializer.sync.queue.ReplayClaim] so a second flusher in another process cannot send the same head entry
      * concurrently. Call [completeHeadReplay] after a successful delivery/dead-letter, or
      * [abortHeadReplayClaim] when replay stops early without removing the entry. */
     suspend fun prepareHeadForReplay(): HeadReplayPrepareResult = withQueueLock {
         ensureOpenLocked()
         val claimPath = ReplayClaim.claimPath(path)
         ReplayClaim.clearIfStale(fileSystem, claimPath)
+        DeliveryJournal.clearIfOrphan(fileSystem, path, liveOffsetsBySequence.keys)
 
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
@@ -174,7 +183,7 @@ class DiskQueue(
             fileSystem,
             claimPath,
             entryId.sequenceId,
-            com.ghostserializer.sync.queue.platform.currentTimeMillis(),
+            currentTimeMillis(),
         )
     }
 

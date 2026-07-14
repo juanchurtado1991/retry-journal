@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
 /** Mutable scan cursor while [DiskQueueRecovery] walks the queue file byte-by-byte. */
 internal class DiskQueueRecoveryScanState(

@@ -2,7 +2,7 @@ package com.ghostserializer.sync.client
 
 import com.ghostserializer.sync.client.ClientConstants.PLUGIN_CLOSED_MESSAGE
 import com.ghostserializer.sync.client.ClientConstants.PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.LifecycleGate
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpClientPlugin

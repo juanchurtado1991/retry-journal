@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
 /** Rebuilt index state produced by [DiskQueueRecovery.recover]. */
 internal class DiskQueueRecoveryResult(

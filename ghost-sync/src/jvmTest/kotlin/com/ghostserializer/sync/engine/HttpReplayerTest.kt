@@ -2,7 +2,7 @@ package com.ghostserializer.sync.engine
 
 import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import com.ghostserializer.sync.engine.SyncEngineConstants.HEADER_MULTI_VALUE_SEPARATOR
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine

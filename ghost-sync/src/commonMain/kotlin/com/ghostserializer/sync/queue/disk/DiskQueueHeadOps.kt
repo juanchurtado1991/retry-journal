@@ -1,10 +1,15 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.HeadReplayPrepareResult
+import com.ghostserializer.sync.queue.HeadScanResult
+import com.ghostserializer.sync.queue.QueueEntry
+import com.ghostserializer.sync.queue.QueueEntryId
+import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import okio.Path
 
-/** Head scanning and cross-process [ReplayClaim] coordination for [DiskQueue]. */
+/** Head scanning and cross-process [com.ghostserializer.sync.queue.ReplayClaim] coordination for [DiskQueue]. */
 internal object DiskQueueHeadOps {
 
     fun scanFirstReadableHeadLocked(queue: DiskQueue): HeadScanResult {
@@ -50,7 +55,12 @@ internal object DiskQueueHeadOps {
             if (!queue.liveOffsetsBySequence.containsKey(activeClaim.sequenceId)) {
                 ReplayClaim.delete(queue.fileSystem, claimPath)
             } else {
-                return HeadReplayPrepareResult.HeadBlocked
+                val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull()
+                if (headSequenceId != activeClaim.sequenceId) {
+                    ReplayClaim.delete(queue.fileSystem, claimPath)
+                } else {
+                    return HeadReplayPrepareResult.HeadBlocked
+                }
             }
         }
 
@@ -65,6 +75,9 @@ internal object DiskQueueHeadOps {
     ) {
         val activeClaim = ReplayClaim.read(queue.fileSystem, claimPath)
             ?: error(DiskQueueConstants.COMPLETE_HEAD_CLAIM_MISSING_MESSAGE)
+        if (ReplayClaim.isStale(activeClaim, currentTimeMillis())) {
+            error(DiskQueueConstants.COMPLETE_HEAD_CLAIM_STALE_MESSAGE)
+        }
         if (activeClaim.sequenceId != entryId.sequenceId) {
             error(DiskQueueConstants.COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE)
         }

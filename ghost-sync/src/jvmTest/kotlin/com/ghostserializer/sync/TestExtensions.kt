@@ -2,7 +2,7 @@ package com.ghostserializer.sync
 
 import com.ghostserializer.sync.deadletter.DeadLetterEntry
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.QueueEntry
 import com.ghostserializer.sync.queue.QueueEntryId
 import kotlinx.coroutines.runBlocking

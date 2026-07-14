@@ -1,7 +1,5 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
-import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD
-import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.record.RecordCodec
 import com.ghostserializer.sync.queue.record.RecordReadResult
@@ -12,10 +10,11 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.buffer
 import okio.use
+import kotlin.collections.iterator
 
 /**
  * Rewrites [DiskQueue]'s live records into a fresh temp file when the dead-byte ratio crosses
- * [COMPACTION_DEAD_RATIO_THRESHOLD] — never [path] itself, and never the atomic swap onto it: that
+ * [DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD] — never [path] itself, and never the atomic swap onto it: that
  * requires closing whatever handles [DiskQueue] itself still has open on the old file first, which
  * only [DiskQueue] knows about. [planCompaction] only ever reads [path] and writes [Plan.tempPath];
  * the caller does the swap once the [Plan] is ready.
@@ -73,11 +72,11 @@ internal object DiskQueueCompactor {
             return false
         }
         val deadRatio = deadBytes.toDouble() / fileLength.toDouble()
-        return deadRatio >= COMPACTION_DEAD_RATIO_THRESHOLD
+        return deadRatio >= DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD
     }
 
     private fun prepareTempCompactionFile(fileSystem: FileSystem, path: Path): Path {
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
+        val tempPath = (path.toString() + DiskQueueConstants.COMPACTION_FILE_SUFFIX).toPath()
         fileSystem.delete(tempPath, mustExist = false)
         return tempPath
     }

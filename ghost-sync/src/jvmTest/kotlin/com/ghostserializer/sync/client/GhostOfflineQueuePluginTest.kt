@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.client
 
 import com.ghostserializer.sync.peekAll
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond

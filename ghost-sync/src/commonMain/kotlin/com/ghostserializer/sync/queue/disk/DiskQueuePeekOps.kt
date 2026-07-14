@@ -1,6 +1,9 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.QueueEntry
+import com.ghostserializer.sync.queue.QueueEntryId
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
+import kotlin.collections.iterator
 
 /** Read-side iteration helpers for [DiskQueue.peekAll], [DiskQueue.peekIds], and [DiskQueue.peekAllRaw]. */
 internal object DiskQueuePeekOps {

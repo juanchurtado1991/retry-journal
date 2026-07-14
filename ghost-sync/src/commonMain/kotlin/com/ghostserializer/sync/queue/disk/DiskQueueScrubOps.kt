@@ -1,6 +1,8 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
+import kotlin.collections.iterator
 
 /** Tombstones corrupt index slots so [DiskQueue] cannot stall behind unreadable records. */
 internal object DiskQueueScrubOps {

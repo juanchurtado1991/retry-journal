@@ -3,6 +3,8 @@ package com.ghostserializer.sync.queue
 import com.ghost.serialization.Ghost
 import com.ghostserializer.sync.indexOfSubarray
 import com.ghostserializer.sync.peekAll
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.record.RecordCodec
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
@@ -16,7 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/** Covers [DiskQueueRecovery] — the crash-recovery scan [DiskQueue] runs the first time it opens
+/** Covers [com.ghostserializer.sync.queue.disk.DiskQueueRecovery] — the crash-recovery scan [com.ghostserializer.sync.queue.disk.DiskQueue] runs the first time it opens
  * a queue file, rebuilding the live/tombstone index and dropping anything corrupt or truncated. */
 class DiskQueueRecoveryTest {
 

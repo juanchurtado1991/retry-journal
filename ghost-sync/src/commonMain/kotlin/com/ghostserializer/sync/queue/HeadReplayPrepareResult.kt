@@ -1,6 +1,6 @@
 package com.ghostserializer.sync.queue
 
-/** Outcome of [DiskQueue.prepareHeadForReplay] — whether [GhostSyncEngine] may send the head
+/** Outcome of [com.ghostserializer.sync.queue.disk.DiskQueue.prepareHeadForReplay] — whether [GhostSyncEngine] may send the head
  * entry over the network on this process. */
 sealed class HeadReplayPrepareResult {
     data object Empty : HeadReplayPrepareResult()

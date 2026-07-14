@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
 internal object DiskQueueConstants {
     const val RECORD_KIND_LIVE_BYTE: Byte = 1
@@ -42,6 +42,8 @@ internal object DiskQueueConstants {
     const val QUEUE_GENERATION_TEMP_SUFFIX: String = ".gen.tmp"
     const val REPLAY_CLAIM_SUFFIX: String = ".replay-claim"
     const val REPLAY_CLAIM_TEMP_SUFFIX: String = ".replay-claim.tmp"
+    const val DELIVERY_JOURNAL_SUFFIX: String = ".delivery-pending"
+    const val DELIVERY_JOURNAL_TEMP_SUFFIX: String = ".delivery-pending.tmp"
 
     const val COMPLETE_HEAD_NOT_HEAD_MESSAGE: String =
         "completeHeadReplay() called for an entry that is not the current queue head"
@@ -49,13 +51,15 @@ internal object DiskQueueConstants {
         "completeHeadReplay() called without an active replay claim — call prepareHeadForReplay() first"
     const val COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE: String =
         "completeHeadReplay() called while a different head entry is claimed for replay"
+    const val COMPLETE_HEAD_CLAIM_STALE_MESSAGE: String =
+        "completeHeadReplay() called with a stale replay claim"
     const val REMOVE_WHILE_CLAIMED_MESSAGE: String =
         "remove() called for an entry that is currently claimed for cross-process replay"
 
     /** Claims with timestamps far in the future (corrupt clock / file) are treated as stale. */
     const val REPLAY_CLAIM_CLOCK_SKEW_MILLIS: Long = 60_000L
 
-    /** How often [GhostSyncEngine] refreshes an active [ReplayClaim] while a replay HTTP
+    /** How often [GhostSyncEngine] refreshes an active [com.ghostserializer.sync.queue.ReplayClaim] while a replay HTTP
      * round-trip is in flight — keeps slow uploads from outliving the stale window. */
     const val REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS: Long = 5L * 60L * 1000L
 

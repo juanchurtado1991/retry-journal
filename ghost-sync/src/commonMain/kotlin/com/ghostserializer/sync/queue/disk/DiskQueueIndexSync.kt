@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
 import okio.Path
 import okio.Path.Companion.toPath

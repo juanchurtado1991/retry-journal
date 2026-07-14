@@ -1,9 +1,11 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.disk
 
-import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
+import com.ghostserializer.sync.queue.ReplayClaim
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.record.RecordScanCodec
 import com.ghostserializer.sync.queue.record.RecordScanResult
+import okio.BufferedSource
+import okio.FileHandle
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -63,7 +65,7 @@ internal object DiskQueueRecovery {
         DiskQueueRecoveryResult(LinkedHashMap(), nextSequenceId = 0L, deadBytes = 0L, fileLength = 0L)
 
     private fun prepareRecoveryEnvironment(fileSystem: FileSystem, path: Path) {
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
+        val tempPath = (path.toString() + DiskQueueConstants.COMPACTION_FILE_SUFFIX).toPath()
         fileSystem.delete(tempPath, mustExist = false)
         ReplayClaim.clearIfStale(fileSystem, ReplayClaim.claimPath(path))
     }
@@ -71,9 +73,9 @@ internal object DiskQueueRecovery {
     private fun applyScanResult(
         scanResult: RecordScanResult,
         state: DiskQueueRecoveryScanState,
-        handle: okio.FileHandle,
-        currentSource: okio.BufferedSource,
-    ): okio.BufferedSource? = when (scanResult.type) {
+        handle: FileHandle,
+        currentSource: BufferedSource,
+    ): BufferedSource? = when (scanResult.type) {
         RecordScanResult.TYPE_LIVE -> {
             applyLiveScanResult(scanResult, state)
             currentSource

@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.queue
 
 /**
- * A live, decoded record read back from a [DiskQueue].
+ * A live, decoded record read back from a [com.ghostserializer.sync.queue.disk.DiskQueue].
  *
  * `equals()`/`hashCode()`/`toString()` are handwritten, not the compiler-generated data class
  * versions: the default ones compare/hash [body] by reference (it's a `ByteArray`), so two

@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import okio.BufferedSource
 import okio.FileSystem
