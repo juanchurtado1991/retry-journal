@@ -13,10 +13,12 @@ import io.ktor.client.engine.HttpClientEngineConfig
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.plugins.plugin
 import io.ktor.utils.io.core.Closeable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import okio.SYSTEM
+import com.ghostserializer.sync.queue.platform.systemFileSystem
 
 /**
  * The plug-and-play entry point: one call wires [DiskQueue] + [DeadLetterQueue] + [GhostSyncEngine]
@@ -67,8 +69,17 @@ class GhostSync private constructor(
      *
      * [diskQueue] and [deadLetterQueue]'s own `close()` reject new operations the same way. */
     override fun close() {
+        shutdownLifecycle()
+        closeOwnedResources()
+    }
+
+    private fun shutdownLifecycle() {
         engine.closeForShutdown()
         offlineQueuePlugin.closeForShutdown()
+        deadLetterQueue.closeForShutdown()
+    }
+
+    private fun closeOwnedResources() {
         try {
             client.close()
         } finally {
@@ -98,27 +109,22 @@ class GhostSync private constructor(
             engineFactory: HttpClientEngineFactory<T>,
             queuePath: Path,
             deadLetterPath: Path = defaultDeadLetterPath(queuePath),
-            fileSystem: FileSystem = FileSystem.SYSTEM,
+            fileSystem: FileSystem? = null,
             maxRecordFieldSize: Int = DiskQueueConstants.MAX_RECORD_FIELD_SIZE,
             httpClientConfig: HttpClientConfig<T>.() -> Unit = {},
         ): GhostSync {
-            val queue = DiskQueue(queuePath, fileSystem, maxRecordFieldSize)
-            val deadLetters = DeadLetterQueue(
-                mainQueue = queue,
-                storage = DiskQueue(deadLetterPath, fileSystem, maxRecordFieldSize)
+            val resolvedFileSystem = fileSystem ?: systemFileSystem()
+            val (queue, deadLetters, engine) = createStorageAndEngine(
+                queuePath,
+                deadLetterPath,
+                resolvedFileSystem,
+                maxRecordFieldSize,
             )
-
-            val engine = GhostSyncEngine(queue, deadLetters)
-
-            val client = HttpClient(engineFactory) {
-                httpClientConfig()
-                install(GhostOfflineQueuePlugin) { diskQueue = queue }
-            }
-            val offlineQueuePlugin = client.plugin(GhostOfflineQueuePlugin)
-            val replayClient = HttpClient(engineFactory) {
-                httpClientConfig()
-            }
-
+            val (client, replayClient, offlineQueuePlugin) = createClients(
+                engineFactory,
+                queue,
+                httpClientConfig,
+            )
             return GhostSync(
                 queue,
                 deadLetters,
@@ -129,7 +135,56 @@ class GhostSync private constructor(
             )
         }
 
+        private fun createStorageAndEngine(
+            queuePath: Path,
+            deadLetterPath: Path,
+            fileSystem: FileSystem,
+            maxRecordFieldSize: Int,
+        ): Triple<DiskQueue, DeadLetterQueue, GhostSyncEngine> {
+            val queue = DiskQueue(queuePath, fileSystem, maxRecordFieldSize)
+            val deadLetters = DeadLetterQueue(
+                mainQueue = queue,
+                storage = DiskQueue(deadLetterPath, fileSystem, maxRecordFieldSize),
+            )
+            val engine = GhostSyncEngine(queue, deadLetters)
+            return Triple(queue, deadLetters, engine)
+        }
+
+        private fun <T : HttpClientEngineConfig> createClients(
+            engineFactory: HttpClientEngineFactory<T>,
+            queue: DiskQueue,
+            httpClientConfig: HttpClientConfig<T>.() -> Unit,
+        ): Triple<HttpClient, HttpClient, GhostOfflineQueuePlugin> {
+            val client = HttpClient(engineFactory) {
+                httpClientConfig()
+                install(GhostOfflineQueuePlugin) { diskQueue = queue }
+            }
+            val offlineQueuePlugin = client.plugin(GhostOfflineQueuePlugin)
+            val replayClient = HttpClient(engineFactory) {
+                httpClientConfig()
+            }
+            return Triple(client, replayClient, offlineQueuePlugin)
+        }
+
         private fun defaultDeadLetterPath(queuePath: Path): Path =
             (queuePath.toString() + GhostSyncConstants.DEFAULT_DEAD_LETTER_PATH_SUFFIX).toPath()
+
+        /**
+         * Builds a [GhostSyncRuntime] that serializes `flush()` and optionally reacts to an app-
+         * supplied [connectivity] signal. The library does not observe the network itself — see
+         * [GhostSyncRuntime]'s KDoc.
+         */
+        fun createRuntime(
+            ghostSync: GhostSync,
+            scope: CoroutineScope,
+            connectivity: Flow<Boolean>? = null,
+        ): GhostSyncRuntime = GhostSyncRuntime(
+            ghostSync = ghostSync,
+            engine = null,
+            replayClient = null,
+            parentScope = scope,
+            connectivity = connectivity,
+            onShutdown = null,
+        )
     }
 }
