@@ -15,6 +15,8 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLBuilder
+import io.ktor.http.URLParserException
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.utils.io.errors.IOException
 
@@ -40,29 +42,34 @@ internal class HttpReplayer {
         assertSafeToReplayWith(client)
 
         val meta = entry.meta
-        val response: HttpResponse = try {
-            client.request(meta.url) {
-                method = parseMethodOrFallback(meta.method)
-                val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
-                setBody(
-                    if (contentType != null) {
-                        ByteArrayContent(entry.body, contentType)
-                    } else {
-                        entry.body
-                    },
-                )
-            }
-        } catch (e: IOException) {
-            throw e
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // A stored URL that no longer parses must not permanently wedge the whole queue behind
-            // it — same stall pattern method/Content-Type had before their fallbacks. Returning a
-            // synthetic 400 routes the entry through the normal dead-letter path instead.
+        if (urlFailsToParse(meta.url)) {
             return HttpStatusCode.BadRequest
         }
+
+        val response: HttpResponse = client.request(meta.url) {
+            method = parseMethodOrFallback(meta.method)
+            val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
+            setBody(
+                if (contentType != null) {
+                    ByteArrayContent(entry.body, contentType)
+                } else {
+                    entry.body
+                },
+            )
+        }
         return response.status
+    }
+
+    /** Returns true when [url] cannot be parsed into a replayable request URL — checked before
+     * [send] touches the network so a corrupt stored URL dead-letters instead of stalling the
+     * queue, without treating unrelated runtime faults during the round-trip as 4xx. */
+    private fun urlFailsToParse(url: String): Boolean = try {
+        URLBuilder(url).build()
+        false
+    } catch (_: URLParserException) {
+        true
+    } catch (_: IllegalArgumentException) {
+        true
     }
 
     /** A stored HTTP method that no longer parses must not permanently wedge the whole queue
