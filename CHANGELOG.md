@@ -12,7 +12,7 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - GitHub Actions CI (`ciTestJvm` + multi-target compile)
 - Maven Central publish wiring via `com.vanniktech.maven.publish`
 - Apache 2.0 LICENSE
-- 50 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- 76 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
 
 ### Fixed
 - `DiskQueue.enqueue` rejects records whose packed on-disk length would overflow the 26-bit index **before** writing
@@ -46,6 +46,15 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `DiskQueue.get`/`peek`/`peekAll` no longer trust the in-memory index's offset blindly — a record read back with a *different* sequence id than the index expected (a recovery bug, or a tampered file) is now treated as unreadable and scrubbed, instead of silently returned to the caller mislabeled under the wrong id
 - `GhostSync.close` throws `IllegalStateException` instead of proceeding while `flush()` is still replaying a request — `DiskQueue`'s own in-flight guard only covers the brief `peek()`/`remove()` calls around a replay, not the network round-trip itself, so `close()` could previously call `replayClient.close()` out from under an in-flight request
 - `RetryJournal.read` catches `Throwable`, not just `Exception` — a corrupted journal's header count is bounds-checked per field, but not summed, so a run of many large-but-in-range header lengths could still throw `OutOfMemoryError`, which the old `catch (_: Exception)` would have let propagate up through recovery
+- `HttpReplayer` falls back to a custom [HttpMethod] when a stored method string no longer parses — previously this permanently stalled the whole queue, the same failure mode `Content-Type` had before `parseContentTypeOrNull`
+- `GhostSyncEngine.flush` and `getStatus` share a [Mutex] so concurrent callers cannot replay the same head entry twice and duplicate non-idempotent POSTs
+- `GhostSyncEngine.hasActiveReplaySession` covers the full span of any `flush()` or `getStatus()` call, including an in-flight network round-trip — `GhostSync.close()` now refuses to proceed while either is active, not just while `GhostSync.flush()` is running
+- `GhostSync.close()` refuses to proceed while a request is still in flight on [client] — previously only `flush()` on `replayClient` was guarded
+- `DiskQueue` triggers compaction after tombstoning corrupt entries via `peek()` or `scrubUnreadableEntriesLocked()`, not only after an explicit `remove()` — dead bytes from scrub no longer linger until a unrelated delivery
+- `DeadLetterQueue` dedup compares headers order-insensitively — two requests that only differed in header insertion order no longer create duplicate dead-letter entries
+- `RequestCapture` captures headers in a single pass over `request.headers.entries()` instead of counting then iterating twice
+- `GhostOfflineQueuePlugin` treats wrapped [IOException]s in the cause chain as connectivity failures worth queueing, not only a top-level [IOException]
+- `GhostOfflineQueuePlugin` tracks in-flight request count so `GhostSync.close()` can refuse to proceed while `client` is mid-request
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
