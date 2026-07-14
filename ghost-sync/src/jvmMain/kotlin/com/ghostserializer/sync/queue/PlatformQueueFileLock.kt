@@ -44,14 +44,20 @@ internal actual class PlatformQueueFileLock actual constructor(
             ReentrantLock()
         }
         jvmLock.lock()
-        heldIntraJvmLock = jvmLock
-
-        channel = FileChannel.open(
-            nioPath,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.WRITE,
-        )
-        lock = channel!!.lock()
+        try {
+            channel = FileChannel.open(
+                nioPath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+            )
+            lock = channel!!.lock()
+            heldIntraJvmLock = jvmLock
+        } catch (t: Throwable) {
+            channel?.close()
+            channel = null
+            jvmLock.unlock()
+            throw t
+        }
     }
 
     actual fun release() {
