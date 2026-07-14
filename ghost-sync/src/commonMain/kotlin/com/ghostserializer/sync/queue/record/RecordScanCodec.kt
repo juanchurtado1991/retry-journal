@@ -20,6 +20,12 @@ internal object RecordScanCodec {
         scanBuffer: ByteArray,
         outResult: RecordScanResult
     ) {
+        // outResult is reused across every call for one recover() pass — reset recordLength here so
+        // a TYPE_INVALID branch that returns without setting it (unrecognized kind byte, or
+        // scanLivePayload's metaLen/bodyLen range checks) can never leak the previous record's
+        // length into DiskQueueRecovery's advance-by-recordLength logic.
+        outResult.recordLength = 0
+
         if (source.exhausted()) {
             outResult.type = RecordScanResult.TYPE_EOF
             return

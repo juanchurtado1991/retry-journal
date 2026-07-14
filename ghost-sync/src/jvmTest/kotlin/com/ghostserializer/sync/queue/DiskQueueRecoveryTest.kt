@@ -159,6 +159,49 @@ class DiskQueueRecoveryTest {
     }
 
     @Test
+    fun `corrupted metaLen on a live record is skipped by byte-by-byte resync, not a stale length from the record before it`() = runBlocking {
+        // Same failure class as the corrupted-tombstone test above, but for the gap the reporter
+        // pointed out that test doesn't cover: a *live* record whose own metaLen is corrupted,
+        // right after another live record — RecordScanResult's reused recordLength field must not
+        // leak the previous record's length into this record's TYPE_INVALID result.
+        fun metaBytes(url: String) = Ghost.encodeToBytes(
+            FrozenHttpRequestMeta("POST", url, FrozenHttpHeaders.EMPTY, enqueuedAtMillis = 0L),
+        )
+
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            // Deliberately much bigger than the corrupted record's own 17-byte header (kind +
+            // crc + sequenceId + metaLen): if the scan mistakenly kept this record's length
+            // around instead of resetting it for the corrupted metaLen right after, it would
+            // skip far past "/third" instead of landing on it.
+            RecordCodec.writeLive(sink, 0L, metaBytes("/first"), ByteArray(500))
+            sink.flush()
+
+            // Hand-written, not via RecordCodec: a live record whose metaLen field is corrupted
+            // out of range. Never read past metaLen — meta/body bytes for this "record" don't
+            // exist on disk at all. Every filler byte after the kind byte is 0xFF (-1) on
+            // purpose: RECORD_KIND_LIVE_BYTE/RECORD_KIND_TOMBSTONE_BYTE are 1 and 2, so the
+            // byte-by-byte resync that follows can't mistake one of these filler bytes for
+            // another record's kind byte and go chasing a bogus length off the end of the file.
+            sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
+            sink.writeInt(-1) // crc — never checked; the metaLen range check fails first
+            sink.writeLong(-1L)
+            sink.writeInt(-1) // corrupted metaLen
+            sink.flush()
+
+            RecordCodec.writeLive(sink, 2L, metaBytes("/third"), "third-body".encodeToByteArray())
+        }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        // "/first" and "/third" must both be recovered; the corrupted 17-byte record between
+        // them is skipped a byte at a time, not jumped over (or past) using "/first"'s length.
+        assertEquals(2, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/third", entries[1].meta.url)
+    }
+
+    @Test
     fun `scanning a truncated record at the end does not perform a slow byte-by-byte scan`() = runBlocking {
         val queue = DiskQueue(queuePath)
         queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
