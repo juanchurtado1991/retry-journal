@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.queue.disk
 
+import com.ghostserializer.sync.queue.DeliveryJournal
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import com.ghostserializer.sync.queue.HeadScanResult
 import com.ghostserializer.sync.queue.QueueEntry
@@ -57,6 +58,13 @@ internal object DiskQueueHeadOps {
             } else {
                 val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull()
                 if (headSequenceId != activeClaim.sequenceId) {
+                    ReplayClaim.delete(queue.fileSystem, claimPath)
+                } else if (DeliveryJournal.hasPendingForSequence(
+                        queue.fileSystem,
+                        queue.path,
+                        entry.id.sequenceId,
+                    )
+                ) {
                     ReplayClaim.delete(queue.fileSystem, claimPath)
                 } else {
                     return HeadReplayPrepareResult.HeadBlocked
