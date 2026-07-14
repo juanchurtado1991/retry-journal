@@ -11,14 +11,12 @@ import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngineConfig
 import io.ktor.client.engine.HttpClientEngineFactory
+import io.ktor.client.plugins.plugin
 import io.ktor.utils.io.core.Closeable
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.SYSTEM
-import kotlin.concurrent.Volatile
 
 /**
  * The plug-and-play entry point: one call wires [DiskQueue] + [DeadLetterQueue] + [GhostSyncEngine]
@@ -48,21 +46,8 @@ class GhostSync private constructor(
     val engine: GhostSyncEngine,
     val client: HttpClient,
     private val replayClient: HttpClient,
+    private val offlineQueuePlugin: GhostOfflineQueuePlugin,
 ) : Closeable {
-
-    private val flushCoordinationMutex = Mutex()
-
-    /** How many [flush] calls are currently between [GhostSyncEngine.flush] starting and
-     * returning — including the time spent inside a real network round-trip on [replayClient],
-     * which [diskQueue]'s own in-flight guard never covers (its counter is only nonzero for the
-     * brief span of an individual `peek()`/`remove()` call, not the request in between). Without
-     * this, [close] could call `replayClient.close()` while [flush] is mid-request and cut a
-     * reply out from under it. Incremented/decremented only while holding [flushCoordinationMutex]
-     * so concurrent flush() calls can't race each other and lose an update; [Volatile] is what
-     * lets [close]'s own unsynchronized read see the latest value — same tradeoff [DiskQueue]
-     * documents on its own `activeOperationCount`. */
-    @Volatile
-    private var flushInProgressCount = 0
 
     /** Delegates to [GhostSyncEngine.flush] using a private client that never risks the
      * duplicate-enqueue footgun documented there — you never have to think about it. [onProgress]
@@ -70,27 +55,26 @@ class GhostSync private constructor(
      * show the queue draining in real time. */
     suspend fun flush(
         onProgress: suspend (FlushProgress) -> Unit = {}
-    ): FlushResult {
-        flushCoordinationMutex.withLock { flushInProgressCount++ }
-        try {
-            return engine.flush(replayClient, onProgress)
-        } finally {
-            flushCoordinationMutex.withLock { flushInProgressCount-- }
-        }
-    }
+    ): FlushResult = engine.flush(replayClient, onProgress)
 
     /** Closes every owned resource even if an earlier one throws while closing — a failure
      * closing [client] (the underlying engine tearing down sockets, say) must not leak
      * [replayClient]'s connections or [diskQueue]/[deadLetterQueue]'s open file handles.
      *
-     * Throws [IllegalStateException] instead of proceeding if [flush] is still in flight — see
-     * [flushInProgressCount] for why closing [replayClient] out from under it is unsafe.
+     * Throws [IllegalStateException] instead of proceeding if a replay session or a live
+     * [client] request is still in flight — see [GhostSyncEngine.hasActiveReplaySession] and
+     * [GhostOfflineQueuePlugin.inFlightRequestCount].
      *
      * [diskQueue] and [deadLetterQueue]'s own `close()` each throw [IllegalStateException] instead
      * of proceeding if an operation is still in flight on them — see [DiskQueue]'s own "Threading
      * contract" doc for why that's a best-effort check, not an ironclad guarantee. */
     override fun close() {
-        check(flushInProgressCount == 0) { GhostSyncConstants.CLOSE_WHILE_FLUSH_IN_FLIGHT_MESSAGE }
+        check(!engine.hasActiveReplaySession()) {
+            GhostSyncConstants.CLOSE_WHILE_REPLAY_IN_FLIGHT_MESSAGE
+        }
+        check(offlineQueuePlugin.inFlightRequestCount == 0) {
+            GhostSyncConstants.CLOSE_WHILE_CLIENT_REQUEST_IN_FLIGHT_MESSAGE
+        }
         try {
             client.close()
         } finally {
@@ -136,6 +120,7 @@ class GhostSync private constructor(
                 httpClientConfig()
                 install(GhostOfflineQueuePlugin) { diskQueue = queue }
             }
+            val offlineQueuePlugin = client.plugin(GhostOfflineQueuePlugin)
             val replayClient = HttpClient(engineFactory) {
                 httpClientConfig()
             }
@@ -145,7 +130,8 @@ class GhostSync private constructor(
                 deadLetters,
                 engine,
                 client,
-                replayClient
+                replayClient,
+                offlineQueuePlugin,
             )
         }
 

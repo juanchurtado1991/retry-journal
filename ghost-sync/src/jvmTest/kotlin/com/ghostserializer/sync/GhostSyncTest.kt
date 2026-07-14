@@ -1,11 +1,14 @@
 package com.ghostserializer.sync
 
+import io.ktor.client.HttpClient
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
@@ -109,6 +112,81 @@ class GhostSyncTest {
         flushJob.join()
 
         // flush() finished; close() must now succeed.
+        ghostSync.close()
+    }
+
+    @Test
+    fun `close() refuses to proceed while engine getStatus is still replaying a request`() = runBlocking {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseRequest = CompletableDeferred<Unit>()
+
+        val ghostSync = GhostSync.create(
+            engineFactory = MockEngine,
+            queuePath = (dir.toString() + "/queue.bin").toPath(),
+        ) {
+            engine {
+                addHandler {
+                    requestStarted.complete(Unit)
+                    releaseRequest.await()
+                    respond("ok", HttpStatusCode.OK, headersOf())
+                }
+            }
+        }
+
+        ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "body".encodeToByteArray())
+        val entry = ghostSync.engine.getEntry()!!
+
+        val replayClient = HttpClient(MockEngine) {
+            engine {
+                addHandler {
+                    requestStarted.complete(Unit)
+                    releaseRequest.await()
+                    respond("ok", HttpStatusCode.OK, headersOf())
+                }
+            }
+        }
+
+        val statusJob = launch {
+            ghostSync.engine.getStatus(replayClient, entry)
+        }
+        requestStarted.await()
+
+        assertFailsWith<IllegalStateException> { ghostSync.close() }
+
+        releaseRequest.complete(Unit)
+        statusJob.join()
+        ghostSync.close()
+    }
+
+    @Test
+    fun `close() refuses to proceed while a client request is still in flight`() = runBlocking {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseRequest = CompletableDeferred<Unit>()
+
+        val ghostSync = GhostSync.create(
+            engineFactory = MockEngine,
+            queuePath = (dir.toString() + "/queue.bin").toPath(),
+        ) {
+            engine {
+                addHandler {
+                    requestStarted.complete(Unit)
+                    releaseRequest.await()
+                    respond("ok", HttpStatusCode.OK, headersOf())
+                }
+            }
+        }
+
+        val requestJob = launch {
+            ghostSync.client.post("https://example.com/in-flight") {
+                setBody("payload")
+            }
+        }
+        requestStarted.await()
+
+        assertFailsWith<IllegalStateException> { ghostSync.close() }
+
+        releaseRequest.complete(Unit)
+        requestJob.join()
         ghostSync.close()
     }
 }
