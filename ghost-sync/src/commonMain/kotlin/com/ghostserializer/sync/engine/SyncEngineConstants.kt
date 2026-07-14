@@ -22,4 +22,13 @@ internal object SyncEngineConstants {
     const val CLOSE_WHILE_REPLAY_IN_FLIGHT_MESSAGE: String =
         "GhostSyncEngine.close() called while a replay session is still in flight on this instance. " +
             "Make sure every flush()/getStatus()/getEntryAndStatus() call has completed before closing."
+
+    const val GET_STATUS_QUEUE_EMPTY_MESSAGE: String =
+        "getStatus() called while the queue is empty"
+
+    const val GET_STATUS_HEAD_BLOCKED_MESSAGE: String =
+        "getStatus() called while another process holds an active replay claim on the queue head"
+
+    const val GET_STATUS_ENTRY_NOT_HEAD_MESSAGE: String =
+        "getStatus() called for an entry that is no longer the queue head"
 }

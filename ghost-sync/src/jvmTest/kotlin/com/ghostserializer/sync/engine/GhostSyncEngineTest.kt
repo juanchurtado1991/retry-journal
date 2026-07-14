@@ -152,16 +152,18 @@ class GhostSyncEngineTest {
         val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
         val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
 
-        val snapshot = engine.getEntryAndStatus(client)
-        assertEquals(id, snapshot?.entry?.id)
+        val result = engine.getEntryAndStatus(client)
+        assertTrue(result is EntryReplayResult.Ready)
+        result as EntryReplayResult.Ready
+        assertEquals(id, result.entry.id)
 
         // getEntryAndStatus alone has none of flush()'s side effects — the entry is still on the queue.
-        assertEquals(HttpStatusCode.OK, snapshot?.status)
+        assertEquals(HttpStatusCode.OK, result.status)
         assertEquals(id, queue.peek()?.id)
 
         // The caller owns applying the outcome; completeHeadReplay(...) mirrors what flush() would
         // have done automatically for a 2xx.
-        queue.completeHeadReplay(snapshot!!.entry.id)
+        queue.completeHeadReplay(result.entry.id)
         assertTrue(queue.isEmpty())
     }
 
@@ -185,6 +187,14 @@ class GhostSyncEngineTest {
     }
 
     @Test
+    fun `getEntryAndStatus returns empty when the queue has no readable entries`() = runBlocking {
+        val result = engine.getEntryAndStatus(
+            HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }),
+        )
+        assertEquals(EntryReplayResult.Empty, result)
+    }
+
+    @Test
     fun `getEntry and getStatus let a caller drive its own step-by-step loop when serialized`() = runBlocking {
         val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
         val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
@@ -192,16 +202,72 @@ class GhostSyncEngineTest {
         val entry = engine.getEntry()
         assertEquals(id, entry?.id)
 
-        // getStatus alone has none of flush()'s side effects — the entry is still on the queue.
+        // getStatus claims the head and replays under replayMutex + ReplayClaim.
         val status = engine.getStatus(client, entry!!)
         assertEquals(HttpStatusCode.OK, status)
         assertEquals(id, queue.peek()?.id)
 
-        // The caller owns applying the outcome; queue.remove(...) here mirrors what flush() would
-        // have done automatically for a 2xx — prefer getEntryAndStatus + completeHeadReplay when
-        // multiple threads may replay.
-        queue.remove(entry.id)
+        queue.completeHeadReplay(entry.id)
         assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `getStatus rejects a stale entry after flush already delivered it`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+        val staleEntry = engine.getEntry()!!
+
+        engine.flush(client)
+
+        assertFailsWith<IllegalStateException> {
+            engine.getStatus(client, staleEntry)
+        }
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `concurrent flush and getStatus on the same entry deliver at most once`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val replayCount = AtomicInteger(0)
+        val client = HttpClient(
+            MockEngine {
+                replayCount.incrementAndGet()
+                respond("ok", HttpStatusCode.OK, headersOf())
+            },
+        )
+        val entry = engine.getEntry()!!
+
+        coroutineScope {
+            launch { engine.flush(client) }
+            launch {
+                try {
+                    engine.getStatus(client, entry)
+                } catch (_: IllegalStateException) {
+                    // Expected when flush wins the race and the entry is no longer head.
+                }
+            }
+        }
+
+        assertEquals(1, replayCount.get())
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `a runtime exception during replay stops early without dead-lettering`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/bad", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
+        val client = HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/bad") {
+                throw RuntimeException("unexpected client fault")
+            } else {
+                respond("ok", HttpStatusCode.OK, headersOf())
+            }
+        })
+
+        val result = engine.flush(client)
+
+        assertEquals(FlushResult(delivered = 0, deadLettered = 0, stoppedEarly = true), result)
+        assertTrue(!queue.isEmpty())
+        assertTrue(deadLetterQueue.peekAll().isEmpty())
     }
 
     @Test
