@@ -1,0 +1,178 @@
+package com.ghostserializer.sync.queue
+
+import com.ghost.serialization.Ghost
+import com.ghostserializer.sync.indexOfSubarray
+import com.ghostserializer.sync.peekAll
+import kotlinx.coroutines.runBlocking
+import okio.FileSystem
+import okio.Path
+import okio.Path.Companion.toPath
+import okio.buffer
+import java.nio.file.Files
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+/** Covers [DiskQueueRecovery] — the crash-recovery scan [DiskQueue] runs the first time it opens
+ * a queue file, rebuilding the live/tombstone index and dropping anything corrupt or truncated. */
+class DiskQueueRecoveryTest {
+
+    private lateinit var queuePath: Path
+
+    @BeforeTest
+    fun setUp() {
+        val dir = Files.createTempDirectory("ghost-sync-recovery-test")
+        queuePath = (dir.toString() + "/queue.bin").toPath()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        FileSystem.SYSTEM.deleteRecursively(queuePath.parent!!, mustExist = false)
+    }
+
+    @Test
+    fun `reopening after an abrupt cut recovers every complete record and drops the partial tail`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+
+        // Simulate a process kill mid-write of a third record: its header promises a 50-byte
+        // body but only 10 bytes ever made it to disk before the process died. The two prior
+        // records are untouched.
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
+            sink.writeInt(0x1234)
+            sink.writeLong(999L)
+            sink.writeInt(50)
+            sink.write(ByteArray(10))
+        }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        assertEquals(2, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/second", entries[1].meta.url)
+
+        // The recovered queue must still be writable — the corrupt tail was truncated, not just skipped.
+        reopened.enqueue("POST", "/third", FrozenHttpHeaders.EMPTY, "third-body".encodeToByteArray())
+        assertEquals(3, reopened.peekAll().size)
+    }
+
+    @Test
+    fun `the fast recovery scan still detects a corrupted body, not just a truncated one`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+
+        // Flip a byte inside "/second"'s body on disk directly — a full record is present (no
+        // truncation), but its CRC no longer matches. The fast scan (RecordScanCodec.scanRecord)
+        // hashes bodies in chunks without materializing them; this proves that path still
+        // verifies every byte instead of trusting the length fields alone.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val marker = "second-body".encodeToByteArray()
+        val bodyStart = bytes.indexOfSubarray(marker)
+        bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        // The corrupted record and anything after it is dropped by truncation; "/first" survives.
+        assertEquals(1, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertNull(reopened.get(idB))
+    }
+
+    @Test
+    fun `isolated corruption in the middle is skipped and subsequent valid records are recovered`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+        queue.enqueue("POST", "/third", FrozenHttpHeaders.EMPTY, "third-body".encodeToByteArray())
+
+        // Corrupt "/second"'s record bytes.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val marker = "second-body".encodeToByteArray()
+        val bodyStart = bytes.indexOfSubarray(marker)
+        bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        // "/first" and "/third" must be recovered, "/second" (corrupted) must be skipped.
+        assertEquals(2, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/third", entries[1].meta.url)
+    }
+
+    @Test
+    fun `corrupted tombstone is skipped by its own size, not a stale length from the record before it`() = runBlocking {
+        // Hand-crafted directly with RecordCodec, bypassing DiskQueue.remove()'s own compaction
+        // entirely (a big-bodied record's tombstone alone can cross the dead-ratio threshold and
+        // rewrite the file), so the byte layout below is exactly what ends up on disk.
+        fun metaBytes(url: String) = Ghost.encodeToBytes(
+            FrozenHttpRequestMeta("POST", url, FrozenHttpHeaders.EMPTY, enqueuedAtMillis = 0L),
+        )
+
+        var tombstoneStart = 0L
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            RecordCodec.writeLive(sink, 0L, metaBytes("/first"), "first-body".encodeToByteArray())
+            sink.flush()
+
+            // Deliberately much bigger than TOMBSTONE_RECORD_SIZE (13 bytes): RecordScanResult is
+            // a reused mutable carrier, so if the scan mistakenly kept this record's length
+            // around instead of setting the tombstone's own size for the corrupted tombstone
+            // right after it, it would skip far past "/third" instead of landing on it.
+            RecordCodec.writeLive(sink, 1L, metaBytes("/second"), ByteArray(500))
+            sink.flush()
+            tombstoneStart = FileSystem.SYSTEM.metadata(queuePath).size!!
+
+            RecordCodec.writeTombstone(sink, 1L)
+            sink.flush()
+
+            RecordCodec.writeLive(sink, 2L, metaBytes("/third"), "third-body".encodeToByteArray())
+        }
+
+        // Corrupt the tombstone's CRC — 4 bytes right after its 1-byte kind marker.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val crcOffset = (tombstoneStart + 1).toInt()
+        bytes[crcOffset] = (bytes[crcOffset] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        // "/second" is *not* removed — a tombstone whose own CRC fails can't be trusted to
+        // delete anything, so recovery keeps the record it would have removed. What this test
+        // actually guards is "/third": with the bug, the scanner's stale, oversized skip distance
+        // overshoots past end-of-file in one jump, the scan loop exits immediately, and
+        // truncateToLocked() then physically deletes both the tombstone and "/third" from disk.
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        assertEquals(3, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/second", entries[1].meta.url)
+        assertEquals("/third", entries[2].meta.url)
+    }
+
+    @Test
+    fun `scanning a truncated record at the end does not perform a slow byte-by-byte scan`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
+            sink.writeInt(0x1234) // crc
+            sink.writeLong(999L) // seq
+            sink.writeInt(10_000) // meta length
+            sink.write(ByteArray(5)) // write only 5 bytes
+        }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+        assertEquals(1, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+    }
+}
