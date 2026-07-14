@@ -80,18 +80,26 @@ class GhostSyncEngine(
         withReplayLifecycle { queue.peek() }
     }
 
-    /** Inspects the queue head without claiming it — distinguishes empty, blocked, and ready. */
+    /** Inspects the queue head without claiming it — distinguishes empty, blocked, ready, and
+     * pending local removal when a [DeliveryJournal] sidecar exists for the head. */
     suspend fun getHeadState(): QueueHeadState = replayMutex.withLock {
         withReplayLifecycle {
+            val entry = queue.peek()
+            if (entry == null) {
+                return@withReplayLifecycle QueueHeadState.Empty
+            }
+            if (DeliveryJournal.hasPendingForSequence(
+                    queue.fileSystem,
+                    queue.path,
+                    entry.id.sequenceId,
+                )
+            ) {
+                return@withReplayLifecycle QueueHeadState.PendingLocalRemoval(entry)
+            }
             if (queue.isHeadBlockedByActiveClaimLocked()) {
                 return@withReplayLifecycle QueueHeadState.Blocked
             }
-            val entry = queue.peek()
-            if (entry == null) {
-                QueueHeadState.Empty
-            } else {
-                QueueHeadState.Ready(entry)
-            }
+            QueueHeadState.Ready(entry)
         }
     }
 
@@ -226,47 +234,68 @@ class GhostSyncEngine(
     private suspend fun finalizeHeadReplayLocked(
         entry: QueueEntry,
         status: HttpStatusCode,
-    ): HeadFinalizeResult = when {
-        status.isSuccess() -> {
-            DeliveryJournal.write(
+    ): HeadFinalizeResult {
+        if (!isCurrentHead(entry)) {
+            return HeadFinalizeResult.NotHead
+        }
+        return when {
+            status.isSuccess() -> finalizeDelivered(entry)
+            shouldDeadLetter(status) -> finalizeDeadLettered(entry)
+            else -> abandonHeadReplay(entry)
+        }
+    }
+
+    private suspend fun finalizeDelivered(entry: QueueEntry): HeadFinalizeResult {
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            entry.id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        if (!completeHeadReplayOrStop(entry.id)) {
+            return HeadFinalizeResult.PersistenceFailed()
+        }
+        DeliveryJournal.delete(queue.fileSystem, queue.path)
+        return HeadFinalizeResult.Delivered
+    }
+
+    private suspend fun finalizeDeadLettered(entry: QueueEntry): HeadFinalizeResult = try {
+        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            entry.id.sequenceId,
+            DeliveryJournal.OUTCOME_DEAD_LETTERED,
+        )
+        if (!completeHeadReplayOrStop(entry.id)) {
+            HeadFinalizeResult.PersistenceFailed()
+        } else {
+            DeliveryJournal.delete(queue.fileSystem, queue.path)
+            HeadFinalizeResult.DeadLettered
+        }
+    } catch (e: CancellationException) {
+        queue.abortHeadReplayClaim()
+        throw e
+    } catch (_: Throwable) {
+        abandonHeadReplay(entry)
+    }
+
+    private suspend fun abandonHeadReplay(entry: QueueEntry): HeadFinalizeResult {
+        clearDeliveryJournalForEntry(entry)
+        queue.abortHeadReplayClaim()
+        return HeadFinalizeResult.LeftOnQueue
+    }
+
+    private suspend fun isCurrentHead(entry: QueueEntry): Boolean = queue.peek()?.id == entry.id
+
+    private fun clearDeliveryJournalForEntry(entry: QueueEntry) {
+        if (DeliveryJournal.hasPendingForSequence(
                 queue.fileSystem,
                 queue.path,
                 entry.id.sequenceId,
-                DeliveryJournal.OUTCOME_DELIVERED,
             )
-            if (!completeHeadReplayOrStop(entry.id)) {
-                HeadFinalizeResult.PersistenceFailed()
-            } else {
-                DeliveryJournal.delete(queue.fileSystem, queue.path)
-                HeadFinalizeResult.Delivered
-            }
-        }
-
-        shouldDeadLetter(status) -> try {
-            deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
-            DeliveryJournal.write(
-                queue.fileSystem,
-                queue.path,
-                entry.id.sequenceId,
-                DeliveryJournal.OUTCOME_DEAD_LETTERED,
-            )
-            if (!completeHeadReplayOrStop(entry.id)) {
-                HeadFinalizeResult.PersistenceFailed()
-            } else {
-                DeliveryJournal.delete(queue.fileSystem, queue.path)
-                HeadFinalizeResult.DeadLettered
-            }
-        } catch (e: CancellationException) {
-            queue.abortHeadReplayClaim()
-            throw e
-        } catch (_: Throwable) {
-            queue.abortHeadReplayClaim()
-            HeadFinalizeResult.LeftOnQueue
-        }
-
-        else -> {
-            queue.abortHeadReplayClaim()
-            HeadFinalizeResult.LeftOnQueue
+        ) {
+            DeliveryJournal.delete(queue.fileSystem, queue.path)
         }
     }
 
@@ -365,6 +394,10 @@ class GhostSyncEngine(
         entry: QueueEntry,
     ): HttpStatusCode {
         httpReplayer.assertSafeToReplayWith(client)
+        val head = queue.peek() ?: error(SyncEngineConstants.GET_STATUS_QUEUE_EMPTY_MESSAGE)
+        if (head.id != entry.id) {
+            error(SyncEngineConstants.GET_STATUS_ENTRY_NOT_HEAD_MESSAGE)
+        }
         val prepared = requirePreparedHeadForEntry(entry)
         resolvePendingDeliveryStatus(prepared)?.let { return it }
         return try {
@@ -386,7 +419,6 @@ class GhostSyncEngine(
             is HeadReplayPrepareResult.HeadBlocked -> error(SyncEngineConstants.GET_STATUS_HEAD_BLOCKED_MESSAGE)
             is HeadReplayPrepareResult.Ready -> {
                 if (prepared.entry.id != entry.id) {
-                    queue.abortHeadReplayClaim()
                     error(SyncEngineConstants.GET_STATUS_ENTRY_NOT_HEAD_MESSAGE)
                 }
                 prepared.entry
