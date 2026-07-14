@@ -80,7 +80,7 @@ Libraries like [Square Tape](https://github.com/square/tape) solve a **different
 | You wire networking & retry policy | **Ktor plugin** captures on `IOException` + **replay engine** applies 2xx / 4xx DLQ / 5xx retry |
 | In-place header rewrites (Tape's own docs warn about corruption on conventional filesystems) | **Append-only** records + atomic rename — no in-place header mutation |
 | Single-process assumption | **Cross-process** file locks + replay claims (app + WorkManager) |
-| No delivery semantics | **Delivery journal** — two-phase commit so a crash after server 2xx doesn't force a duplicate POST |
+| No delivery semantics | **Per-sequence delivery journal** — two-phase commit so a crash after server 2xx doesn't force a duplicate POST |
 
 Room KMP is great for **app state** (users, settings, cached reads). ghost-sync owns the **offline mutation queue** — the ordered pipe of POSTs/PUTs that must survive no signal and replay when you're back.
 
@@ -93,7 +93,7 @@ Tape is a fine brick if you want to build all of the above from scratch. ghost-s
 ```kotlin
 // libs.versions.toml
 [libraries]
-ghost-sync = { module = "com.ghostserializer:ghost-sync", version = "0.1.0" }
+ghost-sync = { module = "com.ghostserializer:ghost-sync", version = "1.0.0" }
 ```
 
 ```kotlin
@@ -151,7 +151,23 @@ val result = ghostSync.flush()
 // result.delivered      — sent successfully this run
 // result.deadLettered   — server rejected (now in DLQ)
 // result.stoppedEarly   — still offline or 5xx; run flush again later
+// result.persistenceFailed — server accepted the request but local removal failed; journal left for recovery
 ```
+
+### Inspect the queue head (UI)
+
+Use `getHeadState()` for read-only UI — it never claims or mutates the queue:
+
+```kotlin
+when (val head = ghostSync.engine.getHeadState()) {
+    QueueHeadState.Empty -> showEmpty()
+    QueueHeadState.Blocked -> showSyncInProgressElsewhere()
+    is QueueHeadState.AwaitingReplay -> showPending(head.entry)
+    is QueueHeadState.AwaitingLocalRemoval -> showFinishingLocalRemoval(head.entry)
+}
+```
+
+Replay is **only** through `flush()` — there is no manual `getEntry`/`getStatus` loop in 1.0.0.
 
 ---
 
@@ -274,8 +290,8 @@ Build a “Failed uploads” or “Sync issues” screen from `peekAll()`.
 |---|---|
 | When to call `flush()` (network callback, worker, UI) | Durable queue on disk |
 | UX for `OfflineQueuedException` | Capture headers + body on connectivity failure |
-| Idempotent server APIs (recommended) | Ordered replay, DLQ, crash recovery |
-| Ktor `HttpClient` config (auth, JSON, etc.) | Engine that replays without re-queuing |
+| Idempotent server APIs (recommended) | Ordered replay via `flush()`, DLQ, crash recovery |
+| Ktor `HttpClient` config (auth, JSON, etc.) | `getHeadState()` for UI inspection |
 
 ---
 

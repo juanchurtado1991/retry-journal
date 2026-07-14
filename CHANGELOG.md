@@ -4,7 +4,46 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-14
+
+First public release. **Breaking** — nothing was published before this; manual replay APIs were removed outright (not deprecated).
+
 ### Added
+- `HeadReplayExecutor` — single owner of head replay transitions; all delivery state changes flow through `flush()`
+- `HeadEntryState` / `DeliveryOutcome` — internal state machine backing [GhostSyncEngine.getHeadState]
+- `QueueInvariants` + `DiskQueue.assertInvariantsHold()` — verifiable queue invariants for tests
+- Per-sequence delivery journals — `.delivery-pending.<sequenceId>` sidecars instead of one shared `.delivery-pending` file
+- Legacy `.delivery-pending` journal migration on read (one-time upgrade path for dev builds)
+- `QueueInvariantsTest` — randomized enqueue/flush invariant coverage
+
+### Removed (breaking)
+- `GhostSyncEngine.getEntry()`, `getStatus()`, `getEntryAndStatus()`, `finalizeHeadReplay()`
+- `EntryReplayResult`, `HeadFinalizeResult`
+- `RecordKind` (queue record typing inlined where needed)
+
+### Changed (breaking)
+- `QueueHeadState.Ready` → `QueueHeadState.AwaitingReplay`
+- `QueueHeadState.PendingLocalRemoval` → `QueueHeadState.AwaitingLocalRemoval`
+- `GhostSyncEngine` public replay API is `flush()` + `getHeadState()` only
+- `DeliveryJournal.read(fs, path, sequenceId)` — journals are keyed by FIFO sequence id
+- `DiskQueue.prepareHeadForReplay` / `completeHeadReplay` / `abortHeadReplayClaim` are `internal` (same-module tests only)
+- Publish version `1.0.0`
+
+### Fixed
+- Stale delivery journals for non-head sequences are cleared on `prepareHeadForReplay` — orphan journals no longer skip HTTP for the real head
+- `clearStaleJournalsLocked` removes orphan `.delivery-pending.*` files when the head changes
+
+### Migration
+- Replace any manual `getEntry` → `getStatus` → `finalizeHeadReplay` loop with `flush()`
+- Replace `QueueHeadState.Ready` / `PendingLocalRemoval` with `AwaitingReplay` / `AwaitingLocalRemoval`
+- No action needed for `.delivery-pending` legacy files — migrated automatically on first read
+
+## [0.1.0] - 2026-07-13
+
+Internal development baseline — never published separately; all changes below are included in 1.0.0.
+
+### Added
+
 - `FrozenHttpHeaders` — flat `List` pair storage (no `Map`) for queued HTTP headers
 - `HeaderDispatch` — compare-chain dispatch for replay (`Content-Type`, `Content-Length`, other)
 - Cross-process advisory file lock (`<queuePath>.lock`) for shared queue files
@@ -161,14 +200,5 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
 
-## [0.1.0] - 2026-07-13
-
-### Added
-- `GhostSync` facade — wires `DiskQueue`, `DeadLetterQueue`, `GhostSyncEngine`, and Ktor clients
-- `GhostOfflineQueuePlugin` — captures failed requests on `IOException` and persists to disk
-- `DiskQueue` — append-only crash-safe FIFO with CRC32 recovery and compaction
-- `GhostSyncEngine` — replay with 2xx deliver / 4xx dead-letter / 5xx retry semantics
-- `DeadLetterQueue` — inspect, retry, and discard rejected requests
-- KMP targets: `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`
-
+[1.0.0]: https://github.com/ghostserializer/ghost-sync-kmp/releases/tag/v1.0.0
 [0.1.0]: https://github.com/ghostserializer/ghost-sync-kmp/releases/tag/v0.1.0
