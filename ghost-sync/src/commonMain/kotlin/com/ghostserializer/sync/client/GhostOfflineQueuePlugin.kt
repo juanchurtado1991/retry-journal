@@ -1,5 +1,7 @@
 package com.ghostserializer.sync.client
 
+import com.ghostserializer.sync.client.ClientConstants.PLUGIN_CLOSED_MESSAGE
+import com.ghostserializer.sync.client.ClientConstants.PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.LifecycleGate
 import io.ktor.client.HttpClient
@@ -23,16 +25,12 @@ class GhostOfflineQueuePlugin private constructor(
 ) {
     private val requestCapture = RequestCapture(diskQueue.maxRecordFieldSize)
     private val lifecycleGate = LifecycleGate(
-        closedMessage = ClientConstants.PLUGIN_CLOSED_MESSAGE,
-        closeWhileBusyMessage = ClientConstants.PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE,
+        closedMessage = PLUGIN_CLOSED_MESSAGE,
+        closeWhileBusyMessage = PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE,
     )
 
     /** Used by [com.ghostserializer.sync.GhostSync.close] before tearing down [HttpClient]. */
-    internal fun closeForShutdown() {
-        lifecycleGate.close()
-    }
-
-    internal fun hasInFlightRequests(): Boolean = lifecycleGate.hasActiveSessions()
+    internal fun closeForShutdown() = lifecycleGate.close()
 
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
@@ -40,27 +38,41 @@ class GhostOfflineQueuePlugin private constructor(
             try {
                 execute(request)
             } catch (cause: Throwable) {
-                if (cause is BodyCaptureException) {
-                    throw cause
-                }
-                if (!Plugin.causesOrIsIOException(cause)) {
-                    throw cause
-                }
-                val url = request.url.buildString()
-                try {
-                    enqueueLocked(request, url)
-                } catch (capture: BodyCaptureException) {
-                    throw capture
-                }
-                throw OfflineQueuedException(url)
+                handleSendFailure(request, cause)
             } finally {
                 lifecycleGate.leave()
             }
         }
     }
 
-    private suspend fun enqueueLocked(request: HttpRequestBuilder, url: String) {
-        val (headers, body) = requestCapture.capture(request)
+    private suspend fun handleSendFailure(
+        request: HttpRequestBuilder,
+        cause: Throwable
+    ): Nothing {
+        if (cause is BodyCaptureException) {
+            throw cause
+        }
+        if (!causesOrIsIOException(cause)) {
+            throw cause
+        }
+        val url = request.url.buildString()
+        try {
+            enqueueLocked(request, url)
+        } catch (capture: BodyCaptureException) {
+            throw capture
+        } catch (persist: Throwable) {
+            throw persist
+        }
+        throw OfflineQueuedException(url)
+    }
+
+    private suspend fun enqueueLocked(
+        request: HttpRequestBuilder,
+        url: String
+    ) {
+        val (headers, body) = requestCapture
+            .capture(request)
+
         diskQueue.enqueue(
             method = request.method.value,
             url = url,
@@ -77,16 +89,20 @@ class GhostOfflineQueuePlugin private constructor(
             block: GhostOfflineQueueConfig.() -> Unit
         ): GhostOfflineQueuePlugin {
             val config = GhostOfflineQueueConfig().apply(block)
-            try {
-                config.diskQueue
-            } catch (_: Exception) {
-                error(ClientConstants.PLUGIN_DISK_QUEUE_MISSING)
-            }
+            requireConfiguredDiskQueue(config)
             return GhostOfflineQueuePlugin(config.diskQueue)
         }
 
         override fun install(plugin: GhostOfflineQueuePlugin, scope: HttpClient) {
             plugin.intercept(scope)
+        }
+
+        private fun requireConfiguredDiskQueue(config: GhostOfflineQueueConfig) {
+            try {
+                config.diskQueue
+            } catch (_: Exception) {
+                error(ClientConstants.PLUGIN_DISK_QUEUE_MISSING)
+            }
         }
 
         private fun causesOrIsIOException(cause: Throwable): Boolean {
