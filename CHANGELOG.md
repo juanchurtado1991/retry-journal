@@ -125,6 +125,17 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `DiskQueue` and disk-operation helpers moved to `com.ghostserializer.sync.queue.disk` package (public API unchanged — same class names, new package path)
 - sync-sample demo UI split into `ui/` subpackages (`components/`, `screen/`, `state/`, `action/`, `effects/`, `theme/`, `model/`)
 
+### Fixed (bug hunt round 15)
+- `claimHeadForReplay` clears an active head replay claim when a `DeliveryJournal` is pending for that sequence — recovery no longer blocks for up to 30 minutes behind a stale claim
+- `GhostSyncEngine.getEntryAndStatus` / `getStatus` honor a pending delivery journal and skip HTTP, matching `flush()` recovery semantics
+- `GhostSyncEngine.finalizeHeadReplay` — public API for manual replay loops to apply 2xx / dead-letter outcomes after `getEntryAndStatus` or `getStatus`
+- `DeliveryJournal` — magic header + CRC validation; corrupt journals surface as `CorruptPending` so recovery retries local removal without re-sending HTTP
+- `GhostSyncEngine.flush` buffers `onProgress` outside `replayMutex` — progress callbacks can safely call back into the engine without deadlocking
+- `GhostSync.processFlushMutex` shared with `GhostSyncRuntime` — direct `ghostSync.flush()` and `runtime.flush()` serialize in the same process
+
+### Changed
+- README positioning — Room KMP is a good fit for app state; ghost-sync remains the dedicated offline HTTP mutation queue
+
 ### Fixed (bug hunt round 14)
 - `DeliveryJournal` — two-phase commit after HTTP 2xx or successful dead-letter `record()`: durable `.delivery-pending` sidecar lets the next `flush()` retry local removal without re-sending HTTP, closing duplicate-delivery when tombstone flush fails after server success
 - `FlushResult.persistenceFailed` — surfaces when the server side-effect succeeded but queue removal did not finish (journal left for recovery)
