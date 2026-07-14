@@ -167,17 +167,14 @@ class DiskQueueTest {
         val queue = DiskQueue(queuePath)
         queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
 
-        val readHandleField = DiskQueue::class.java.getDeclaredField("readHandle")
-        readHandleField.isAccessible = true
-
-        assertNull(readHandleField.get(queue))
+        assertNull(queue.readFileHandlesField("readHandle"))
 
         queue.peek()
-        val handle1 = readHandleField.get(queue)
+        val handle1 = queue.readFileHandlesField("readHandle")
         kotlin.test.assertNotNull(handle1)
 
         queue.peek()
-        val handle2 = readHandleField.get(queue)
+        val handle2 = queue.readFileHandlesField("readHandle")
         assertEquals(handle1, handle2)
     }
 
@@ -268,9 +265,16 @@ class DiskQueueTest {
 
         assertFailsWith<IOException> { queue.close() }
 
-        val appendSinkField = DiskQueue::class.java.getDeclaredField("appendSink").apply { isAccessible = true }
-        val readHandleField = DiskQueue::class.java.getDeclaredField("readHandle").apply { isAccessible = true }
-        assertNull(appendSinkField.get(queue), "appendSink should be cleared even though closing it threw")
-        assertNull(readHandleField.get(queue), "readHandle should still be released after the append sink's close throws")
+        assertNull(queue.readFileHandlesField("appendSink"), "appendSink should be cleared even though closing it threw")
+        assertNull(queue.readFileHandlesField("readHandle"), "readHandle should still be released after the append sink's close throws")
+    }
+
+    /** [DiskQueue] delegates its cached append sink/read handle to [RecordFileHandles] — reaches
+     * through that private field to read one of [RecordFileHandles]'s own private fields by name. */
+    private fun DiskQueue.readFileHandlesField(name: String): Any? {
+        val fileHandlesField = DiskQueue::class.java.getDeclaredField("fileHandles").apply { isAccessible = true }
+        val fileHandles = fileHandlesField.get(this)
+        val field = RecordFileHandles::class.java.getDeclaredField(name).apply { isAccessible = true }
+        return field.get(fileHandles)
     }
 }
