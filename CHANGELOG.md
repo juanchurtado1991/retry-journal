@@ -125,6 +125,14 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `DiskQueue` and disk-operation helpers moved to `com.ghostserializer.sync.queue.disk` package (public API unchanged — same class names, new package path)
 - sync-sample demo UI split into `ui/` subpackages (`components/`, `screen/`, `state/`, `action/`, `effects/`, `theme/`, `model/`)
 
+### Fixed (bug hunt round 16)
+- `finalizeHeadReplay` rejects non-head entries (`NotHead`) before writing a delivery journal — prevents silent queue drops when a stale `QueueEntry` is finalized
+- `getHeadState` reports `PendingLocalRemoval` when the head has a delivery journal, and only reports `Blocked` for replay claims on the current FIFO head (not orphan non-head claims)
+- `getStatus` validates the entry is still head before claiming; stale-entry errors no longer abort the real head's replay claim
+- `finalizeHeadReplay` clears a stale delivery journal when abandoning a retry-worthy status (`LeftOnQueue`)
+- `DeliveryJournal` partial parse without a valid outcome is treated as absent (re-send HTTP) instead of defaulting to delivered
+- `GhostSyncRuntime.lastKnownOnline` is `@Volatile` for cross-thread visibility
+
 ### Fixed (bug hunt round 15)
 - `claimHeadForReplay` clears an active head replay claim when a `DeliveryJournal` is pending for that sequence — recovery no longer blocks for up to 30 minutes behind a stale claim
 - `GhostSyncEngine.getEntryAndStatus` / `getStatus` honor a pending delivery journal and skip HTTP, matching `flush()` recovery semantics
