@@ -2,13 +2,19 @@ package com.ghostserializer.sync.deadletter
 
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.DiskQueueConstants.CURRENT_DIRECTORY_PATH
+import com.ghostserializer.sync.queue.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
 import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
+import com.ghostserializer.sync.queue.LifecycleGate
 import com.ghostserializer.sync.queue.QueueEntry
 import com.ghostserializer.sync.queue.QueueEntryId
+import com.ghostserializer.sync.queue.platform.PlatformQueueFileLock
+import com.ghostserializer.sync.queue.platform.ioDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import okio.Path
 import okio.Path.Companion.toPath
 
 class DeadLetterQueue(
@@ -18,6 +24,48 @@ class DeadLetterQueue(
     private val recoveryMutex = Mutex()
     private val retryMutex = Mutex()
     private var recovered = false
+    private val lifecycleGate = LifecycleGate(
+        closedMessage = CLOSED_MESSAGE,
+        closeWhileBusyMessage = CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE,
+    )
+    private val dlqOpsProcessLock = PlatformQueueFileLock(
+        lockPath = (storage.path.toString() + DLQ_OPS_LOCK_SUFFIX).toPath(),
+        fileSystem = storage.fileSystem,
+    )
+
+    /** Used by [com.ghostserializer.sync.GhostSync.close] before tearing down queues. */
+    internal fun closeForShutdown() {
+        lifecycleGate.close()
+    }
+
+    private suspend inline fun <T> withDlqLifecycle(crossinline block: suspend () -> T): T {
+        lifecycleGate.enter()
+        try {
+            return block()
+        } finally {
+            lifecycleGate.leave()
+        }
+    }
+
+    private suspend inline fun <T> withDlqOpsProcessLock(crossinline block: suspend () -> T): T =
+        withContext(ioDispatcher) {
+            dlqOpsProcessLock.acquire()
+            try {
+                block()
+            } finally {
+                dlqOpsProcessLock.release()
+            }
+        }
+
+    private fun retryJournalPath(id: Long): Path =
+        (storage.path.toString() + RETRY_JOURNAL_SUFFIX + id).toPath()
+
+    private fun deleteRetryJournalIfExists(id: DeadLetterEntryId) {
+        val journalFile = retryJournalPath(id.value)
+        if (storage.fileSystem.exists(journalFile)) {
+            storage.fileSystem.delete(journalFile)
+        }
+    }
 
     private suspend fun ensureRecovered() {
         if (recovered) {
@@ -33,49 +81,74 @@ class DeadLetterQueue(
     }
 
     private suspend fun recoverPendingRetries() {
-        val parent = storage.path.parent ?: CURRENT_DIRECTORY_PATH.toPath()
-        val prefix = storage.path.name + RETRY_JOURNAL_SUFFIX
-        if (!storage.fileSystem.exists(parent)) {
-            return
-        }
-        val files = try {
-            storage.fileSystem.list(parent).filter { it.name.startsWith(prefix) }
-        } catch (_: Exception) {
-            emptyList()
-        }
-        for (file in files) {
-            val idValue = file.name.removePrefix(prefix).toLongOrNull() ?: continue
-            val entryInStorage = storage.get(QueueEntryId(idValue))
-            if (entryInStorage != null) {
-                storage.fileSystem.delete(file)
-                continue
+        val journalFiles = listRetryJournalFiles() ?: return
+        for (file in journalFiles) {
+            withDlqOpsProcessLock {
+                recoverSingleJournalFile(file)
             }
-
-            val journalData = RetryJournal.read(storage.fileSystem, file)
-            if (journalData == null) {
-                // Unreadable now means unreadable forever — nothing about a future process
-                // restart makes these same bytes parse differently. Leaving the file behind would
-                // just re-attempt (and re-fail) this same read on every future startup for good.
-                storage.fileSystem.delete(file)
-                continue
-            }
-            if (!mainQueueAlreadyContains(journalData)) {
-                mainQueue.enqueue(
-                    method = journalData.method,
-                    url = journalData.url,
-                    headers = journalData.headers,
-                    body = journalData.body,
-                )
-            }
-            storage.fileSystem.delete(file)
         }
     }
 
-    private suspend fun mainQueueAlreadyContains(journalData: RetryJournal.Data): Boolean {
+    private fun listRetryJournalFiles(): List<Path>? {
+        val parent = storage.path.parent ?: CURRENT_DIRECTORY_PATH.toPath()
+        val prefix = storage.path.name + RETRY_JOURNAL_SUFFIX
+        if (!storage.fileSystem.exists(parent)) {
+            return null
+        }
+        return storage.fileSystem.list(parent).filter { it.name.startsWith(prefix) }
+    }
+
+    private suspend fun recoverSingleJournalFile(file: Path) {
+        val idValue = file.name.removePrefix(storage.path.name + RETRY_JOURNAL_SUFFIX).toLongOrNull()
+        if (idValue == null) {
+            storage.fileSystem.delete(file)
+            return
+        }
+        val entryInStorage = storage.get(QueueEntryId(idValue))
+        if (entryInStorage != null) {
+            // Crash after journal write but before storage.remove — finish the retry.
+            val journalData = RetryJournal.read(storage.fileSystem, file)
+            if (journalData != null) {
+                reEnqueueJournalDataIfMissing(journalData)
+                storage.remove(QueueEntryId(idValue))
+            }
+            storage.fileSystem.delete(file)
+            return
+        }
+
+        val journalData = RetryJournal.read(storage.fileSystem, file)
+        if (journalData == null) {
+            storage.fileSystem.delete(file)
+            return
+        }
+        reEnqueueJournalDataIfMissing(journalData)
+        storage.fileSystem.delete(file)
+    }
+
+    private suspend fun reEnqueueJournalDataIfMissing(journalData: RetryJournalData) {
+        if (mainQueueAlreadyContains(journalData)) {
+            return
+        }
+        mainQueue.enqueue(
+            method = journalData.method,
+            url = journalData.url,
+            headers = journalData.headers,
+            body = journalData.body,
+        )
+    }
+
+    private suspend fun mainQueueAlreadyContains(journalData: RetryJournalData): Boolean {
         val pending = ArrayList<QueueEntry>()
         mainQueue.peekAll(pending)
         return pending.any {
-            requestMatches(journalData.method, journalData.url, journalData.headers, journalData.body, it.meta, it.body)
+            requestMatches(
+                journalData.method,
+                journalData.url,
+                journalData.headers,
+                journalData.body,
+                it.meta,
+                it.body,
+            )
         }
     }
 
@@ -84,11 +157,15 @@ class DeadLetterQueue(
         url: String,
         headers: FrozenHttpHeaders,
         body: ByteArray,
-    ): DeadLetterEntryId {
+    ): DeadLetterEntryId = withDlqLifecycle {
         ensureRecovered()
-        findExistingRecordId(method, url, headers, body)?.let { return it }
-        val id = storage.enqueue(method, url, headers, body)
-        return DeadLetterEntryId(id.sequenceId)
+        retryMutex.withLock {
+            withDlqOpsProcessLock {
+                findExistingRecordId(method, url, headers, body)?.let { return@withDlqOpsProcessLock it }
+                val id = storage.enqueue(method, url, headers, body)
+                DeadLetterEntryId(id.sequenceId)
+            }
+        }
     }
 
     /** Guards the window between this enqueue and the caller's [DiskQueue.remove] of the original
@@ -139,32 +216,39 @@ class DeadLetterQueue(
         }
         val matchedRightSlots = BooleanArray(right.size)
         for (leftIndex in left.names.indices) {
-            var found = false
-            for (rightIndex in right.names.indices) {
-                if (matchedRightSlots[rightIndex]) {
-                    continue
-                }
-                if (left.names[leftIndex].equals(right.names[rightIndex], ignoreCase = true) &&
-                    left.values[leftIndex] == right.values[rightIndex]
-                ) {
-                    matchedRightSlots[rightIndex] = true
-                    found = true
-                    break
-                }
-            }
-            if (!found) {
+            if (!hasMatchingHeaderSlot(left, right, leftIndex, matchedRightSlots)) {
                 return false
             }
         }
         return true
     }
 
-    suspend fun size(): Int {
-        ensureRecovered()
-        return storage.size()
+    private fun hasMatchingHeaderSlot(
+        left: FrozenHttpHeaders,
+        right: FrozenHttpHeaders,
+        leftIndex: Int,
+        matchedRightSlots: BooleanArray,
+    ): Boolean {
+        for (rightIndex in right.names.indices) {
+            if (matchedRightSlots[rightIndex]) {
+                continue
+            }
+            if (left.names[leftIndex].equals(right.names[rightIndex], ignoreCase = true) &&
+                left.values[leftIndex] == right.values[rightIndex]
+            ) {
+                matchedRightSlots[rightIndex] = true
+                return true
+            }
+        }
+        return false
     }
 
-    suspend fun peekAll(outResult: MutableCollection<DeadLetterEntry>): Int {
+    suspend fun size(): Int = withDlqLifecycle {
+        ensureRecovered()
+        storage.size()
+    }
+
+    suspend fun peekAll(outResult: MutableCollection<DeadLetterEntry>): Int = withDlqLifecycle {
         ensureRecovered()
         val before = outResult.size
         storage.peekAllRaw { sequenceId, meta, body ->
@@ -176,27 +260,47 @@ class DeadLetterQueue(
                 ),
             )
         }
-        return outResult.size - before
+        outResult.size - before
     }
 
-    suspend fun retry(id: DeadLetterEntryId) {
+    suspend fun retry(id: DeadLetterEntryId) = withDlqLifecycle {
         ensureRecovered()
         retryMutex.withLock {
-            val entry = storage.get(QueueEntryId(id.value)) ?: return
-            val journalFile = (storage.path.toString() + RETRY_JOURNAL_SUFFIX + id.value).toPath()
-            RetryJournal.write(storage.fileSystem, journalFile, id.value, entry)
-            storage.remove(QueueEntryId(id.value))
-            mainQueue.enqueue(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
-            storage.fileSystem.delete(journalFile)
+            withDlqOpsProcessLock {
+                val entry = storage.get(QueueEntryId(id.value)) ?: return@withDlqOpsProcessLock
+                val journalFile = retryJournalPath(id.value)
+                RetryJournal.write(storage.fileSystem, journalFile, id.value, entry)
+                storage.remove(QueueEntryId(id.value))
+                try {
+                    mainQueue.enqueue(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+                    storage.fileSystem.delete(journalFile)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    recoverSingleJournalFile(journalFile)
+                }
+            }
         }
     }
 
-    suspend fun discard(id: DeadLetterEntryId) {
-        ensureRecovered()
-        storage.remove(QueueEntryId(id.value))
+    suspend fun discard(id: DeadLetterEntryId) = withDlqLifecycle {
+        retryMutex.withLock {
+            withDlqOpsProcessLock {
+                deleteRetryJournalIfExists(id)
+                ensureRecovered()
+                storage.remove(QueueEntryId(id.value))
+            }
+        }
     }
 
     fun close() {
+        closeForShutdown()
         storage.close()
+    }
+
+    private companion object {
+        const val CLOSED_MESSAGE: String = "DeadLetterQueue is closed"
+        const val CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE: String =
+            "Cannot close DeadLetterQueue while an operation is in flight"
     }
 }

@@ -2,10 +2,13 @@ package com.ghostserializer.sync.deadletter
 
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
 import com.ghostserializer.sync.queue.DiskQueueConstants.NEWLINE_BYTE
+import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_TEMP_SUFFIX
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.QueueEntry
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
+import okio.Path.Companion.toPath
 import okio.utf8Size
 
 /**
@@ -14,13 +17,6 @@ import okio.utf8Size
  * re-enqueueing it on the main queue (see [DeadLetterQueue.retry]).
  */
 internal object RetryJournal {
-
-    class Data(
-        val method: String,
-        val url: String,
-        val headers: FrozenHttpHeaders,
-        val body: ByteArray,
-    )
 
     /** A sanity cap on a journal's header count — bounds the `ArrayList(headersSize)`
      * preallocation in [read] against a corrupted count field. Generous for any real request
@@ -35,52 +31,17 @@ internal object RetryJournal {
      * [OutOfMemoryError] — a [Throwable], not an [Exception] — which is why the catch below is
      * [Throwable], matching [RecordCodec][com.ghostserializer.sync.queue.record.RecordCodec]'s own
      * `Ghost.deserialize` guard for the same "untrusted crash artifact, fail closed" reasoning. */
-    fun read(fileSystem: FileSystem, file: Path): Data? {
+    fun read(fileSystem: FileSystem, file: Path): RetryJournalData? {
         return try {
             fileSystem.read(file) {
-                val newlineIndex = indexOf(NEWLINE_BYTE.toByte())
-                if (newlineIndex == -1L) {
+                if (!skipJournalIdLine()) {
                     return@read null
                 }
-                skip(newlineIndex + 1)
-
-                val methodLen = readInt()
-                if (methodLen !in 0..MAX_RECORD_FIELD_SIZE) {
-                    return@read null
-                }
-                val method = readUtf8(methodLen.toLong())
-
-                val urlLen = readInt()
-                if (urlLen !in 0..MAX_RECORD_FIELD_SIZE) {
-                    return@read null
-                }
-                val url = readUtf8(urlLen.toLong())
-
-                val headersSize = readInt()
-                if (headersSize !in 0..MAX_HEADER_COUNT) {
-                    return@read null
-                }
-                val names = ArrayList<String>(headersSize)
-                val values = ArrayList<String>(headersSize)
-                for (i in 0 until headersSize) {
-                    val headerNameLength = readInt()
-                    if (headerNameLength !in 0..MAX_RECORD_FIELD_SIZE) {
-                        return@read null
-                    }
-                    names.add(readUtf8(headerNameLength.toLong()))
-                    val headerValueLength = readInt()
-                    if (headerValueLength !in 0..MAX_RECORD_FIELD_SIZE) {
-                        return@read null
-                    }
-                    values.add(readUtf8(headerValueLength.toLong()))
-                }
-
-                val bodyLen = readInt()
-                if (bodyLen !in 0..MAX_RECORD_FIELD_SIZE) {
-                    return@read null
-                }
-                val body = readByteArray(bodyLen.toLong())
-                Data(method, url, FrozenHttpHeaders(names, values), body)
+                val method = readLengthPrefixedUtf8() ?: return@read null
+                val url = readLengthPrefixedUtf8() ?: return@read null
+                val headers = readHeadersBlock() ?: return@read null
+                val body = readBodyBlock() ?: return@read null
+                RetryJournalData(method, url, headers, body)
             }
         } catch (_: Throwable) {
             null
@@ -88,29 +49,71 @@ internal object RetryJournal {
     }
 
     fun write(fileSystem: FileSystem, file: Path, idValue: Long, entry: QueueEntry) {
-        fileSystem.write(file) {
+        val tempPath = (file.toString() + RETRY_JOURNAL_TEMP_SUFFIX).toPath()
+        fileSystem.delete(tempPath, mustExist = false)
+        fileSystem.write(tempPath) {
             writeDecimalLong(idValue)
             writeByte(NEWLINE_BYTE)
-
-            val method = entry.meta.method
-            writeInt(method.utf8Size().toInt())
-            writeUtf8(method)
-
-            val url = entry.meta.url
-            writeInt(url.utf8Size().toInt())
-            writeUtf8(url)
-
-            val headers = entry.meta.headers
-            writeInt(headers.size)
-            headers.forEach { name, value ->
-                writeInt(name.utf8Size().toInt())
-                writeUtf8(name)
-                writeInt(value.utf8Size().toInt())
-                writeUtf8(value)
-            }
-
+            writeLengthPrefixedUtf8(entry.meta.method)
+            writeLengthPrefixedUtf8(entry.meta.url)
+            writeHeadersBlock(entry.meta.headers)
             writeInt(entry.body.size)
             write(entry.body)
+        }
+        fileSystem.atomicMove(tempPath, file)
+    }
+
+    private fun BufferedSource.skipJournalIdLine(): Boolean {
+        val newlineIndex = indexOf(NEWLINE_BYTE.toByte())
+        if (newlineIndex == -1L) {
+            return false
+        }
+        skip(newlineIndex + 1)
+        return true
+    }
+
+    private fun BufferedSource.readLengthPrefixedUtf8(): String? {
+        val length = readInt()
+        if (length !in 0..MAX_RECORD_FIELD_SIZE) {
+            return null
+        }
+        return readUtf8(length.toLong())
+    }
+
+    private fun BufferedSource.readHeadersBlock(): FrozenHttpHeaders? {
+        val headersSize = readInt()
+        if (headersSize !in 0..MAX_HEADER_COUNT) {
+            return null
+        }
+        val names = ArrayList<String>(headersSize)
+        val values = ArrayList<String>(headersSize)
+        repeat(headersSize) {
+            val name = readLengthPrefixedUtf8() ?: return null
+            val value = readLengthPrefixedUtf8() ?: return null
+            names.add(name)
+            values.add(value)
+        }
+        return FrozenHttpHeaders(names, values)
+    }
+
+    private fun BufferedSource.readBodyBlock(): ByteArray? {
+        val bodyLen = readInt()
+        if (bodyLen !in 0..MAX_RECORD_FIELD_SIZE) {
+            return null
+        }
+        return readByteArray(bodyLen.toLong())
+    }
+
+    private fun okio.BufferedSink.writeLengthPrefixedUtf8(value: String) {
+        writeInt(value.utf8Size().toInt())
+        writeUtf8(value)
+    }
+
+    private fun okio.BufferedSink.writeHeadersBlock(headers: FrozenHttpHeaders) {
+        writeInt(headers.size)
+        headers.forEach { name, value ->
+            writeLengthPrefixedUtf8(name)
+            writeLengthPrefixedUtf8(value)
         }
     }
 }
