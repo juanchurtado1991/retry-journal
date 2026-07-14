@@ -337,16 +337,21 @@ class DiskQueue(
         deadBytes += removedLength + DiskQueueConstants.TOMBSTONE_RECORD_SIZE
     }
 
+    /** [sequenceId] is the id the in-memory index expects at [offset]; a record that reads back
+     * with a *different* sequence id (the index pointing at the wrong offset — recovery bug,
+     * manual file tampering, anything) is exactly as untrustworthy as a CRC mismatch, so it's
+     * treated the same way: `null`, letting the existing scrub/tombstone path clean it up instead
+     * of silently handing a caller the wrong entry's meta/body under the id they asked for. */
     private fun readLiveEntryAtLocked(sequenceId: Long, offset: Long): QueueEntry? {
         val handle = fileHandles.readHandle()
         val source = handle.source(offset).buffer()
         try {
             return when (val result = RecordCodec.readRecord(source, maxRecordFieldSize)) {
-                is RecordReadResult.Live -> QueueEntry(
-                    QueueEntryId(sequenceId),
-                    result.meta,
-                    result.body
-                )
+                is RecordReadResult.Live -> if (result.sequenceId == sequenceId) {
+                    QueueEntry(QueueEntryId(sequenceId), result.meta, result.body)
+                } else {
+                    null
+                }
 
                 else -> null
             }
@@ -398,7 +403,15 @@ class DiskQueue(
      * or becoming suspend and breaking that contract. That leaves a narrow window between this
      * check and a brand-new operation starting — but it turns the overwhelming majority of
      * "closed while still in use" mistakes into a loud, immediate error instead of silently
-     * corrupting state. */
+     * corrupting state.
+     *
+     * [closed] is set *before* [RecordFileHandles.closeAll] runs, not after: if `closeAll()`
+     * throws, this instance is left permanently closed rather than retryable. Deliberate, not an
+     * oversight — `closeAll()` already clears its own cached handle references in a `finally`
+     * regardless of whether the underlying OS-level `close()` throws (see its own doc), so the
+     * handles aren't leaked either way; the alternative (`closed = true` only on success) would let
+     * a caller whose first `close()` threw retry indefinitely against handles that were already
+     * torn down, for no real benefit. */
     fun close() {
         if (closed) return
 

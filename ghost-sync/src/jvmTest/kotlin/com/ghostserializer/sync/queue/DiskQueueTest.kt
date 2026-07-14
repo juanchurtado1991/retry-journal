@@ -304,6 +304,36 @@ class DiskQueueTest {
         queue.close()
     }
 
+    @Test
+    fun `get() refuses to return an entry when the on-disk sequenceId doesn't match what the index expected`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val idA = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
+
+        // Simulate the index pointing at the wrong offset for each id — a bug elsewhere in
+        // index bookkeeping, or a tampered file, could produce exactly this. Without validating
+        // the sequenceId actually read back against the one the index expected, get(idA) would
+        // silently return "/second"'s meta/body mislabeled under idA's id.
+        queue.swapIndexOffsets(idA.sequenceId, idB.sequenceId)
+
+        assertNull(queue.get(idA))
+        assertNull(queue.get(idB))
+    }
+
+    /** Reaches into [DiskQueue]'s private live-offset index and swaps the packed offsets
+     * recorded for two sequence ids, so each id's index entry now points at the *other* id's
+     * on-disk record — the exact mismatch [DiskQueue.readLiveEntryAtLocked]'s sequenceId check
+     * guards against. */
+    private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
+        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val map = field.get(this) as LinkedHashMap<Long, Long>
+        val packedA = map.getValue(sequenceIdA)
+        val packedB = map.getValue(sequenceIdB)
+        map[sequenceIdA] = packedB
+        map[sequenceIdB] = packedA
+    }
+
     /** [DiskQueue] delegates its cached append sink/read handle to [RecordFileHandles] — reaches
      * through that private field to read one of [RecordFileHandles]'s own private fields by name. */
     private fun DiskQueue.readFileHandlesField(name: String): Any? {
