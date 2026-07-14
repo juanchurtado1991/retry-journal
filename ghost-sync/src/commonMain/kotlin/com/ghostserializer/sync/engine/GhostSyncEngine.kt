@@ -13,6 +13,7 @@ import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.QueueEntry
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.pluginOrNull
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -86,10 +87,10 @@ class GhostSyncEngine(
         val meta = entry.meta
         val response: HttpResponse = client.request(meta.url) {
             method = HttpMethod.parse(meta.method)
-            val contentType = applyHeaders(meta.headers)
+            val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
             setBody(
                 if (contentType != null) {
-                    ByteArrayContent(entry.body, ContentType.parse(contentType))
+                    ByteArrayContent(entry.body, contentType)
                 } else {
                     entry.body
                 },
@@ -98,8 +99,20 @@ class GhostSyncEngine(
         return response.status
     }
 
+    /** A stored Content-Type that no longer parses must not permanently wedge the whole queue
+     * behind it: [flush] always starts from the oldest entry, so an uncaught exception here would
+     * stop every future `flush()` on this same entry forever, blocking everything queued after it
+     * too. Falling back to sending the raw body without a Content-Type override still lets the
+     * request reach the server, which can then reject it (4xx) through the normal dead-letter
+     * path instead of a permanent stall. */
+    private fun parseContentTypeOrNull(value: String): ContentType? = try {
+        ContentType.parse(value)
+    } catch (_: Exception) {
+        null
+    }
+
     /** [HeaderDispatch] routes known header names without a [Map] lookup. */
-    private fun io.ktor.client.request.HttpRequestBuilder.applyHeaders(headers: FrozenHttpHeaders): String? {
+    private fun HttpRequestBuilder.applyHeaders(headers: FrozenHttpHeaders): String? {
         var contentType: String? = null
         headers.forEach { name, value ->
             when (HeaderDispatch.slotFor(name)) {
@@ -111,7 +124,7 @@ class GhostSyncEngine(
         return contentType
     }
 
-    private fun io.ktor.client.request.HttpRequestBuilder.appendHeaderValues(name: String, value: String) {
+    private fun HttpRequestBuilder.appendHeaderValues(name: String, value: String) {
         var separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR)
         if (separatorIndex < 0) {
             header(name, value)

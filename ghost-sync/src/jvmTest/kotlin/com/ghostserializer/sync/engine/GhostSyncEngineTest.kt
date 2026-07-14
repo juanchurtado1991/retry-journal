@@ -217,6 +217,25 @@ class GhostSyncEngineTest {
     }
 
     @Test
+    fun `a stored Content-Type that no longer parses does not permanently stall the queue`() = runBlocking {
+        // flush() always starts from the oldest entry — if ContentType.parse() threw here
+        // uncaught, this entry (and everything queued after it) would never get another chance
+        // to flush, forever.
+        queue.enqueue(
+            "POST",
+            "https://example.com/malformed",
+            FrozenHttpHeaders.of(HttpHeaders.ContentType to "not-a-content-type"),
+            "body".encodeToByteArray(),
+        )
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val result = engine.flush(client)
+
+        assertEquals(FlushResult(delivered = 1, deadLettered = 0, stoppedEarly = false), result)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
     fun `flush refuses a client that has the offline-queue plugin installed`() = runBlocking {
         // Replaying through a client that re-queues its own IOExceptions would duplicate any
         // entry that fails again mid-flush: the plugin re-enqueues it, and since trySend()
