@@ -30,9 +30,9 @@ import okio.buffer
  * never stalls on unreadable data; [size] and [peekIds] only count entries that can actually be read.
  *
  * **Threading contract, two parts callers need to know:**
- * - Every suspend function here does block file I/O (Okio's [FileSystem] is synchronous, and
+ * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
  *   so is [PlatformQueueFileLock]) on whatever thread the calling coroutine happens to be running
- *   on. Drive this class from [kotlinx.coroutines.Dispatchers.Default] (or an equivalently
+ *   on. Drive this class from [kotlinx.coroutines.Dispatchers.IO] (or an equivalently
  *   blocking-friendly dispatcher) — calling it from [kotlinx.coroutines.Dispatchers.Default]'s
  *   CPU-sized pool risks starving other CPU-bound work sharing that pool under real contention.
  * - [close] is **not** synchronized with [Mutex] the way every other operation is: it's a plain,
