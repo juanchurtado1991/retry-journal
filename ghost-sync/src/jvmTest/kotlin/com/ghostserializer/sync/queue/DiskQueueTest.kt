@@ -243,14 +243,26 @@ class DiskQueueTest {
     }
 
     @Test
-    fun `enqueue rejects a record whose packed on-disk length would overflow the index`() = runBlocking {
+    fun `enqueue accepts a body exactly at the default maxRecordFieldSize`() = runBlocking {
+        // Regression: the packed in-memory index used to reserve only 26 bits for a record's
+        // total length (~64 MiB), which is already smaller than one field alone at the default
+        // MAX_RECORD_FIELD_SIZE plus the fixed record overhead — every upload AT the documented
+        // limit failed closed, not just uploads over it. See DiskQueueConstants.INDEX_OFFSET_BITS.
         val queue = DiskQueue(queuePath)
-        val hugeBody = ByteArray(DiskQueueConstants.MAX_RECORD_FIELD_SIZE)
+        val bodyAtLimit = ByteArray(DiskQueueConstants.MAX_RECORD_FIELD_SIZE)
 
-        assertFailsWith<RecordTooLargeException> {
-            queue.enqueue("POST", "https://example.com/huge", FrozenHttpHeaders.EMPTY, hugeBody)
+        queue.enqueue("POST", "https://example.com/huge", FrozenHttpHeaders.EMPTY, bodyAtLimit)
+
+        assertEquals(bodyAtLimit.size, queue.peek()?.body?.size)
+    }
+
+    @Test
+    fun `constructing a DiskQueue rejects a maxRecordFieldSize too large to ever pack`() {
+        val unpackableFieldSize = DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
+
+        assertFailsWith<IllegalArgumentException> {
+            DiskQueue(queuePath, maxRecordFieldSize = unpackableFieldSize)
         }
-        assertTrue(queue.isEmpty())
     }
 
     @Test
