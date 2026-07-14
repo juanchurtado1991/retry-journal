@@ -136,10 +136,7 @@ class DeadLetterQueueTest {
         val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
 
         // Let's write the journal file using reflection
-        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
-            isAccessible = true
-        }
-        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        RetryJournal.write(dlqStorage.fileSystem, journalFile, entryId.value, entry)
 
         // Remove from storage to simulate the "removed from storage" state of the crash
         dlqStorage.remove(entry.id)
@@ -175,10 +172,7 @@ class DeadLetterQueueTest {
         mainQueue.enqueue("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
 
         val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
-        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
-            isAccessible = true
-        }
-        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        RetryJournal.write(dlqStorage.fileSystem, journalFile, entryId.value, entry)
         dlqStorage.remove(entry.id)
 
         val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
@@ -202,10 +196,7 @@ class DeadLetterQueueTest {
         mainQueue.enqueue("POST", "/rejected", FrozenHttpHeaders.of("Authorization" to "token-b"), "payload".encodeToByteArray())
 
         val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
-        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
-            isAccessible = true
-        }
-        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        RetryJournal.write(dlqStorage.fileSystem, journalFile, entryId.value, entry)
         dlqStorage.remove(entry.id)
 
         val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
@@ -227,10 +218,7 @@ class DeadLetterQueueTest {
         val entry = dlqStorage.peek()!!
 
         val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
-        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
-            isAccessible = true
-        }
-        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        RetryJournal.write(dlqStorage.fileSystem, journalFile, entryId.value, entry)
         dlqStorage.remove(entry.id)
 
         // Truncate the journal mid-record so it can never parse back — nothing about a future
