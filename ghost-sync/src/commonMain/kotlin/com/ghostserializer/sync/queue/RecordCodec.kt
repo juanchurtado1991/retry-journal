@@ -232,6 +232,7 @@ internal object RecordCodec {
         )
         if (crc != expectedCrc) {
             outResult.type = RecordScanResult.TYPE_INVALID
+            outResult.recordLength = DiskQueueConstants.TOMBSTONE_RECORD_SIZE
             return
         }
         outResult.type = RecordScanResult.TYPE_TOMBSTONE

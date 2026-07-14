@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.queue
 
+import com.ghost.serialization.Ghost
 import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.peekIds
 import kotlinx.coroutines.Dispatchers
@@ -292,6 +293,54 @@ class DiskQueueTest {
         assertEquals(2, entries.size)
         assertEquals("/first", entries[0].meta.url)
         assertEquals("/third", entries[1].meta.url)
+    }
+
+    @Test
+    fun `corrupted tombstone is skipped by its own size, not a stale length from the record before it`() = runBlocking {
+        // Hand-crafted directly with RecordCodec, bypassing DiskQueue.remove()'s own compaction
+        // entirely (a big-bodied record's tombstone alone can cross the dead-ratio threshold and
+        // rewrite the file), so the byte layout below is exactly what ends up on disk.
+        fun metaBytes(url: String) = Ghost.encodeToBytes(
+            FrozenHttpRequestMeta("POST", url, FrozenHttpHeaders.EMPTY, enqueuedAtMillis = 0L),
+        )
+
+        var tombstoneStart = 0L
+        FileSystem.SYSTEM.appendingSink(queuePath).buffer().use { sink ->
+            RecordCodec.writeLive(sink, 0L, metaBytes("/first"), "first-body".encodeToByteArray())
+            sink.flush()
+
+            // Deliberately much bigger than TOMBSTONE_RECORD_SIZE (13 bytes): RecordScanResult is
+            // a reused mutable carrier, so if the scan mistakenly kept this record's length
+            // around instead of setting the tombstone's own size for the corrupted tombstone
+            // right after it, it would skip far past "/third" instead of landing on it.
+            RecordCodec.writeLive(sink, 1L, metaBytes("/second"), ByteArray(500))
+            sink.flush()
+            tombstoneStart = FileSystem.SYSTEM.metadata(queuePath).size!!
+
+            RecordCodec.writeTombstone(sink, 1L)
+            sink.flush()
+
+            RecordCodec.writeLive(sink, 2L, metaBytes("/third"), "third-body".encodeToByteArray())
+        }
+
+        // Corrupt the tombstone's CRC — 4 bytes right after its 1-byte kind marker.
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val crcOffset = (tombstoneStart + 1).toInt()
+        bytes[crcOffset] = (bytes[crcOffset] + 1).toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        // "/second" is *not* removed — a tombstone whose own CRC fails can't be trusted to
+        // delete anything, so recovery keeps the record it would have removed. What this test
+        // actually guards is "/third": with the bug, the scanner's stale, oversized skip distance
+        // overshoots past end-of-file in one jump, the scan loop exits immediately, and
+        // truncateToLocked() then physically deletes both the tombstone and "/third" from disk.
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        assertEquals(3, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/second", entries[1].meta.url)
+        assertEquals("/third", entries[2].meta.url)
     }
 
     @Test
