@@ -140,6 +140,7 @@ class DeadLetterQueue(
         for (entry in pending) {
             if (entry.meta.method == journalData.method &&
                 entry.meta.url == journalData.url &&
+                entry.meta.headers == journalData.headers &&
                 entry.body.contentEquals(journalData.body)
             ) {
                 return true
@@ -155,7 +156,7 @@ class DeadLetterQueue(
         body: ByteArray,
     ): DeadLetterEntryId {
         ensureRecovered()
-        findExistingRecordId(method, url, body)?.let { return it }
+        findExistingRecordId(method, url, headers, body)?.let { return it }
         val id = storage.enqueue(method, url, headers, body)
         return DeadLetterEntryId(id.sequenceId)
     }
@@ -164,12 +165,24 @@ class DeadLetterQueue(
      * entry on [mainQueue] (see [com.ghostserializer.sync.engine.GhostSyncEngine.flush]): if the
      * process dies in that window, the entry is still live on the main queue, and the next
      * `flush()` replays and dead-letters it again. Recognizing it as already recorded — same
-     * method, url, and body, the exact bytes being replayed — turns that into a no-op instead of
-     * a duplicate entry in the dead-letter queue. */
-    private suspend fun findExistingRecordId(method: String, url: String, body: ByteArray): DeadLetterEntryId? {
+     * method, url, headers, and body, the exact request being replayed — turns that into a no-op
+     * instead of a duplicate entry in the dead-letter queue. Headers matter here: two requests
+     * that only differ in, say, an `Authorization` header are different requests and must not
+     * collapse into one dead-letter entry. */
+    private suspend fun findExistingRecordId(
+        method: String,
+        url: String,
+        headers: FrozenHttpHeaders,
+        body: ByteArray,
+    ): DeadLetterEntryId? {
         var existing: DeadLetterEntryId? = null
         storage.peekAllRaw { sequenceId, meta, entryBody ->
-            if (existing == null && meta.method == method && meta.url == url && entryBody.contentEquals(body)) {
+            if (existing == null &&
+                meta.method == method &&
+                meta.url == url &&
+                meta.headers == headers &&
+                entryBody.contentEquals(body)
+            ) {
                 existing = DeadLetterEntryId(sequenceId)
             }
         }

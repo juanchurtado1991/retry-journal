@@ -112,6 +112,18 @@ class DeadLetterQueueTest {
     }
 
     @Test
+    fun `same method, url, and body but different headers are not treated as a duplicate`() = runBlocking {
+        // A shared Authorization/tenant header is exactly the kind of difference that makes two
+        // otherwise-identical-looking requests genuinely distinct — collapsing them would hide
+        // one of them from the dead-letter UI entirely.
+        val id1 = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("Authorization" to "token-a"), "payload".encodeToByteArray())
+        val id2 = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("Authorization" to "token-b"), "payload".encodeToByteArray())
+
+        assertTrue(id1 != id2)
+        assertEquals(2, deadLetterQueue.peekAll().size)
+    }
+
+    @Test
     fun `recovery processes pending retry journals on initialization`() = runBlocking {
         // Record an entry
         val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("X" to "1"), "payload".encodeToByteArray())
@@ -176,6 +188,35 @@ class DeadLetterQueueTest {
         deadLetterQueue2.size()
 
         assertEquals(1, mainQueue2.size())
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile))
+    }
+
+    @Test
+    fun `recovery does not skip re-enqueue when the main queue's match differs only by headers`() = runBlocking {
+        val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.of("Authorization" to "token-a"), "payload".encodeToByteArray())
+        val dlqStorage = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val entry = dlqStorage.peek()!!
+
+        // Same method/url/body as the journal below, but a different Authorization — recovery
+        // must not mistake this for the same request and skip re-enqueueing the real one.
+        mainQueue.enqueue("POST", "/rejected", FrozenHttpHeaders.of("Authorization" to "token-b"), "payload".encodeToByteArray())
+
+        val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
+        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
+            isAccessible = true
+        }
+        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        dlqStorage.remove(entry.id)
+
+        val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
+        val dlqStorage2 = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val deadLetterQueue2 = DeadLetterQueue(mainQueue2, dlqStorage2)
+
+        deadLetterQueue2.size()
+
+        val recovered = mainQueue2.peekAll()
+        assertEquals(2, recovered.size)
+        assertEquals(setOf("token-a", "token-b"), recovered.map { it.meta.headers.findValue("Authorization") }.toSet())
         assertTrue(!FileSystem.SYSTEM.exists(journalFile))
     }
 }
