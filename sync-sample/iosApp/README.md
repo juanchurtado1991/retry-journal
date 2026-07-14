@@ -57,8 +57,9 @@ If Koin APIs differ from your kmpworkmanager version, adjust `AppDelegate.swift`
 
 Use this checklist after the app launches:
 
-- [ ] **Airplane mode ON** (or server stopped) → tap **Upload a file** or stress test → pending count increases
+- [ ] **Airplane mode ON** (or server stopped) → tap **Upload a file** or stress test → pending count increases; Pending subtitle shows **Head: awaiting replay**
 - [ ] **Airplane mode OFF** (server running) → **Sync now** → pending clears, log shows deliveries
+- [ ] Optional: after a simulated crash mid-delivery, **Head: finishing local removal** appears until next flush
 - [ ] Optional: **400 chaos** request lands in dead letter — same as desktop demo
 
 Background sync: `AppDelegate` registers `BGTaskScheduler`; production apps rely on this so users don't tap Sync manually.
@@ -69,4 +70,4 @@ Background sync: `AppDelegate` registers `BGTaskScheduler`; production apps rely
 
 - Full sample walkthrough: [../README.md](../README.md)
 - Library integration (mountain / offline UX, `flush()` scheduling): [../../README.md](../../README.md)
-- iOS library verification debt (publish, CI): [../../ios_techdebt.md](../../ios_techdebt.md)
+- iOS library verification debt (publish, CI): [../../ios_techdebt.md](../../ios_techdebt.md) — **1.0.0**, handoff desde Linux

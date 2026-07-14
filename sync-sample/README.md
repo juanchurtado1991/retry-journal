@@ -36,7 +36,7 @@ That’s the product: **nothing lost**, sync when you’re back online. In produ
 | UI | What it proves |
 |---|---|
 | **Server On/Off** | Instant offline/online — no airplane mode needed |
-| **Pending requests** | One indicator per queued HTTP call waiting for `flush()` |
+| **Pending requests** | One indicator per queued HTTP call; **first chip** + Pending subtitle show `getHeadState()` (`Awaiting replay`, `finishing local removal`, `blocked`) |
 | **Sync now** | Calls `runtime.flush()` — same coordinator the background worker uses |
 | **Upload a file** | Multipart bytes are captured offline and replayed intact |
 | **Send 5 JSON requests** | Batch mutations queue individually, replay FIFO |

@@ -105,7 +105,7 @@ dependencies {
 
 **Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`.
 
-> **iOS:** Kotlin/Native targets build on macOS. Checklist for device verification: [`ios_techdebt.md`](ios_techdebt.md).
+> **iOS:** Kotlin/Native targets build on macOS. Handoff checklist: [`ios_techdebt.md`](ios_techdebt.md) (1.0.0 — compilar, sample E2E, publicar).
 
 ---
 
