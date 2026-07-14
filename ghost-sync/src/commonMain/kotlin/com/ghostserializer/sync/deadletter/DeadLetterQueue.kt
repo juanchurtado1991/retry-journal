@@ -125,8 +125,39 @@ class DeadLetterQueue(
         candidateBody: ByteArray,
     ): Boolean = candidateMeta.method == method &&
         candidateMeta.url == url &&
-        candidateMeta.headers == headers &&
+        headersContentEquals(headers, candidateMeta.headers) &&
         candidateBody.contentEquals(body)
+
+    /** Order-insensitive multiset compare — two header bundles that only differ in insertion
+     * order must still dedup as the same request. */
+    private fun headersContentEquals(
+        left: FrozenHttpHeaders,
+        right: FrozenHttpHeaders,
+    ): Boolean {
+        if (left.size != right.size) {
+            return false
+        }
+        val matchedRightSlots = BooleanArray(right.size)
+        for (leftIndex in left.names.indices) {
+            var found = false
+            for (rightIndex in right.names.indices) {
+                if (matchedRightSlots[rightIndex]) {
+                    continue
+                }
+                if (left.names[leftIndex].equals(right.names[rightIndex], ignoreCase = true) &&
+                    left.values[leftIndex] == right.values[rightIndex]
+                ) {
+                    matchedRightSlots[rightIndex] = true
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                return false
+            }
+        }
+        return true
+    }
 
     suspend fun size(): Int {
         ensureRecovered()

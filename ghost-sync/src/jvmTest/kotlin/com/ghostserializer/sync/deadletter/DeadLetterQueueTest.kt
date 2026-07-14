@@ -114,6 +114,25 @@ class DeadLetterQueueTest {
     }
 
     @Test
+    fun `same headers in a different order collapse to one dead-letter entry`() = runBlocking {
+        val id1 = deadLetterQueue.record(
+            "POST",
+            "/rejected",
+            FrozenHttpHeaders.of("A" to "1", "B" to "2"),
+            "payload".encodeToByteArray(),
+        )
+        val id2 = deadLetterQueue.record(
+            "POST",
+            "/rejected",
+            FrozenHttpHeaders.of("B" to "2", "A" to "1"),
+            "payload".encodeToByteArray(),
+        )
+
+        assertEquals(id1, id2)
+        assertEquals(1, deadLetterQueue.peekAll().size)
+    }
+
+    @Test
     fun `same method, url, and body but different headers are not treated as a duplicate`() = runBlocking {
         // A shared Authorization/tenant header is exactly the kind of difference that makes two
         // otherwise-identical-looking requests genuinely distinct — collapsing them would hide
