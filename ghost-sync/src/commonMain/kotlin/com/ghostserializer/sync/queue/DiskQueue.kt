@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.SYSTEM
@@ -56,7 +57,7 @@ class DiskQueue(
      * trigger. Must stay the same for the lifetime of a given queue file: records are validated
      * against whatever value is passed in at the time they're read, not the value they were
      * written under. */
-    private val maxRecordFieldSize: Int = MAX_RECORD_FIELD_SIZE,
+    internal val maxRecordFieldSize: Int = MAX_RECORD_FIELD_SIZE,
 ) {
     init {
         require(maxRecordFieldSize > 0) {
@@ -252,13 +253,26 @@ class DiskQueue(
     }
 
     /** Removes a replayed entry and clears its [ReplayClaim] — call after 2xx delivery or
-     * dead-letter persistence. */
+     * dead-letter persistence. Always clears the claim in `finally`, even when removal fails. */
     suspend fun completeHeadReplay(entryId: QueueEntryId) = withQueueLock {
         ensureOpenLocked()
-        removeLocked(entryId.sequenceId)
-        compactIfNeededLocked()
-        captureDiskMetadataLocked()
-        ReplayClaim.delete(fileSystem, ReplayClaim.claimPath(path))
+        val claimPath = ReplayClaim.claimPath(path)
+        val activeClaim = ReplayClaim.read(fileSystem, claimPath)
+        if (activeClaim != null && activeClaim.sequenceId != entryId.sequenceId) {
+            error(DiskQueueConstants.COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE)
+        }
+        val headSequenceId = liveOffsetsBySequence.keys.firstOrNull()
+        if (headSequenceId != entryId.sequenceId) {
+            ReplayClaim.delete(fileSystem, claimPath)
+            error(DiskQueueConstants.COMPLETE_HEAD_NOT_HEAD_MESSAGE)
+        }
+        try {
+            removeLocked(entryId.sequenceId)
+            compactIfNeededLocked()
+            captureDiskMetadataLocked()
+        } finally {
+            ReplayClaim.delete(fileSystem, claimPath)
+        }
     }
 
     /** Clears the [ReplayClaim] without removing the entry — call when replay stops early. */
@@ -384,13 +398,33 @@ class DiskQueue(
     }
 
     private fun removeLocked(targetSequenceId: Long) {
-        val packed = liveOffsetsBySequence.remove(targetSequenceId) ?: return
+        val packed = liveOffsetsBySequence[targetSequenceId] ?: return
         val removedLength = PackedIndexEntry.unpackLength(packed)
+        val offsetBefore = fileLength
 
         val sink = fileHandles.appendSink()
-        fileLength += RecordCodec.writeTombstone(sink, targetSequenceId)
-        sink.flush()
-        deadBytes += removedLength + DiskQueueConstants.TOMBSTONE_RECORD_SIZE
+        try {
+            val tombstoneSize = RecordCodec.writeTombstone(sink, targetSequenceId)
+            sink.flush()
+
+            liveOffsetsBySequence.remove(targetSequenceId)
+            fileLength += tombstoneSize
+            deadBytes += removedLength + DiskQueueConstants.TOMBSTONE_RECORD_SIZE
+        } catch (e: IOException) {
+            fileHandles.closeAppendSink()
+            truncateFileLocked(offsetBefore)
+            throw e
+        }
+    }
+
+    private fun truncateFileLocked(offset: Long) {
+        if (!fileSystem.exists(path)) {
+            return
+        }
+        fileSystem.openReadWrite(path).use { handle ->
+            handle.resize(offset)
+        }
+        fileLength = offset
     }
 
     /** [sequenceId] is the id the in-memory index expects at [offset]; a record that reads back

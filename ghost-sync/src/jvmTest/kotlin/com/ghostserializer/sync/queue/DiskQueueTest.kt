@@ -11,6 +11,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okio.Buffer
+import okio.ForwardingSink
 import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
@@ -315,6 +317,79 @@ class DiskQueueTest {
             }
             assertFailsWith<IllegalStateException> { queue.peek() }
         }
+    }
+
+    @Test
+    fun `remove keeps the entry indexed when tombstone flush fails`() = runBlocking {
+        var allowFlush = true
+        val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                val real = super.appendingSink(file, mustExist)
+                return object : ForwardingSink(real) {
+                    override fun write(source: Buffer, byteCount: Long) {
+                        real.write(source, byteCount)
+                    }
+
+                    override fun flush() {
+                        if (!allowFlush) {
+                            throw IOException("disk full")
+                        }
+                        real.flush()
+                        allowFlush = false
+                    }
+
+                    override fun close() {
+                        real.close()
+                    }
+
+                    override fun timeout() = real.timeout()
+                }
+            }
+        }
+        val queue = DiskQueue(queuePath, failingFs)
+        val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+
+        assertFailsWith<IOException> { queue.remove(id) }
+
+        assertEquals(1, queue.size())
+        assertEquals(id, queue.peek()?.id)
+    }
+
+    @Test
+    fun `completeHeadReplay clears the replay claim even when tombstone flush fails`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val prepared = queue.prepareHeadForReplay()
+        assertTrue(prepared is HeadReplayPrepareResult.Ready)
+
+        val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                val real = super.appendingSink(file, mustExist)
+                return object : ForwardingSink(real) {
+                    override fun write(source: Buffer, byteCount: Long) {
+                        real.write(source, byteCount)
+                    }
+
+                    override fun flush() {
+                        throw IOException("disk full")
+                    }
+
+                    override fun close() {
+                        real.close()
+                    }
+
+                    override fun timeout() = real.timeout()
+                }
+            }
+        }
+        val failingQueue = DiskQueue(queue.path, failingFs)
+        assertFailsWith<IOException> { failingQueue.completeHeadReplay(id) }
+        assertEquals(1, failingQueue.size())
+
+        val reopened = DiskQueue(queue.path)
+        val again = reopened.prepareHeadForReplay()
+        assertTrue(again is HeadReplayPrepareResult.Ready)
+        assertEquals(id, again.entry.id)
     }
 
     @Test

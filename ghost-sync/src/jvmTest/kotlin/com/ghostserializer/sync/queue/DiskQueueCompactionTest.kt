@@ -86,6 +86,7 @@ class DiskQueueCompactionTest {
             bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
         }
         FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+        queue.syncMetadataAfterExternalFileChange()
 
         // Keep the same open instance so the in-memory index still references the corrupt
         // records; a fresh reopen would rebuild the index from recovery and skip them entirely.
@@ -96,5 +97,16 @@ class DiskQueueCompactionTest {
         val sizeAfter = FileSystem.SYSTEM.metadata(queuePath).size!!
         assertTrue(sizeAfter < sizeBefore, "expected compaction to shrink $sizeBefore -> $sizeAfter")
         assertEquals(1, queue.size())
+    }
+
+    /** After tests corrupt the queue file on disk, prevent [DiskQueue]'s mtime-based rescan from
+     * rebuilding the index and skipping the corrupt entries this test expects [peek] to tombstone. */
+    private fun DiskQueue.syncMetadataAfterExternalFileChange() {
+        val field = DiskQueue::class.java.getDeclaredField("lastKnownDiskModifiedAtMillis").apply {
+            isAccessible = true
+        }
+        if (FileSystem.SYSTEM.exists(path)) {
+            field.set(this, FileSystem.SYSTEM.metadata(path).lastModifiedAtMillis)
+        }
     }
 }

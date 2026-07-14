@@ -38,6 +38,12 @@ internal object DiskQueueConstants {
     const val COMPACTION_FILE_SUFFIX: String = ".compact"
     const val LOCK_FILE_SUFFIX: String = ".lock"
     const val REPLAY_CLAIM_SUFFIX: String = ".replay-claim"
+    const val REPLAY_CLAIM_TEMP_SUFFIX: String = ".replay-claim.tmp"
+
+    const val COMPLETE_HEAD_NOT_HEAD_MESSAGE: String =
+        "completeHeadReplay() called for an entry that is not the current queue head"
+    const val COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE: String =
+        "completeHeadReplay() called while a different head entry is claimed for replay"
 
     /** A replay claim older than this is treated as a crash artifact and ignored — long enough
      * for a slow upload on a bad connection, short enough that a dead claim doesn't block the queue
