@@ -20,6 +20,7 @@ plugins {
     alias(libs.plugins.nexus.publish)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.publish) apply false
+    alias(libs.plugins.kover) apply false
 }
 
 allprojects {
@@ -61,6 +62,12 @@ tasks.register("ciTestJvm") {
     group = "verification"
     description = "JVM test modules (no emulador / sin macOS requerido)"
     dependsOn(":ghost-sync:jvmTest")
+}
+
+tasks.register("ciCoverage") {
+    group = "verification"
+    description = "JVM line coverage gate for :ghost-sync (Kover, min 90%)"
+    dependsOn(":ghost-sync:koverVerify")
 }
 
 tasks.register("ciCompile") {

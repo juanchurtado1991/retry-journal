@@ -31,6 +31,9 @@ jobs:
       - name: JVM unit tests
         run: ./gradlew ciTestJvm --no-daemon --stacktrace
 
+      - name: JVM line coverage (Kover, min 90%)
+        run: ./gradlew ciCoverage --no-daemon --stacktrace
+
       - name: Compile (Android + JVM desktop, sin iOS)
         run: ./gradlew ciCompile --no-daemon --stacktrace
 

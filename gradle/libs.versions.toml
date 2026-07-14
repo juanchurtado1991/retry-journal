@@ -38,6 +38,7 @@ nexus-publish                    = "2.0.0"
 # Testing
 kotlin-compile-testing           = "0.7.0"
 junit-jupiter                    = "5.10.2"
+kover                            = "0.9.8"
 
 [libraries]
 kotlin-test                      = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin-sdk" }
@@ -97,3 +98,4 @@ ghost                               = { id = "com.ghostserializer.ghost", versio
 dokka                               = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 nexus-publish                       = { id = "io.github.gradle-nexus.publish-plugin", version.ref = "nexus-publish" }
 vanniktech-publish                  = { id = "com.vanniktech.maven.publish", version = "0.30.0" }
+kover                               = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

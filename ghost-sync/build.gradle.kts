@@ -14,6 +14,7 @@ plugins {
     // kotlinx.serialization content negotiation too, not just Ghost's.
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.vanniktech.publish)
+    alias(libs.plugins.kover)
 }
 
 configure<MavenPublishBaseExtension> {
@@ -106,5 +107,44 @@ android {
     defaultConfig {
         minSdk = 21
         consumerProguardFiles("consumer-rules.pro")
+    }
+}
+
+// Kover is the JetBrains-maintained coverage tool for KMP. For this module it instruments
+// commonMain + jvmMain during jvmTest only — androidMain/iosMain are out of scope until
+// androidUnitTest / iosSimulatorArm64Test exist (see ios_techdebt.md).
+kover {
+    currentProject {
+        sources {
+            // Platform actuals without JVM tests would dilute the gate with 0% files.
+            excludedSourceSets.addAll("androidMain", "iosMain")
+        }
+    }
+
+    reports {
+        filters {
+            excludes {
+                // KSP/Ghost-generated serializers — exercised indirectly via Ghost.encode/decode, not authored here.
+                packages("com.ghost.serialization.generated")
+                classes("com.ghostserializer.sync.*\$\$Ghost*")
+                classes("com.ghostserializer.sync.queue.*Serializer")
+            }
+        }
+
+        total {
+            html {
+                htmlDir.set(layout.buildDirectory.dir("reports/kover/html"))
+            }
+            xml {
+                xmlFile.set(layout.buildDirectory.file("reports/kover/report.xml"))
+            }
+
+            verify {
+                rule("jvm-line-coverage") {
+                    groupBy.set(kotlinx.kover.gradle.plugin.dsl.GroupingEntityType.APPLICATION)
+                    minBound(90, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+                }
+            }
+        }
     }
 }
