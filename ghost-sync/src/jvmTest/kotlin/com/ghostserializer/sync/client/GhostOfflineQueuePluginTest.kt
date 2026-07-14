@@ -219,6 +219,24 @@ class GhostOfflineQueuePluginTest {
     }
 
     @Test
+    fun `a body larger than maxRecordFieldSize fails closed instead of enqueueing`() = runBlocking {
+        val smallQueue = DiskQueue(
+            ("$dir/small-queue.bin").toPath(),
+            maxRecordFieldSize = 64,
+        )
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { diskQueue = smallQueue }
+        }
+
+        assertFailsWith<BodyCaptureException> {
+            client.post("https://example.com/upload") {
+                setBody(ByteArray(128))
+            }
+        }
+        assertTrue(smallQueue.isEmpty())
+    }
+
+    @Test
     fun `installing plugin without configuring diskQueue throws informative exception`() {
         val exception = assertFailsWith<IllegalStateException> {
             HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }) {

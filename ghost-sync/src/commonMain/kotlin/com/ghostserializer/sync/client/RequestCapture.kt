@@ -4,13 +4,16 @@ import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.close
 import io.ktor.utils.io.core.readBytes
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.Buffer
 
 /**
  * Captures a failed request's headers and body for [GhostOfflineQueuePlugin] to persist.
@@ -24,7 +27,9 @@ import kotlinx.coroutines.sync.withLock
  * would interleave writes into the same arrays and persist one request's headers under another's
  * queued entry.
  */
-internal class RequestCapture {
+internal class RequestCapture(
+    private val maxBodyBytes: Int,
+) {
     private val mutex = Mutex()
     private var headerNameScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
     private var headerValueScratch = Array(ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY) { "" }
@@ -106,12 +111,19 @@ internal class RequestCapture {
             return ClientConstants.EMPTY_BODY
         }
         return when (content) {
-            is OutgoingContent.ByteArrayContent -> content.bytes()
+            is OutgoingContent.ByteArrayContent -> {
+                if (content.bytes().size > maxBodyBytes) {
+                    throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
+                }
+                content.bytes()
+            }
 
             is OutgoingContent.NoContent -> ClientConstants.EMPTY_BODY
 
             is OutgoingContent.ReadChannelContent -> try {
-                content.readFrom().readRemaining().readBytes()
+                readChannelUpTo(content.readFrom())
+            } catch (cause: BodyCaptureException) {
+                throw cause
             } catch (cause: Throwable) {
                 throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
             }
@@ -122,7 +134,9 @@ internal class RequestCapture {
                     val writeJob = launch { content.writeTo(channel) }
                     try {
                         writeJob.join()
-                        channel.readRemaining().readBytes()
+                        readChannelUpTo(channel)
+                    } catch (cause: BodyCaptureException) {
+                        throw cause
                     } catch (cause: Throwable) {
                         throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
                     } finally {
@@ -135,5 +149,30 @@ internal class RequestCapture {
                 ClientConstants.BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX + content::class.simpleName,
             )
         }
+    }
+
+    private suspend fun readChannelUpTo(channel: ByteReadChannel): ByteArray {
+        val buffer = Buffer()
+        var total = 0
+        while (!channel.isClosedForRead) {
+            channel.awaitContent()
+            val available = channel.availableForRead
+            if (available <= 0) {
+                continue
+            }
+            val remainingBudget = maxBodyBytes - total
+            if (remainingBudget <= 0) {
+                throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
+            }
+            val toRead = minOf(available, remainingBudget).toLong()
+            val packet = channel.readRemaining(toRead)
+            val bytes = packet.readBytes()
+            total += bytes.size
+            if (total > maxBodyBytes) {
+                throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
+            }
+            buffer.write(bytes)
+        }
+        return buffer.readByteArray()
     }
 }

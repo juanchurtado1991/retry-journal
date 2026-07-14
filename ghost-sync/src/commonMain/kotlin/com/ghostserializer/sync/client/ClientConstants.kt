@@ -12,6 +12,8 @@ internal object ClientConstants {
     const val OFFLINE_QUEUED_MESSAGE_PREFIX: String = "Request to "
     const val OFFLINE_QUEUED_MESSAGE_SUFFIX: String = " could not be sent and was queued for later delivery"
     const val BODY_CAPTURE_FAILED_MESSAGE: String = "Failed to capture request body for offline queueing"
+    const val BODY_TOO_LARGE_MESSAGE: String =
+        "Request body exceeds the configured maxRecordFieldSize and cannot be queued for offline delivery"
     const val BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX: String = "Unsupported request body type for offline queueing: "
     const val PLUGIN_DISK_QUEUE_MISSING: String =
         "GhostOfflineQueuePlugin requires diskQueue to be set in the configuration block: " +

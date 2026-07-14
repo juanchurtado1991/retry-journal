@@ -21,7 +21,7 @@ import io.ktor.utils.io.errors.IOException
 class GhostOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
 ) {
-    private val requestCapture = RequestCapture()
+    private val requestCapture = RequestCapture(diskQueue.maxRecordFieldSize)
     private val lifecycleGate = LifecycleGate(
         closedMessage = ClientConstants.PLUGIN_CLOSED_MESSAGE,
         closeWhileBusyMessage = ClientConstants.PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE,
