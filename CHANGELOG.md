@@ -41,6 +41,7 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `DeadLetterQueue.readJournal` bounds every length-prefixed field before using it to size a read or allocation, closing an `OutOfMemoryError` path a corrupted journal's header count could otherwise reach
 - `DiskQueue` no longer relies on the caller using a blocking-friendly dispatcher — every operation now dispatches onto the platform's own `Dispatchers.IO` internally instead of running blocking file I/O on whatever dispatcher happened to call it
 - `DiskQueue.close`/`GhostSync.close` throw `IllegalStateException` instead of proceeding if an operation is still in flight on the same instance, closing the "closed while still in use" footgun that used to only be documented, not enforced
+- Android `PlatformQueueFileLock` no longer uses `java.nio.file`'s `Path`-based `FileChannel.open`/`Files`/`Paths` (API 26) or `ConcurrentHashMap.computeIfAbsent` (API 24) — both would have failed to link on this module's declared `minSdk` 21, crashing on the very first `DiskQueue` operation on a real API 21-25 device. Replaced with the `java.io.File`/`RandomAccessFile`-based equivalents, API 1 since forever. Caught by `:ghost-sync:lintDebug`.
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
