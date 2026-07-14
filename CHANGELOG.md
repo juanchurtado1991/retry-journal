@@ -12,10 +12,11 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - GitHub Actions CI (`ciTestJvm` + multi-target compile)
 - Maven Central publish wiring via `com.vanniktech.maven.publish`
 - Apache 2.0 LICENSE
-- 90 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- 97 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
 - `ReplayClaim` — cross-process `<queuePath>.replay-claim` marker so two processes sharing a queue file cannot both replay the same head entry and duplicate a non-idempotent POST
 - `LifecycleGate` — serializes `enter`/`leave` against `close()` on [DiskQueue], [GhostSyncEngine], and [GhostOfflineQueuePlugin], eliminating the TOCTOU window where `close()` could proceed while a new operation was starting
 - `GhostSyncEngine.getEntryAndStatus()` reads head entry and queue status under the same replay [Mutex] as `flush()`, closing duplicate manual-replay footguns
+- `EntryReplayResult` — sealed outcome for [GhostSyncEngine.getEntryAndStatus] (`Empty`, `HeadBlocked`, `ReplayFailed`, `Ready`) instead of a nullable snapshot that conflated empty and blocked heads
 
 ### Fixed
 - `DiskQueue.enqueue` rejects records whose packed on-disk length would overflow the 26-bit index **before** writing
@@ -58,10 +59,17 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `RequestCapture` captures headers in a single pass over `request.headers.entries()` instead of counting then iterating twice
 - `GhostOfflineQueuePlugin` treats wrapped [IOException]s in the cause chain as connectivity failures worth queueing, not only a top-level [IOException]
 - `GhostOfflineQueuePlugin` tracks in-flight request count so `GhostSync.close()` can refuse to proceed while `client` is mid-request
-- `HttpReplayer` returns a synthetic 400 when a stored URL (or other request-build fault) throws during replay, routing the entry through dead-letter instead of permanently stalling the queue behind it
+- `HttpReplayer` returns a synthetic 400 when a stored URL no longer parses (pre-flight [URLBuilder] check), routing the entry through dead-letter instead of permanently stalling the queue behind it
 - `RequestCapture` reads channel body bytes before closing the write channel, avoiding read-after-close on slow producers
 - `GhostSync.close()` calls `closeForShutdown()` on the engine and plugin before closing Ktor clients, so lifecycle gates reject new work while in-flight replay/requests finish
 - `DiskQueueRecovery` clears stale `ReplayClaim` files on open so a crash mid-replay does not block the queue forever
+- `DiskQueue.removeLocked` persists the tombstone before updating the in-memory index and truncates the file back on flush failure — previously a failed tombstone write could drop the entry from the index while the live record remained on disk, and a partial buffered write could leave a durable tombstone without updating the index
+- `DiskQueue.completeHeadReplay` validates that [entryId] is still the queue head, clears the [ReplayClaim] in `finally`, and stops early when removal fails instead of leaving a stale claim behind
+- `GhostSyncEngine.getEntry` runs under the same [replayMutex] as `flush()`/`getStatus()`; `getStatus()` now claims the head via [ReplayClaim] and rejects entries that are no longer head — closes the TOCTOU duplicate-delivery path between separate `getEntry()` + `getStatus()` calls and cross-process manual replay
+- `HttpReplayer` pre-validates stored URLs with [URLBuilder] instead of catching every [Exception] during replay as a synthetic 400 — runtime transport/client faults stop early again instead of being dead-lettered
+- `RequestCapture` bounds streamed body reads to [DiskQueue.maxRecordFieldSize] before enqueue, failing closed with [BodyCaptureException] instead of OOMing on oversized uploads
+- `ReplayClaim.write` uses temp-file + atomic rename so a crash mid-write cannot be misread as "no claim" and allow a duplicate replay
+- `DiskQueueCompactor` rejects on-disk records whose sequence id does not match the index entry, matching [readLiveEntryAtLocked]'s guard
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
