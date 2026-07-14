@@ -7,6 +7,8 @@ import com.ghostserializer.sync.queue.DeliveryJournal
 import com.ghostserializer.sync.queue.DeliveryJournalReadResult
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
+import com.ghostserializer.sync.queue.ReplayClaim
+import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -725,5 +727,86 @@ class GhostSyncEngineTest {
         }
 
         assertEquals(1, result.delivered)
+    }
+
+    @Test
+    fun `finalizeHeadReplay on a non-head entry returns NotHead without writing a journal`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "https://example.com/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        val entryB = queue.get(idB)!!
+
+        val result = engine.finalizeHeadReplay(entryB, HttpStatusCode.OK)
+
+        assertEquals(HeadFinalizeResult.NotHead, result)
+        assertEquals(2, queue.size())
+        assertTrue(DeliveryJournal.read(queue.fileSystem, queue.path) is DeliveryJournalReadResult.Absent)
+    }
+
+    @Test
+    fun `getHeadState reports PendingLocalRemoval when a delivery journal exists for the head`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+
+        val state = engine.getHeadState()
+
+        assertTrue(state is QueueHeadState.PendingLocalRemoval)
+        assertEquals(id, (state as QueueHeadState.PendingLocalRemoval).entry.id)
+    }
+
+    @Test
+    fun `getHeadState reports Ready when a non-head replay claim is active`() = runBlocking {
+        val idA = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "https://example.com/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        ReplayClaim.write(
+            queue.fileSystem,
+            ReplayClaim.claimPath(queue.path),
+            idB.sequenceId,
+            currentTimeMillis(),
+        )
+
+        val state = engine.getHeadState()
+
+        assertTrue(state is QueueHeadState.Ready)
+        assertEquals(idA, (state as QueueHeadState.Ready).entry.id)
+    }
+
+    @Test
+    fun `getStatus with a stale entry does not abort the replay claim for the real head`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        queue.enqueue("POST", "https://example.com/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        val staleEntry = engine.getEntry()!!
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val replayed = engine.getEntryAndStatus(client)
+        assertTrue(replayed is EntryReplayResult.Ready)
+        replayed as EntryReplayResult.Ready
+        engine.finalizeHeadReplay(replayed.entry, replayed.status)
+
+        assertFailsWith<IllegalStateException> {
+            engine.getStatus(client, staleEntry)
+        }
+        assertTrue(queue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+    }
+
+    @Test
+    fun `finalizeHeadReplay clears a stale journal when abandoning a retry-worthy status`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        assertTrue(queue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+
+        val result = engine.finalizeHeadReplay(queue.peek()!!, HttpStatusCode.ServiceUnavailable)
+
+        assertEquals(HeadFinalizeResult.LeftOnQueue, result)
+        assertTrue(DeliveryJournal.read(queue.fileSystem, queue.path) is DeliveryJournalReadResult.Absent)
     }
 }

@@ -70,4 +70,17 @@ class DeliveryJournalTest {
         assertTrue(result is DeliveryJournalReadResult.CorruptPending)
         assertEquals(99L, (result as DeliveryJournalReadResult.CorruptPending).sequenceId)
     }
+
+    @Test
+    fun `partial journal without a valid outcome is treated as absent`() {
+        val path = DeliveryJournal.journalPath(queuePath)
+        FileSystem.SYSTEM.write(path) {
+            writeUtf8("ghost-sync-delivery-v1\n")
+            writeUtf8("42\n")
+        }
+
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+
+        assertTrue(result is DeliveryJournalReadResult.Absent)
+    }
 }
