@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.client
 
 import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.LifecycleGate
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpClientPlugin
 import io.ktor.client.plugins.HttpSend
@@ -8,7 +9,6 @@ import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.errors.IOException
-import kotlin.concurrent.Volatile
 
 /**
  * Installed on Ghost's Ktor client. When a request fails to reach the network — not a business
@@ -22,17 +22,21 @@ class GhostOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
 ) {
     private val requestCapture = RequestCapture()
+    private val lifecycleGate = LifecycleGate(
+        closedMessage = ClientConstants.PLUGIN_CLOSED_MESSAGE,
+        closeWhileBusyMessage = ClientConstants.PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE,
+    )
 
-    /** How many requests are currently between [HttpSend]'s `execute()` starting and returning.
-     * [Volatile] lets [com.ghostserializer.sync.GhostSync.close]'s unsynchronized read see the
-     * latest value — same best-effort tradeoff [DiskQueue] documents on its own in-flight guard. */
-    @Volatile
-    var inFlightRequestCount: Int = 0
-        private set
+    /** Used by [com.ghostserializer.sync.GhostSync.close] before tearing down [HttpClient]. */
+    internal fun closeForShutdown() {
+        lifecycleGate.close()
+    }
+
+    internal fun hasInFlightRequests(): Boolean = lifecycleGate.hasActiveSessions()
 
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
-            inFlightRequestCount++
+            lifecycleGate.enter()
             try {
                 execute(request)
             } catch (cause: Throwable) {
@@ -50,7 +54,7 @@ class GhostOfflineQueuePlugin private constructor(
                 }
                 throw OfflineQueuedException(url)
             } finally {
-                inFlightRequestCount--
+                lifecycleGate.leave()
             }
         }
     }

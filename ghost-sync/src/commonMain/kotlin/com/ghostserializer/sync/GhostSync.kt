@@ -62,19 +62,13 @@ class GhostSync private constructor(
      * [replayClient]'s connections or [diskQueue]/[deadLetterQueue]'s open file handles.
      *
      * Throws [IllegalStateException] instead of proceeding if a replay session or a live
-     * [client] request is still in flight — see [GhostSyncEngine.hasActiveReplaySession] and
-     * [GhostOfflineQueuePlugin.inFlightRequestCount].
+     * [client] request is still in flight. [LifecycleGate][com.ghostserializer.sync.queue.LifecycleGate]
+     * serializes each check against new work starting — there is no TOCTOU window.
      *
-     * [diskQueue] and [deadLetterQueue]'s own `close()` each throw [IllegalStateException] instead
-     * of proceeding if an operation is still in flight on them — see [DiskQueue]'s own "Threading
-     * contract" doc for why that's a best-effort check, not an ironclad guarantee. */
+     * [diskQueue] and [deadLetterQueue]'s own `close()` reject new operations the same way. */
     override fun close() {
-        check(!engine.hasActiveReplaySession()) {
-            GhostSyncConstants.CLOSE_WHILE_REPLAY_IN_FLIGHT_MESSAGE
-        }
-        check(offlineQueuePlugin.inFlightRequestCount == 0) {
-            GhostSyncConstants.CLOSE_WHILE_CLIENT_REQUEST_IN_FLIGHT_MESSAGE
-        }
+        engine.closeForShutdown()
+        offlineQueuePlugin.closeForShutdown()
         try {
             client.close()
         } finally {

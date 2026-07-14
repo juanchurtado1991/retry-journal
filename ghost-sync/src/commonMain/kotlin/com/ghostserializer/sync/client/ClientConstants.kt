@@ -16,4 +16,10 @@ internal object ClientConstants {
     const val PLUGIN_DISK_QUEUE_MISSING: String =
         "GhostOfflineQueuePlugin requires diskQueue to be set in the configuration block: " +
                 "install(GhostOfflineQueuePlugin) { diskQueue = myDiskQueue }"
+
+    const val PLUGIN_CLOSED_MESSAGE: String = "GhostOfflineQueuePlugin is closed"
+
+    const val PLUGIN_CLOSE_WHILE_REQUEST_IN_FLIGHT_MESSAGE: String =
+        "GhostOfflineQueuePlugin.close() called while a request is still in flight on client. " +
+            "Make sure every client request has completed before closing."
 }
