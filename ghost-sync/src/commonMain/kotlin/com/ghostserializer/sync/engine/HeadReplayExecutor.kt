@@ -8,6 +8,7 @@ import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import com.ghostserializer.sync.queue.QueueEntry
 import com.ghostserializer.sync.queue.QueueEntryId
+import com.ghostserializer.sync.queue.inspectHeadLocked
 import io.ktor.client.HttpClient
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
@@ -29,19 +30,23 @@ internal class HeadReplayExecutor(
     private val httpReplayer: HttpReplayer,
 ) {
 
-    suspend fun resolveHeadState(): HeadEntryState {
-        val entry = queue.peek() ?: return if (queue.isHeadBlockedByActiveClaimLocked()) {
-            HeadEntryState.Blocked
-        } else {
-            HeadEntryState.Absent
+    suspend fun resolveHeadState(): HeadEntryState = queue.withQueueLock {
+        val snapshot = queue.inspectHeadLocked()
+        val entry = snapshot.entry
+        if (entry == null) {
+            return@withQueueLock if (snapshot.blockedByClaim) {
+                HeadEntryState.Blocked
+            } else {
+                HeadEntryState.Absent
+            }
         }
-        resolvePendingOutcome(entry)?.let { outcome ->
-            return HeadEntryState.AwaitingLocalRemoval(entry, outcome)
+        mapJournalOutcome(snapshot.journalOutcome)?.let { outcome ->
+            return@withQueueLock HeadEntryState.AwaitingLocalRemoval(entry, outcome)
         }
-        if (queue.isHeadBlockedByActiveClaimLocked()) {
-            return HeadEntryState.Blocked
+        if (snapshot.blockedByClaim) {
+            return@withQueueLock HeadEntryState.Blocked
         }
-        return HeadEntryState.AwaitingReplay(entry)
+        HeadEntryState.AwaitingReplay(entry)
     }
 
     suspend fun drain(
@@ -111,11 +116,13 @@ internal class HeadReplayExecutor(
     private fun resolvePendingOutcome(entry: QueueEntry): DeliveryOutcome? {
         val result = DeliveryJournal.read(queue.fileSystem, queue.path, entry.id.sequenceId)
         val pending = DeliveryJournal.pendingForSequence(result, entry.id.sequenceId) ?: return null
-        return when (pending.outcome) {
-            DeliveryJournal.OUTCOME_DELIVERED -> DeliveryOutcome.Delivered
-            DeliveryJournal.OUTCOME_DEAD_LETTERED -> DeliveryOutcome.DeadLettered
-            else -> null
-        }
+        return mapJournalOutcome(pending.outcome)
+    }
+
+    private fun mapJournalOutcome(outcome: String?): DeliveryOutcome? = when (outcome) {
+        DeliveryJournal.OUTCOME_DELIVERED -> DeliveryOutcome.Delivered
+        DeliveryJournal.OUTCOME_DEAD_LETTERED -> DeliveryOutcome.DeadLettered
+        else -> null
     }
 
     private fun resolvePendingDeliveryStatus(entry: QueueEntry): HttpStatusCode? =
@@ -131,27 +138,30 @@ internal class HeadReplayExecutor(
         onProgress: suspend (FlushProgress) -> Unit,
         delivered: Int,
         deadLettered: Int,
-    ): ReplayOutcome = when {
-        status.isSuccess() -> handleSuccessfulDelivery(entry, delivered, deadLettered, onProgress)
-        shouldDeadLetter(status) -> handleDeadLetterDelivery(entry, delivered, deadLettered, onProgress)
-        else -> {
-            queue.abortHeadReplayClaim()
-            ReplayOutcome.Stop(delivered, deadLettered)
+    ): ReplayOutcome {
+        val pending = resolvePendingOutcome(entry)
+        return when {
+            status.isSuccess() && pending == DeliveryOutcome.Delivered ->
+                finishDeliveredFromJournal(entry, onProgress, delivered, deadLettered)
+            status.isSuccess() ->
+                handleSuccessfulDelivery(entry, delivered, deadLettered, onProgress)
+            shouldDeadLetter(status) && pending == DeliveryOutcome.DeadLettered ->
+                finishDeadLetteredFromJournal(entry, onProgress, delivered, deadLettered)
+            shouldDeadLetter(status) ->
+                handleDeadLetterDelivery(entry, delivered, deadLettered, onProgress)
+            else -> {
+                queue.abortHeadReplayClaim()
+                ReplayOutcome.Stop(delivered, deadLettered)
+            }
         }
     }
 
-    private suspend fun handleSuccessfulDelivery(
+    private suspend fun finishDeliveredFromJournal(
         entry: QueueEntry,
+        onProgress: suspend (FlushProgress) -> Unit,
         delivered: Int,
         deadLettered: Int,
-        onProgress: suspend (FlushProgress) -> Unit,
     ): ReplayOutcome {
-        DeliveryJournal.write(
-            queue.fileSystem,
-            queue.path,
-            entry.id.sequenceId,
-            DeliveryJournal.OUTCOME_DELIVERED,
-        )
         if (!completeHeadReplayOrStop(entry.id)) {
             return ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
         }
@@ -160,19 +170,68 @@ internal class HeadReplayExecutor(
         return ReplayOutcome.Continue(delivered + 1, deadLettered)
     }
 
+    private suspend fun finishDeadLetteredFromJournal(
+        entry: QueueEntry,
+        onProgress: suspend (FlushProgress) -> Unit,
+        delivered: Int,
+        deadLettered: Int,
+    ): ReplayOutcome = try {
+        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        if (!completeHeadReplayOrStop(entry.id)) {
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+        } else {
+            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            onProgress(FlushProgress.DeadLettered(entry.id))
+            ReplayOutcome.Continue(delivered, deadLettered + 1)
+        }
+    } catch (e: CancellationException) {
+        queue.abortHeadReplayClaim()
+        throw e
+    } catch (_: Throwable) {
+        queue.abortHeadReplayClaim()
+        ReplayOutcome.Stop(delivered, deadLettered)
+    }
+
+    private suspend fun handleSuccessfulDelivery(
+        entry: QueueEntry,
+        delivered: Int,
+        deadLettered: Int,
+        onProgress: suspend (FlushProgress) -> Unit,
+    ): ReplayOutcome = try {
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            entry.id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        if (!completeHeadReplayOrStop(entry.id)) {
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+        } else {
+            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            onProgress(FlushProgress.Delivered(entry.id))
+            ReplayOutcome.Continue(delivered + 1, deadLettered)
+        }
+    } catch (e: CancellationException) {
+        queue.abortHeadReplayClaim()
+        throw e
+    } catch (_: Throwable) {
+        queue.abortHeadReplayClaim()
+        ReplayOutcome.Stop(delivered, deadLettered)
+    }
+
     private suspend fun handleDeadLetterDelivery(
         entry: QueueEntry,
         delivered: Int,
         deadLettered: Int,
         onProgress: suspend (FlushProgress) -> Unit,
     ): ReplayOutcome = try {
-        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
         DeliveryJournal.write(
             queue.fileSystem,
             queue.path,
             entry.id.sequenceId,
             DeliveryJournal.OUTCOME_DEAD_LETTERED,
         )
+        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
         if (!completeHeadReplayOrStop(entry.id)) {
             ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
         } else {

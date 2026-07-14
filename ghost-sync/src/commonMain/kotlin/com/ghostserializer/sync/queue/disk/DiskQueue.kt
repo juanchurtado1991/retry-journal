@@ -284,8 +284,12 @@ class DiskQueue(
      *
      * [RecordFileHandles.closeAll] runs after the gate closes: if it throws, this instance stays
      * permanently closed rather than retryable — see [RecordFileHandles.closeAll]'s own doc. */
-    fun close() {
+    internal fun closeForShutdown() {
         lifecycleGate.close()
+    }
+
+    fun close() {
+        closeForShutdown()
         fileHandles.closeAll()
     }
 }

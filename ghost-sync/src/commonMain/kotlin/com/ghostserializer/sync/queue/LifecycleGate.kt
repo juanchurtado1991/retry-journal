@@ -7,7 +7,8 @@ import kotlinx.coroutines.sync.withLock
 /**
  * Serializes [enter]/[leave] against [close] so a non-suspending [close] cannot race a new
  * operation starting between an unsynchronized in-flight check and setting the closed flag
- * (classic TOCTOU). Used by [com.ghostserializer.sync.queue.disk.DiskQueue], [com.ghostserializer.sync.engine.GhostSyncEngine], and
+ * (classic TOCTOU). Used by [com.ghostserializer.sync.queue.disk.DiskQueue],
+ * [com.ghostserializer.sync.engine.GhostSyncEngine], and
  * [com.ghostserializer.sync.client.GhostOfflineQueuePlugin].
  */
 internal class LifecycleGate(

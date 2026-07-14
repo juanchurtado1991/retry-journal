@@ -84,6 +84,7 @@ class GhostSync private constructor(
         engine.closeForShutdown()
         offlineQueuePlugin.closeForShutdown()
         deadLetterQueue.closeForShutdown()
+        diskQueue.closeForShutdown()
     }
 
     private fun closeOwnedResources() {
