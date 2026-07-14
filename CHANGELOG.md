@@ -4,6 +4,15 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+### Fixed (bug hunt round 18)
+- `DiskQueue.peek()` migrates legacy `.delivery-pending` journals — read paths stay consistent with `getHeadState()` / `flush()`
+- `GhostSyncRuntime.getHeadState()` rejects calls after `shutdown()` — matches `flush()` / `flushWhenOnline()` lifecycle
+- `finishDeadLetteredFromJournal` skips redundant `DeadLetterQueue.record()` when a matching entry already exists
+- `completeHeadReplay` fails loudly if the head sequence vanished from the index instead of silently no-op removing
+
+### Added
+- `BugHunt18Test` — peek legacy migration, DLQ-aware journal recovery, runtime shutdown on `getHeadState`
+
 ### Fixed (bug hunt round 17 — final 1.0.0)
 - `HeadReplayExecutor` writes the delivery journal **before** `DeadLetterQueue.record()` — crash after HTTP 4xx no longer forces a duplicate POST on recovery
 - `handleSuccessfulDelivery` aborts the replay claim when journal write throws — no 30-minute `HeadBlocked` wedge after a failed journal persist
