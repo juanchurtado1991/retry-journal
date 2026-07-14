@@ -5,8 +5,9 @@ import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND
 import com.ghostserializer.sync.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND
 import com.ghostserializer.sync.engine.SyncEngineConstants.RETRY_WORTHY_CLIENT_ERROR_STATUSES
-import com.ghostserializer.sync.queue.DiskQueue
-import com.ghostserializer.sync.queue.DiskQueueConstants
+import com.ghostserializer.sync.queue.DeliveryJournal
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import com.ghostserializer.sync.queue.LifecycleGate
 import com.ghostserializer.sync.queue.QueueEntry
@@ -162,6 +163,7 @@ class GhostSyncEngine(
                         delivered = outcome.delivered,
                         deadLettered = outcome.deadLettered,
                         stoppedEarly = true,
+                        persistenceFailed = outcome.persistenceFailed,
                     )
                 }
             }
@@ -178,16 +180,31 @@ class GhostSyncEngine(
     private suspend fun replayEntryOrStop(
         client: HttpClient,
         entry: QueueEntry,
-    ): HttpStatusCode? = try {
-        withReplayClaimRenewal(entry.id) {
-            trySend(client, entry)
+    ): HttpStatusCode? {
+        resolvePendingDeliveryStatus(entry)?.let { return it }
+        return try {
+            withReplayClaimRenewal(entry.id) {
+                trySend(client, entry)
+            }
+        } catch (e: CancellationException) {
+            queue.abortHeadReplayClaim()
+            throw e
+        } ?: run {
+            queue.abortHeadReplayClaim()
+            null
         }
-    } catch (e: CancellationException) {
-        queue.abortHeadReplayClaim()
-        throw e
-    } ?: run {
-        queue.abortHeadReplayClaim()
-        null
+    }
+
+    private fun resolvePendingDeliveryStatus(entry: QueueEntry): HttpStatusCode? {
+        val pending = DeliveryJournal.read(queue.fileSystem, queue.path) ?: return null
+        if (pending.sequenceId != entry.id.sequenceId) {
+            return null
+        }
+        return when (pending.outcome) {
+            DeliveryJournal.OUTCOME_DELIVERED -> HttpStatusCode.OK
+            DeliveryJournal.OUTCOME_DEAD_LETTERED -> HttpStatusCode.BadRequest
+            else -> null
+        }
     }
 
     private suspend fun applyReplayOutcome(
@@ -211,9 +228,16 @@ class GhostSyncEngine(
         deadLettered: Int,
         onProgress: suspend (FlushProgress) -> Unit,
     ): ReplayOutcome {
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            entry.id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
         if (!completeHeadReplayOrStop(entry.id)) {
-            return ReplayOutcome.Stop(delivered, deadLettered)
+            return ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
         }
+        DeliveryJournal.delete(queue.fileSystem, queue.path)
         onProgress(FlushProgress.Delivered(entry.id))
         return ReplayOutcome.Continue(delivered + 1, deadLettered)
     }
@@ -225,9 +249,16 @@ class GhostSyncEngine(
         onProgress: suspend (FlushProgress) -> Unit,
     ): ReplayOutcome = try {
         deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            entry.id.sequenceId,
+            DeliveryJournal.OUTCOME_DEAD_LETTERED,
+        )
         if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(delivered, deadLettered)
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
         } else {
+            DeliveryJournal.delete(queue.fileSystem, queue.path)
             onProgress(FlushProgress.DeadLettered(entry.id))
             ReplayOutcome.Continue(delivered, deadLettered + 1)
         }
