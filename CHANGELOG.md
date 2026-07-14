@@ -39,11 +39,11 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `GhostSyncEngine.getStatus` rejects an `HttpClient` with `GhostOfflineQueuePlugin` installed, the same guard `flush()` already had — closes the same duplicate-enqueue footgun for a caller driving its own `getEntry`/`getStatus` loop
 - `DeadLetterQueue` retry-journal recovery deletes a journal it can't parse instead of leaving it to be re-attempted (and re-fail) on every future startup
 - `DeadLetterQueue.readJournal` bounds every length-prefixed field before using it to size a read or allocation, closing an `OutOfMemoryError` path a corrupted journal's header count could otherwise reach
+- `DiskQueue` no longer relies on the caller using a blocking-friendly dispatcher — every operation now dispatches onto the platform's own `Dispatchers.IO` internally instead of running blocking file I/O on whatever dispatcher happened to call it
+- `DiskQueue.close`/`GhostSync.close` throw `IllegalStateException` instead of proceeding if an operation is still in flight on the same instance, closing the "closed while still in use" footgun that used to only be documented, not enforced
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
-- `DiskQueue`/`GhostSync.close()` are not synchronized with in-flight operations on the same instance — documented in `DiskQueue`'s "Threading contract" doc rather than fixed, since making `close()` participate in the coroutine `Mutex` would require making it `suspend`, breaking the `Closeable`-style contract it needs to satisfy. Callers must not call `close()` while another operation on the same instance is in flight.
-- `DiskQueue` does blocking file I/O on whatever dispatcher the caller uses it from; run it from `Dispatchers.IO` (or equivalent), not `Dispatchers.Default`
 
 ## [0.1.0] - 2026-07-13
 
