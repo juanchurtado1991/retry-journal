@@ -1,5 +1,7 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -140,7 +142,7 @@ class ReplayClaimTest {
     }
 
     @Test
-    fun `prepareHeadForReplay stops when a non-stale claim exists for a different sequence id`() = runBlocking {
+    fun `prepareHeadForReplay clears a non-head non-stale claim instead of blocking the queue`() = runBlocking {
         val queue = DiskQueue(queuePath)
         queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
         val idB = queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
@@ -153,7 +155,9 @@ class ReplayClaimTest {
         )
 
         val other = DiskQueue(queuePath)
-        assertEquals(HeadReplayPrepareResult.HeadBlocked, other.prepareHeadForReplay())
+        val prepared = other.prepareHeadForReplay()
+        assertTrue(prepared is HeadReplayPrepareResult.Ready)
+        assertEquals("/a", prepared.entry.meta.url)
     }
 
     @Test

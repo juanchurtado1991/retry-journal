@@ -19,6 +19,9 @@ class HeaderDispatchTest {
         assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor(HttpHeaders.TransferEncoding))
         assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor(HttpHeaders.Host))
         assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor(HttpHeaders.Connection))
+        assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor("Keep-Alive"))
+        assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor("Proxy-Connection"))
+        assertEquals(HeaderDispatch.SLOT_SKIP, HeaderDispatch.slotFor("Upgrade"))
     }
 
     @Test

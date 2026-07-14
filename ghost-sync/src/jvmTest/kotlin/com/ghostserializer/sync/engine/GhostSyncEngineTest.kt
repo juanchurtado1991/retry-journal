@@ -2,7 +2,8 @@ package com.ghostserializer.sync.engine
 
 import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
+import com.ghostserializer.sync.queue.DeliveryJournal
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import io.ktor.client.HttpClient
@@ -21,6 +22,7 @@ import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.ForwardingSink
 import okio.Sink
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
@@ -583,5 +585,61 @@ class GhostSyncEngineTest {
     @Test
     fun `getHeadState reports Empty on an empty queue`() = runBlocking {
         assertEquals(QueueHeadState.Empty, engine.getHeadState())
+    }
+
+    @Test
+    fun `flush skips HTTP when a delivery journal marks the head already delivered`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        val httpCalls = AtomicInteger(0)
+        val client = HttpClient(MockEngine {
+            httpCalls.incrementAndGet()
+            respond("ok", HttpStatusCode.OK, headersOf())
+        })
+
+        val result = engine.flush(client)
+
+        assertEquals(0, httpCalls.get())
+        assertEquals(FlushResult(delivered = 1, deadLettered = 0, stoppedEarly = false), result)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `flush reports persistenceFailed when tombstone write fails after HTTP success`() = runBlocking {
+        val mainPath = (dir.toString() + "/persist-fail.bin").toPath()
+        val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                val delegate = super.appendingSink(file, mustExist)
+                return object : ForwardingSink(delegate) {
+                    private var flushCount = 0
+
+                    override fun flush() {
+                        flushCount++
+                        if (file == mainPath && flushCount > 1) {
+                            throw IOException("tombstone flush failed")
+                        }
+                        super.flush()
+                    }
+                }
+            }
+        }
+        val failingQueue = DiskQueue(mainPath, failingFs)
+        val failingEngine = GhostSyncEngine(failingQueue, deadLetterQueue)
+        failingQueue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val result = failingEngine.flush(client)
+
+        assertEquals(
+            FlushResult(delivered = 0, deadLettered = 0, stoppedEarly = true, persistenceFailed = true),
+            result,
+        )
+        assertTrue(!failingQueue.isEmpty())
+        assertTrue(DeliveryJournal.read(failingFs, mainPath) != null)
     }
 }
