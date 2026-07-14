@@ -1,9 +1,11 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.record
 
 import com.ghostserializer.sync.queue.DiskQueueConstants.INDEX_OFFSET_BITS
 
-/** Packs a record's on-disk length and byte offset into the single [Long] [DiskQueue] keeps per
- * live sequence id — see [DiskQueue]'s own `liveOffsetsBySequence` doc for the bit layout. */
+/** Packs a record's on-disk length and byte offset into the single [Long]
+ * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue] keeps per live sequence id — see
+ * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]'s own `liveOffsetsBySequence` doc for the
+ * bit layout. */
 internal object PackedIndexEntry {
     private const val OFFSET_MASK: Long = (1L shl INDEX_OFFSET_BITS) - 1L
 

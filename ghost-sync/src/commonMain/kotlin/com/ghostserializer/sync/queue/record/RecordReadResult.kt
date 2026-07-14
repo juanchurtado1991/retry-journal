@@ -1,11 +1,14 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.record
+
+import com.ghostserializer.sync.queue.FrozenHttpRequestMeta
 
 internal sealed class RecordReadResult {
 
     /**
      * `equals()`/`hashCode()`/`toString()` are handwritten for the same reason as
-     * [QueueEntry]: two `ByteArray` fields ([metaBytes], [body]) that the compiler-generated
-     * versions would compare/hash by reference and print as `[B@...`.
+     * [QueueEntry][com.ghostserializer.sync.queue.QueueEntry]: two `ByteArray` fields
+     * ([metaBytes], [body]) that the compiler-generated versions would compare/hash by reference
+     * and print as `[B@...`.
      */
     data class Live(
         val sequenceId: Long,

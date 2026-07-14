@@ -81,7 +81,7 @@ class GhostSync private constructor(
     companion object {
         /**
          * @param maxRecordFieldSize Caps a single queued meta or body field; `enqueue()` throws
-         * [com.ghostserializer.sync.queue.RecordTooLargeException] past this rather than writing
+         * [com.ghostserializer.sync.queue.record.RecordTooLargeException] past this rather than writing
          * something it could never read back. Raise it if your uploads are routinely bigger than
          * the default (64 MiB) — lowering it doesn't reduce memory use for anything already under
          * the limit (`enqueue()` only ever allocates exactly what you pass it), it just rejects

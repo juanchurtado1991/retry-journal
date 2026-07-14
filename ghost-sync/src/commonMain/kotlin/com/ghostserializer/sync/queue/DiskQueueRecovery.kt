@@ -1,6 +1,9 @@
 package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
+import com.ghostserializer.sync.queue.record.PackedIndexEntry
+import com.ghostserializer.sync.queue.record.RecordScanCodec
+import com.ghostserializer.sync.queue.record.RecordScanResult
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath

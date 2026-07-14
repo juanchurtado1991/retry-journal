@@ -3,6 +3,7 @@ package com.ghostserializer.sync.queue
 import com.ghostserializer.sync.indexOfSubarray
 import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.peekIds
+import com.ghostserializer.sync.queue.record.RecordTooLargeException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
