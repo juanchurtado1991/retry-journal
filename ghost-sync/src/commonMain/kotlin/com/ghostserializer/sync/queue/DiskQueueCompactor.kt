@@ -5,6 +5,8 @@ import com.ghostserializer.sync.queue.DiskQueueConstants.COMPACTION_FILE_SUFFIX
 import com.ghostserializer.sync.queue.record.PackedIndexEntry
 import com.ghostserializer.sync.queue.record.RecordCodec
 import com.ghostserializer.sync.queue.record.RecordReadResult
+import okio.BufferedSink
+import okio.FileHandle
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -20,12 +22,6 @@ import okio.use
  */
 internal object DiskQueueCompactor {
 
-    class Plan(
-        val tempPath: Path,
-        val liveOffsetsBySequence: LinkedHashMap<Long, Long>,
-        val fileLength: Long,
-    )
-
     fun planCompaction(
         fileSystem: FileSystem,
         path: Path,
@@ -34,62 +30,123 @@ internal object DiskQueueCompactor {
         fileLength: Long,
         deadBytes: Long,
         nextSequenceId: Long,
-    ): Plan? {
-        if (fileLength <= 0L) {
-            return null
-        }
-        val deadRatio = deadBytes.toDouble() / fileLength.toDouble()
-        if (deadRatio < COMPACTION_DEAD_RATIO_THRESHOLD) {
+    ): DiskQueueCompactionPlan? {
+        if (!shouldCompact(fileLength, deadBytes)) {
             return null
         }
 
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
-        fileSystem.delete(tempPath, mustExist = false)
-
+        val tempPath = prepareTempCompactionFile(fileSystem, path)
         val newOffsetsBySequence = LinkedHashMap<Long, Long>()
         var newOffset = 0L
 
         val readHandle = fileSystem.openReadOnly(path)
         try {
             fileSystem.sink(tempPath).buffer().use { sink ->
-                for ((sequenceId, packed) in liveOffsetsBySequence) {
-                    val offset = PackedIndexEntry.unpackOffset(packed)
-                    val source = readHandle.source(offset).buffer()
-                    try {
-                        when (val result = RecordCodec.readRecord(source, maxRecordFieldSize)) {
-                            is RecordReadResult.Live -> if (result.sequenceId == sequenceId) {
-                                val written = RecordCodec.writeLive(
-                                    sink,
-                                    sequenceId,
-                                    result.metaBytes,
-                                    result.body
-                                )
-                                newOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(written, newOffset)
-                                newOffset += written
-                            } else {
-                                val writtenTombstone = RecordCodec.writeTombstone(sink, sequenceId)
-                                newOffset += writtenTombstone
-                            }
-
-                            else -> {
-                                val writtenTombstone = RecordCodec.writeTombstone(sink, sequenceId)
-                                newOffset += writtenTombstone
-                            }
-                        }
-                    } finally {
-                        source.close()
-                    }
+                val rewrittenOffset = rewriteIndexedRecords(
+                    readHandle,
+                    sink,
+                    liveOffsetsBySequence,
+                    maxRecordFieldSize,
+                    newOffsetsBySequence,
+                    newOffset,
+                ) ?: run {
+                    fileSystem.delete(tempPath, mustExist = false)
+                    return null
                 }
-
-                if (nextSequenceId > 0 && !liveOffsetsBySequence.containsKey(nextSequenceId - 1)) {
-                    val writtenTombstone = RecordCodec.writeTombstone(sink, nextSequenceId - 1)
-                    newOffset += writtenTombstone
-                }
+                newOffset = rewrittenOffset
+                newOffset = appendSequenceGapTombstoneIfNeeded(
+                    sink,
+                    liveOffsetsBySequence,
+                    nextSequenceId,
+                    newOffset,
+                )
             }
         } finally {
             readHandle.close()
         }
 
-        return Plan(tempPath, newOffsetsBySequence, newOffset)
+        return DiskQueueCompactionPlan(tempPath, newOffsetsBySequence, newOffset)
+    }
+
+    private fun shouldCompact(fileLength: Long, deadBytes: Long): Boolean {
+        if (fileLength <= 0L) {
+            return false
+        }
+        val deadRatio = deadBytes.toDouble() / fileLength.toDouble()
+        return deadRatio >= COMPACTION_DEAD_RATIO_THRESHOLD
+    }
+
+    private fun prepareTempCompactionFile(fileSystem: FileSystem, path: Path): Path {
+        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
+        fileSystem.delete(tempPath, mustExist = false)
+        return tempPath
+    }
+
+    private fun rewriteIndexedRecords(
+        readHandle: FileHandle,
+        sink: BufferedSink,
+        liveOffsetsBySequence: Map<Long, Long>,
+        maxRecordFieldSize: Int,
+        newOffsetsBySequence: LinkedHashMap<Long, Long>,
+        startOffset: Long,
+    ): Long? {
+        var newOffset = startOffset
+        for ((sequenceId, packed) in liveOffsetsBySequence) {
+            val offset = PackedIndexEntry.unpackOffset(packed)
+            newOffset = copyIndexedRecord(
+                readHandle,
+                sink,
+                sequenceId,
+                offset,
+                maxRecordFieldSize,
+                newOffsetsBySequence,
+                newOffset,
+            ) ?: return null
+        }
+        return newOffset
+    }
+
+    private fun copyIndexedRecord(
+        readHandle: FileHandle,
+        sink: BufferedSink,
+        sequenceId: Long,
+        offset: Long,
+        maxRecordFieldSize: Int,
+        newOffsetsBySequence: LinkedHashMap<Long, Long>,
+        newOffset: Long,
+    ): Long? {
+        val source = readHandle.source(offset).buffer()
+        try {
+            return when (val result = RecordCodec.readRecord(source, maxRecordFieldSize)) {
+                is RecordReadResult.Live -> if (result.sequenceId == sequenceId) {
+                    val written = RecordCodec.writeLive(
+                        sink,
+                        sequenceId,
+                        result.metaBytes,
+                        result.body,
+                    )
+                    newOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(written, newOffset)
+                    newOffset + written
+                } else {
+                    null
+                }
+
+                else -> newOffset + RecordCodec.writeTombstone(sink, sequenceId)
+            }
+        } finally {
+            source.close()
+        }
+    }
+
+    private fun appendSequenceGapTombstoneIfNeeded(
+        sink: BufferedSink,
+        liveOffsetsBySequence: Map<Long, Long>,
+        nextSequenceId: Long,
+        newOffset: Long,
+    ): Long {
+        if (nextSequenceId <= 0 || liveOffsetsBySequence.containsKey(nextSequenceId - 1)) {
+            return newOffset
+        }
+        return newOffset + RecordCodec.writeTombstone(sink, nextSequenceId - 1)
     }
 }

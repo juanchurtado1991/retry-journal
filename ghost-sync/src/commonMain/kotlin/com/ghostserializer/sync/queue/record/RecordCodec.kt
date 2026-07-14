@@ -33,9 +33,7 @@ internal object RecordCodec {
         metaBytes: ByteArray,
         body: ByteArray
     ): Int {
-        var crc = Crc32.updateLong(Crc32.INITIAL_VALUE, sequenceId)
-        crc = Crc32.update(crc, metaBytes)
-        crc = Crc32.update(crc, body)
+        val crc = computeLiveCrc(sequenceId, metaBytes, body)
 
         sink.writeByte(DiskQueueConstants.RECORD_KIND_LIVE_INT)
         sink.writeInt(Crc32.finalize(crc))
@@ -45,10 +43,7 @@ internal object RecordCodec {
         sink.writeInt(body.size)
         sink.write(body)
 
-        return DiskQueueConstants.RECORD_HEADER_SIZE +
-                DiskQueueConstants.SEQUENCE_FIELD_SIZE +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + metaBytes.size +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + body.size
+        return liveRecordLength(metaBytes.size, body.size)
     }
 
     fun writeTombstone(sink: BufferedSink, targetSequenceId: Long): Int {
@@ -90,44 +85,66 @@ internal object RecordCodec {
         }
     }
 
+    private fun computeLiveCrc(sequenceId: Long, metaBytes: ByteArray, body: ByteArray): Int {
+        var crc = Crc32.updateLong(Crc32.INITIAL_VALUE, sequenceId)
+        crc = Crc32.update(crc, metaBytes)
+        return Crc32.update(crc, body)
+    }
+
+    private fun liveRecordLength(metaSize: Int, bodySize: Int): Int =
+        DiskQueueConstants.RECORD_HEADER_SIZE +
+            DiskQueueConstants.SEQUENCE_FIELD_SIZE +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + metaSize +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + bodySize
+
     private fun readLivePayload(
         source: BufferedSource,
         expectedCrc: Int,
         maxRecordFieldSize: Int
     ): RecordReadResult {
         val sequenceId = source.readLong()
+        val metaBytes = readBoundedByteArray(source, maxRecordFieldSize) ?: return RecordReadResult.Invalid
+        val body = readBoundedByteArray(source, maxRecordFieldSize) ?: return RecordReadResult.Invalid
 
-        val metaLen = source.readInt()
-        if (metaLen !in 0..maxRecordFieldSize) {
+        if (!liveCrcMatches(sequenceId, metaBytes, body, expectedCrc)) {
             return RecordReadResult.Invalid
         }
-        val metaBytes = source.readByteArray(metaLen.toLong())
 
-        val bodyLen = source.readInt()
-        if (bodyLen !in 0..maxRecordFieldSize) {
-            return RecordReadResult.Invalid
+        val meta = deserializeMeta(metaBytes) ?: return RecordReadResult.Invalid
+
+        return RecordReadResult.Live(
+            sequenceId,
+            meta,
+            metaBytes,
+            body,
+            liveRecordLength(metaBytes.size, body.size),
+        )
+    }
+
+    private fun readBoundedByteArray(source: BufferedSource, maxRecordFieldSize: Int): ByteArray? {
+        val length = source.readInt()
+        if (length !in 0..maxRecordFieldSize) {
+            return null
         }
-        val body = source.readByteArray(bodyLen.toLong())
+        return source.readByteArray(length.toLong())
+    }
 
+    private fun liveCrcMatches(
+        sequenceId: Long,
+        metaBytes: ByteArray,
+        body: ByteArray,
+        expectedCrc: Int,
+    ): Boolean {
         var crc = Crc32.updateLong(Crc32.INITIAL_VALUE, sequenceId)
         crc = Crc32.update(crc, metaBytes)
         crc = Crc32.update(crc, body)
-        if (Crc32.finalize(crc) != expectedCrc) {
-            return RecordReadResult.Invalid
-        }
+        return Crc32.finalize(crc) == expectedCrc
+    }
 
-        val meta = try {
-            Ghost.deserialize<FrozenHttpRequestMeta>(metaBytes)
-        } catch (_: Throwable) {
-            return RecordReadResult.Invalid
-        }
-
-        val recordLength = DiskQueueConstants.RECORD_HEADER_SIZE +
-                DiskQueueConstants.SEQUENCE_FIELD_SIZE +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + metaBytes.size +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + body.size
-
-        return RecordReadResult.Live(sequenceId, meta, metaBytes, body, recordLength)
+    private fun deserializeMeta(metaBytes: ByteArray): FrozenHttpRequestMeta? = try {
+        Ghost.deserialize<FrozenHttpRequestMeta>(metaBytes)
+    } catch (_: Throwable) {
+        null
     }
 
     private fun readTombstonePayload(source: BufferedSource, expectedCrc: Int): RecordReadResult {

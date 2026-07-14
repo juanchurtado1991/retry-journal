@@ -20,11 +20,7 @@ internal object RecordScanCodec {
         scanBuffer: ByteArray,
         outResult: RecordScanResult
     ) {
-        // outResult is reused across every call for one recover() pass — reset recordLength here so
-        // a TYPE_INVALID branch that returns without setting it (unrecognized kind byte, or
-        // scanLivePayload's metaLen/bodyLen range checks) can never leak the previous record's
-        // length into DiskQueueRecovery's advance-by-recordLength logic.
-        outResult.recordLength = 0
+        resetScanResult(outResult)
 
         if (source.exhausted()) {
             outResult.type = RecordScanResult.TYPE_EOF
@@ -59,6 +55,14 @@ internal object RecordScanCodec {
         }
     }
 
+    private fun resetScanResult(outResult: RecordScanResult) {
+        // outResult is reused across every call for one recover() pass — reset recordLength here so
+        // a TYPE_INVALID branch that returns without setting it (unrecognized kind byte, or
+        // scanLivePayload's metaLen/bodyLen range checks) can never leak the previous record's
+        // length into DiskQueueRecovery's advance-by-recordLength logic.
+        outResult.recordLength = 0
+    }
+
     private fun scanLivePayload(
         source: BufferedSource,
         expectedCrc: Int,
@@ -83,11 +87,7 @@ internal object RecordScanCodec {
         }
         crc = hashChunked(source, bodyLen, crc, scanBuffer)
 
-        val recordLength = DiskQueueConstants.RECORD_HEADER_SIZE +
-                DiskQueueConstants.SEQUENCE_FIELD_SIZE +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + metaLen +
-                DiskQueueConstants.LENGTH_FIELD_SIZE + bodyLen
-
+        val recordLength = liveRecordLength(metaLen, bodyLen)
         if (Crc32.finalize(crc) != expectedCrc) {
             outResult.type = RecordScanResult.TYPE_INVALID
             outResult.recordLength = recordLength
@@ -98,6 +98,12 @@ internal object RecordScanCodec {
         outResult.sequenceId = sequenceId
         outResult.recordLength = recordLength
     }
+
+    private fun liveRecordLength(metaLen: Int, bodyLen: Int): Int =
+        DiskQueueConstants.RECORD_HEADER_SIZE +
+            DiskQueueConstants.SEQUENCE_FIELD_SIZE +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + metaLen +
+            DiskQueueConstants.LENGTH_FIELD_SIZE + bodyLen
 
     private fun scanTombstonePayload(
         source: BufferedSource,
@@ -131,15 +137,19 @@ internal object RecordScanCodec {
         var remaining = byteCount.toLong()
         while (remaining > 0) {
             val chunkSize = minOf(remaining, scanBuffer.size.toLong()).toInt()
-            var read = 0
-            while (read < chunkSize) {
-                val next = source.read(scanBuffer, read, chunkSize - read)
-                if (next == -1) throw EOFException(DiskQueueConstants.RECORD_EOF_PREMATURE_MESSAGE)
-                read += next
-            }
+            readFullyIntoBuffer(source, scanBuffer, chunkSize)
             crc = Crc32.update(crc, scanBuffer, 0, chunkSize)
             remaining -= chunkSize
         }
         return crc
+    }
+
+    private fun readFullyIntoBuffer(source: BufferedSource, scanBuffer: ByteArray, chunkSize: Int) {
+        var read = 0
+        while (read < chunkSize) {
+            val next = source.read(scanBuffer, read, chunkSize - read)
+            if (next == -1) throw EOFException(DiskQueueConstants.RECORD_EOF_PREMATURE_MESSAGE)
+            read += next
+        }
     }
 }

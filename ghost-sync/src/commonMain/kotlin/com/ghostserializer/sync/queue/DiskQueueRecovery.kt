@@ -20,94 +20,127 @@ import okio.use
  */
 internal object DiskQueueRecovery {
 
-    class Result(
-        val liveOffsetsBySequence: LinkedHashMap<Long, Long>,
-        val nextSequenceId: Long,
-        val deadBytes: Long,
-        val fileLength: Long,
-    )
-
-    fun recover(fileSystem: FileSystem, path: Path, maxRecordFieldSize: Int): Result {
+    fun recover(fileSystem: FileSystem, path: Path, maxRecordFieldSize: Int): DiskQueueRecoveryResult {
         if (!fileSystem.exists(path)) {
-            return Result(LinkedHashMap(), nextSequenceId = 0L, deadBytes = 0L, fileLength = 0L)
+            return emptyResult()
         }
 
-        // A leftover temp file from a compaction that crashed mid-write is dead weight — the
-        // original path is still the source of truth since atomicMove never ran.
-        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
-        fileSystem.delete(tempPath, mustExist = false)
-        ReplayClaim.clearIfStale(fileSystem, ReplayClaim.claimPath(path))
-
-        val liveOffsetsBySequence = LinkedHashMap<Long, Long>()
-        var nextSequenceId = 0L
-        var deadBytes = 0L
+        prepareRecoveryEnvironment(fileSystem, path)
 
         val totalSize = fileSystem.metadata(path).size ?: 0L
+        val state = DiskQueueRecoveryScanState()
         val handle = fileSystem.openReadOnly(path)
         try {
-            var offset = 0L
-            var lastValidOffset = 0L
-            var currentSource = handle.source(offset).buffer()
+            var currentSource = handle.source(state.offset).buffer()
             val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
             val scanResult = RecordScanResult()
 
-            while (offset < totalSize) {
+            while (state.offset < totalSize) {
                 RecordScanCodec.scanRecord(currentSource, maxRecordFieldSize, scanBuffer, scanResult)
-                when (scanResult.type) {
-                    RecordScanResult.TYPE_LIVE -> {
-                        val sequenceId = scanResult.sequenceId
-                        val recordLength = scanResult.recordLength
-                        liveOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(recordLength, offset)
-                        if (sequenceId >= nextSequenceId) {
-                            nextSequenceId = sequenceId + 1
-                        }
-                        offset += recordLength
-                        lastValidOffset = offset
-                    }
-
-                    RecordScanResult.TYPE_TOMBSTONE -> {
-                        val targetSequenceId = scanResult.sequenceId
-                        val recordLength = scanResult.recordLength
-                        val packed = liveOffsetsBySequence.remove(targetSequenceId)
-                        if (packed != null) {
-                            val deadLength = PackedIndexEntry.unpackLength(packed)
-                            deadBytes += deadLength + recordLength
-                        }
-
-                        if (targetSequenceId >= nextSequenceId) {
-                            nextSequenceId = targetSequenceId + 1
-                        }
-
-                        offset += recordLength
-                        lastValidOffset = offset
-                    }
-
-                    RecordScanResult.TYPE_INVALID -> {
-                        val advance = if (scanResult.recordLength > 0) {
-                            scanResult.recordLength
-                        } else {
-                            1
-                        }
-                        offset += advance
-                        deadBytes += advance
-                        currentSource.close()
-                        currentSource = handle.source(offset).buffer()
-                    }
-
-                    RecordScanResult.TYPE_EOF -> {
-                        break
-                    }
-                }
+                currentSource = applyScanResult(
+                    scanResult,
+                    state,
+                    handle,
+                    currentSource,
+                ) ?: break
             }
             currentSource.close()
 
-            if (lastValidOffset < totalSize) {
-                fileSystem.openReadWrite(path).use { it.resize(lastValidOffset) }
-            }
+            truncateTrailingInvalidBytes(fileSystem, path, state.lastValidOffset, totalSize)
 
-            return Result(liveOffsetsBySequence, nextSequenceId, deadBytes, fileLength = lastValidOffset)
+            return DiskQueueRecoveryResult(
+                state.liveOffsetsBySequence,
+                state.nextSequenceId,
+                state.deadBytes,
+                fileLength = state.lastValidOffset,
+            )
         } finally {
             handle.close()
         }
+    }
+
+    private fun emptyResult(): DiskQueueRecoveryResult =
+        DiskQueueRecoveryResult(LinkedHashMap(), nextSequenceId = 0L, deadBytes = 0L, fileLength = 0L)
+
+    private fun prepareRecoveryEnvironment(fileSystem: FileSystem, path: Path) {
+        val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
+        fileSystem.delete(tempPath, mustExist = false)
+        ReplayClaim.clearIfStale(fileSystem, ReplayClaim.claimPath(path))
+    }
+
+    private fun applyScanResult(
+        scanResult: RecordScanResult,
+        state: DiskQueueRecoveryScanState,
+        handle: okio.FileHandle,
+        currentSource: okio.BufferedSource,
+    ): okio.BufferedSource? = when (scanResult.type) {
+        RecordScanResult.TYPE_LIVE -> {
+            applyLiveScanResult(scanResult, state)
+            currentSource
+        }
+
+        RecordScanResult.TYPE_TOMBSTONE -> {
+            applyTombstoneScanResult(scanResult, state)
+            currentSource
+        }
+
+        RecordScanResult.TYPE_INVALID -> {
+            applyInvalidScanResult(scanResult, state)
+            currentSource.close()
+            handle.source(state.offset).buffer()
+        }
+
+        RecordScanResult.TYPE_EOF -> null
+        else -> null
+    }
+
+    private fun applyLiveScanResult(scanResult: RecordScanResult, state: DiskQueueRecoveryScanState) {
+        val sequenceId = scanResult.sequenceId
+        val recordLength = scanResult.recordLength
+        state.liveOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(recordLength, state.offset)
+        if (sequenceId >= state.nextSequenceId) {
+            state.nextSequenceId = sequenceId + 1
+        }
+        state.offset += recordLength
+        state.lastValidOffset = state.offset
+    }
+
+    private fun applyTombstoneScanResult(scanResult: RecordScanResult, state: DiskQueueRecoveryScanState) {
+        val targetSequenceId = scanResult.sequenceId
+        val recordLength = scanResult.recordLength
+        val packed = state.liveOffsetsBySequence.remove(targetSequenceId)
+        if (packed != null) {
+            val deadLength = PackedIndexEntry.unpackLength(packed)
+            state.deadBytes += deadLength + recordLength
+        }
+
+        if (targetSequenceId >= state.nextSequenceId) {
+            state.nextSequenceId = targetSequenceId + 1
+        }
+
+        state.offset += recordLength
+        state.lastValidOffset = state.offset
+    }
+
+    private fun applyInvalidScanResult(scanResult: RecordScanResult, state: DiskQueueRecoveryScanState) {
+        val advance = if (scanResult.recordLength > 0) {
+            scanResult.recordLength
+        } else {
+            1
+        }
+        state.offset += advance
+        state.deadBytes += advance
+    }
+
+    private fun truncateTrailingInvalidBytes(
+        fileSystem: FileSystem,
+        path: Path,
+        lastValidOffset: Long,
+        totalSize: Long,
+    ) {
+        if (lastValidOffset >= totalSize) {
+            return
+        }
+        fileSystem.openReadWrite(path).use { it.resize(lastValidOffset) }
     }
 }

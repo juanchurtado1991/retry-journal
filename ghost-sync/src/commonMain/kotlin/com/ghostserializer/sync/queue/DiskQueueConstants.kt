@@ -37,18 +37,32 @@ internal object DiskQueueConstants {
     const val COMPACTION_DEAD_RATIO_THRESHOLD: Double = 0.8
     const val COMPACTION_FILE_SUFFIX: String = ".compact"
     const val LOCK_FILE_SUFFIX: String = ".lock"
+    const val DLQ_OPS_LOCK_SUFFIX: String = ".dlq-ops.lock"
+    const val QUEUE_GENERATION_SUFFIX: String = ".gen"
+    const val QUEUE_GENERATION_TEMP_SUFFIX: String = ".gen.tmp"
     const val REPLAY_CLAIM_SUFFIX: String = ".replay-claim"
     const val REPLAY_CLAIM_TEMP_SUFFIX: String = ".replay-claim.tmp"
 
     const val COMPLETE_HEAD_NOT_HEAD_MESSAGE: String =
         "completeHeadReplay() called for an entry that is not the current queue head"
+    const val COMPLETE_HEAD_CLAIM_MISSING_MESSAGE: String =
+        "completeHeadReplay() called without an active replay claim — call prepareHeadForReplay() first"
     const val COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE: String =
         "completeHeadReplay() called while a different head entry is claimed for replay"
+    const val REMOVE_WHILE_CLAIMED_MESSAGE: String =
+        "remove() called for an entry that is currently claimed for cross-process replay"
 
-    /** A replay claim older than this is treated as a crash artifact and ignored — long enough
-     * for a slow upload on a bad connection, short enough that a dead claim doesn't block the queue
-     * forever after a process kill mid-replay. */
-    const val REPLAY_CLAIM_STALE_MILLIS: Long = 15L * 60L * 1000L
+    /** Claims with timestamps far in the future (corrupt clock / file) are treated as stale. */
+    const val REPLAY_CLAIM_CLOCK_SKEW_MILLIS: Long = 60_000L
+
+    /** How often [GhostSyncEngine] refreshes an active [ReplayClaim] while a replay HTTP
+     * round-trip is in flight — keeps slow uploads from outliving the stale window. */
+    const val REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS: Long = 5L * 60L * 1000L
+
+    /** A replay claim with no [REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS] refresh for this long is
+     * treated as a crash artifact and cleared — long enough for several missed renewals on a
+     * bad connection, short enough that a dead process does not block the queue forever. */
+    const val REPLAY_CLAIM_STALE_MILLIS: Long = 30L * 60L * 1000L
 
     const val LOCK_ACQUIRE_FAILED_MESSAGE: String = "Failed to acquire exclusive queue file lock"
 
@@ -63,5 +77,6 @@ internal object DiskQueueConstants {
     const val RECORD_EOF_PREMATURE_MESSAGE: String = "Reached EOF prematurely while reading payload chunk"
     const val NEWLINE_BYTE: Int = 10
     const val RETRY_JOURNAL_SUFFIX: String = ".retry."
+    const val RETRY_JOURNAL_TEMP_SUFFIX: String = ".retry.tmp."
     const val CURRENT_DIRECTORY_PATH: String = "."
 }
