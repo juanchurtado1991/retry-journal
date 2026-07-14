@@ -59,11 +59,16 @@ class GhostSyncEngine(
 
     suspend fun flush(
         client: HttpClient,
-        onProgress: suspend (FlushProgress) -> Unit = {}
-    ): FlushResult = replayMutex.withLock {
-        withReplayLifecycle {
-            flushLocked(client, onProgress)
+        onProgress: suspend (FlushProgress) -> Unit = {},
+    ): FlushResult {
+        val progressBuffer = mutableListOf<FlushProgress>()
+        val result = replayMutex.withLock {
+            withReplayLifecycle {
+                flushLocked(client) { progressBuffer += it }
+            }
         }
+        progressBuffer.forEach { onProgress(it) }
+        return result
     }
 
     /** Read-only peek at the oldest readable entry — safe for UI inspection under [replayMutex].
@@ -100,6 +105,17 @@ class GhostSyncEngine(
                 replayHeadEntry(client)
             }
         }
+
+    /** Applies a replay outcome for manual loops after [getEntryAndStatus] or [getStatus] — mirrors
+     * what [flush] would do for the same status without sending HTTP again. */
+    suspend fun finalizeHeadReplay(
+        entry: QueueEntry,
+        status: HttpStatusCode,
+    ): HeadFinalizeResult = replayMutex.withLock {
+        withReplayLifecycle {
+            finalizeHeadReplayLocked(entry, status)
+        }
+    }
 
     /** Replays [entry] when it is still the queue head, under an active [ReplayClaim]. Prefer
      * [getEntryAndStatus] for concurrent callers; this path exists for serialized manual loops
@@ -196,14 +212,61 @@ class GhostSyncEngine(
     }
 
     private fun resolvePendingDeliveryStatus(entry: QueueEntry): HttpStatusCode? {
-        val pending = DeliveryJournal.read(queue.fileSystem, queue.path) ?: return null
-        if (pending.sequenceId != entry.id.sequenceId) {
-            return null
-        }
+        val pending = DeliveryJournal.pendingForSequence(
+            DeliveryJournal.read(queue.fileSystem, queue.path),
+            entry.id.sequenceId,
+        ) ?: return null
         return when (pending.outcome) {
             DeliveryJournal.OUTCOME_DELIVERED -> HttpStatusCode.OK
             DeliveryJournal.OUTCOME_DEAD_LETTERED -> HttpStatusCode.BadRequest
             else -> null
+        }
+    }
+
+    private suspend fun finalizeHeadReplayLocked(
+        entry: QueueEntry,
+        status: HttpStatusCode,
+    ): HeadFinalizeResult = when {
+        status.isSuccess() -> {
+            DeliveryJournal.write(
+                queue.fileSystem,
+                queue.path,
+                entry.id.sequenceId,
+                DeliveryJournal.OUTCOME_DELIVERED,
+            )
+            if (!completeHeadReplayOrStop(entry.id)) {
+                HeadFinalizeResult.PersistenceFailed()
+            } else {
+                DeliveryJournal.delete(queue.fileSystem, queue.path)
+                HeadFinalizeResult.Delivered
+            }
+        }
+
+        shouldDeadLetter(status) -> try {
+            deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+            DeliveryJournal.write(
+                queue.fileSystem,
+                queue.path,
+                entry.id.sequenceId,
+                DeliveryJournal.OUTCOME_DEAD_LETTERED,
+            )
+            if (!completeHeadReplayOrStop(entry.id)) {
+                HeadFinalizeResult.PersistenceFailed()
+            } else {
+                DeliveryJournal.delete(queue.fileSystem, queue.path)
+                HeadFinalizeResult.DeadLettered
+            }
+        } catch (e: CancellationException) {
+            queue.abortHeadReplayClaim()
+            throw e
+        } catch (_: Throwable) {
+            queue.abortHeadReplayClaim()
+            HeadFinalizeResult.LeftOnQueue
+        }
+
+        else -> {
+            queue.abortHeadReplayClaim()
+            HeadFinalizeResult.LeftOnQueue
         }
     }
 
@@ -280,16 +343,21 @@ class GhostSyncEngine(
     private suspend fun sendPreparedHeadEntry(
         client: HttpClient,
         entry: QueueEntry,
-    ): EntryReplayResult = try {
-        withReplayClaimRenewal(entry.id) {
-            EntryReplayResult.Ready(entry, httpReplayer.send(client, entry))
+    ): EntryReplayResult {
+        resolvePendingDeliveryStatus(entry)?.let { status ->
+            return EntryReplayResult.Ready(entry, status)
         }
-    } catch (e: CancellationException) {
-        queue.abortHeadReplayClaim()
-        throw e
-    } catch (_: Throwable) {
-        queue.abortHeadReplayClaim()
-        EntryReplayResult.ReplayFailed
+        return try {
+            withReplayClaimRenewal(entry.id) {
+                EntryReplayResult.Ready(entry, httpReplayer.send(client, entry))
+            }
+        } catch (e: CancellationException) {
+            queue.abortHeadReplayClaim()
+            throw e
+        } catch (_: Throwable) {
+            queue.abortHeadReplayClaim()
+            EntryReplayResult.ReplayFailed
+        }
     }
 
     private suspend fun replayClaimedHeadForEntry(
@@ -298,6 +366,7 @@ class GhostSyncEngine(
     ): HttpStatusCode {
         httpReplayer.assertSafeToReplayWith(client)
         val prepared = requirePreparedHeadForEntry(entry)
+        resolvePendingDeliveryStatus(prepared)?.let { return it }
         return try {
             withReplayClaimRenewal(prepared.id) {
                 httpReplayer.send(client, prepared)
