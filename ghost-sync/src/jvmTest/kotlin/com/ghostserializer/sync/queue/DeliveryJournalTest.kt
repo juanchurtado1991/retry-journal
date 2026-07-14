@@ -86,22 +86,6 @@ class DeliveryJournalTest {
     }
 
     @Test
-    fun `legacy single-file journal migrates to per-sequence path`() {
-        val legacyPath = (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
-        FileSystem.SYSTEM.write(legacyPath) {
-            writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("7\n")
-            writeUtf8("delivered\n")
-            writeUtf8("0\n")
-        }
-
-        DeliveryJournal.migrateLegacyJournalIfPresent(FileSystem.SYSTEM, queuePath)
-
-        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 7L) is DeliveryJournalReadResult.Valid)
-        assertTrue(!FileSystem.SYSTEM.exists(legacyPath))
-    }
-
-    @Test
     fun `pendingForSequence only matches the requested sequence id`() {
         DeliveryJournal.write(FileSystem.SYSTEM, queuePath, 99L, DeliveryJournal.OUTCOME_DELIVERED)
         val read = DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 99L)

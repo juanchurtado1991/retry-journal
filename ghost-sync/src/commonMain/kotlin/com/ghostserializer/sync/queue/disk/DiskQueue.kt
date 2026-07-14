@@ -140,7 +140,6 @@ class DiskQueue(
         ensureOpenLocked()
         val claimPath = ReplayClaim.claimPath(path)
         ReplayClaim.clearIfStale(fileSystem, claimPath)
-        DeliveryJournal.migrateLegacyJournalIfPresent(fileSystem, path)
 
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
@@ -202,7 +201,6 @@ class DiskQueue(
      * tombstoned so the queue cannot stall behind unreadable data. */
     suspend fun peek(): QueueEntry? = withQueueLock {
         ensureOpenLocked()
-        DeliveryJournal.migrateLegacyJournalIfPresent(fileSystem, path)
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
         scan.entry

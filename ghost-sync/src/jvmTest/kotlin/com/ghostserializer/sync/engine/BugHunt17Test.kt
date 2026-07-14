@@ -2,7 +2,6 @@ package com.ghostserializer.sync.engine
 
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.queue.DeliveryJournal
-import com.ghostserializer.sync.queue.DeliveryJournalReadResult
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import com.ghostserializer.sync.queue.ReplayClaim
@@ -49,25 +48,6 @@ class BugHunt17Test {
     @AfterTest
     fun tearDown() {
         FileSystem.SYSTEM.deleteRecursively(dir, mustExist = false)
-    }
-
-    @Test
-    fun `getHeadState migrates a legacy delivery journal before reporting local removal`() = runBlocking {
-        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
-        val legacyPath = (queue.path.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
-        FileSystem.SYSTEM.write(legacyPath) {
-            writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("${id.sequenceId}\n")
-            writeUtf8("delivered\n")
-            writeUtf8("0\n")
-        }
-
-        val state = engine.getHeadState()
-
-        assertTrue(state is QueueHeadState.AwaitingLocalRemoval)
-        assertEquals(id, (state as QueueHeadState.AwaitingLocalRemoval).entry.id)
-        assertTrue(DeliveryJournal.read(queue.fileSystem, queue.path, id.sequenceId) is DeliveryJournalReadResult.Valid)
-        assertTrue(!FileSystem.SYSTEM.exists(legacyPath))
     }
 
     @Test

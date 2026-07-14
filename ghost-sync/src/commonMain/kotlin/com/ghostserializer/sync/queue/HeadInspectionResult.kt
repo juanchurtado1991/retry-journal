@@ -12,7 +12,6 @@ internal data class HeadInspectionResult(
 )
 
 internal fun DiskQueue.inspectHeadLocked(): HeadInspectionResult {
-    DeliveryJournal.migrateLegacyJournalIfPresent(fileSystem, path)
     val scan = scanFirstReadableHeadLocked()
     finalizeHeadScrubIfNeededLocked(scan.removedAny)
     val entry = scan.entry

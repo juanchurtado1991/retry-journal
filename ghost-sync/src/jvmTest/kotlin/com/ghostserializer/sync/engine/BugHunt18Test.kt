@@ -4,10 +4,8 @@ import com.ghostserializer.sync.GhostSync
 import com.ghostserializer.sync.GhostSyncRuntime
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.queue.DeliveryJournal
-import com.ghostserializer.sync.queue.DeliveryJournalReadResult
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.disk.DiskQueue
-import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -45,26 +43,6 @@ class BugHunt18Test {
     @AfterTest
     fun tearDown() {
         FileSystem.SYSTEM.deleteRecursively(dir, mustExist = false)
-    }
-
-    @Test
-    fun peekMigratesLegacyDeliveryJournalBeforeReturningHead() {
-        runBlocking {
-        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
-        val legacyPath = (queue.path.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
-        FileSystem.SYSTEM.write(legacyPath) {
-            writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("${id.sequenceId}\n")
-            writeUtf8("delivered\n")
-            writeUtf8("0\n")
-        }
-
-        val entry = queue.peek()
-
-        assertEquals(id, entry?.id)
-        assertTrue(DeliveryJournal.read(queue.fileSystem, queue.path, id.sequenceId) is DeliveryJournalReadResult.Valid)
-        assertTrue(!FileSystem.SYSTEM.exists(legacyPath))
-        }
     }
 
     @Test

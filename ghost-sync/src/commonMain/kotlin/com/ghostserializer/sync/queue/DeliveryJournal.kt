@@ -72,29 +72,10 @@ internal object DeliveryJournal {
         fileSystem.delete(journalPath(queuePath, sequenceId), mustExist = false)
     }
 
-    fun migrateLegacyJournalIfPresent(fileSystem: FileSystem, queuePath: Path) {
-        val legacyPath = legacyJournalPath(queuePath)
-        if (!fileSystem.exists(legacyPath)) {
-            return
-        }
-        val migrated = try {
-            fileSystem.read(legacyPath) {
-                parseLegacyContent()
-            }
-        } catch (_: Exception) {
-            null
-        }
-        fileSystem.delete(legacyPath, mustExist = false)
-        if (migrated != null) {
-            write(fileSystem, queuePath, migrated.sequenceId, migrated.outcome)
-        }
-    }
-
     fun clearStaleJournalsLocked(
         queue: DiskQueue,
         headSequenceId: Long?,
     ) {
-        migrateLegacyJournalIfPresent(queue.fileSystem, queue.path)
         val liveIds = queue.liveOffsetsBySequence.keys
         val prefix = queue.path.name + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX
         val parent = queue.path.parent ?: DiskQueueConstants.CURRENT_DIRECTORY_PATH.toPath()
@@ -154,9 +135,6 @@ internal object DeliveryJournal {
         is DeliveryJournalReadResult.CorruptPending -> PendingDelivery(sequenceId, result.outcome)
     }
 
-    private fun legacyJournalPath(queuePath: Path): Path =
-        (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
-
     private fun BufferedSource.parseContent(expectedSequenceId: Long): DeliveryJournalReadResult? {
         val magicLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
         if (magicLineBreak <= 0L) {
@@ -186,35 +164,6 @@ internal object DeliveryJournal {
         }
         return DeliveryJournalReadResult.Valid(outcome)
     }
-
-    private fun BufferedSource.parseLegacyContent(): PendingDelivery? {
-        val magicLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
-        if (magicLineBreak <= 0L) {
-            return parseLegacyV0()
-        }
-        val magic = readUtf8(magicLineBreak)
-        if (magic != DiskQueueConstants.DELIVERY_JOURNAL_MAGIC) {
-            return null
-        }
-        skip(1)
-        val sequenceLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
-        if (sequenceLineBreak <= 0L) {
-            return null
-        }
-        val sequenceId = readUtf8(sequenceLineBreak).toLongOrNull() ?: return null
-        skip(1)
-        val outcomeLineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
-        if (outcomeLineBreak <= 0L) {
-            return null
-        }
-        val outcome = readUtf8(outcomeLineBreak)
-        if (!isValidOutcome(outcome)) {
-            return null
-        }
-        return PendingDelivery(sequenceId, outcome)
-    }
-
-    private fun BufferedSource.parseLegacyV0(): PendingDelivery? = null
 
     private fun corruptFromPartialOutcome(
         sequenceId: Long,

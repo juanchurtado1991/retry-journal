@@ -43,7 +43,6 @@ internal object DiskQueueConstants {
     const val REPLAY_CLAIM_SUFFIX: String = ".replay-claim"
     const val REPLAY_CLAIM_TEMP_SUFFIX: String = ".replay-claim.tmp"
     const val DELIVERY_JOURNAL_SUFFIX: String = ".delivery-pending."
-    const val DELIVERY_JOURNAL_LEGACY_SUFFIX: String = ".delivery-pending"
     const val DELIVERY_JOURNAL_TEMP_SUFFIX: String = ".delivery-pending.tmp"
     const val DELIVERY_JOURNAL_MAGIC: String = "ghost-sync-delivery-v1"
 
