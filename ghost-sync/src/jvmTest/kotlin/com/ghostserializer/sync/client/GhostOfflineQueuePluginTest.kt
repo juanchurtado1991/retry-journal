@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okio.FileSystem
+import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import java.nio.file.Files
@@ -234,6 +235,28 @@ class GhostOfflineQueuePluginTest {
             }
         }
         assertTrue(smallQueue.isEmpty())
+    }
+
+    @Test
+    fun `a disk enqueue failure is not surfaced as OfflineQueuedException`() = runBlocking {
+        val failingQueue = DiskQueue(
+            ("$dir/failing-queue.bin").toPath(),
+            object : ForwardingFileSystem(FileSystem.SYSTEM) {
+                override fun appendingSink(file: Path, mustExist: Boolean): okio.Sink {
+                    throw okio.IOException("disk full")
+                }
+            },
+        )
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(GhostOfflineQueuePlugin) { diskQueue = failingQueue }
+        }
+
+        val error = assertFailsWith<okio.IOException> {
+            client.post("https://example.com/mutations") { setBody("hello-ghost") }
+        }
+
+        assertEquals("disk full", error.message)
+        assertTrue(failingQueue.isEmpty())
     }
 
     @Test

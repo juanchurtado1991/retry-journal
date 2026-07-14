@@ -4,6 +4,7 @@ import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -12,6 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -192,6 +194,29 @@ class GhostSyncEngineTest {
             HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }),
         )
         assertEquals(EntryReplayResult.Empty, result)
+    }
+
+    @Test
+    fun `getEntryAndStatus returns HeadBlocked when another process holds the replay claim`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val otherQueue = DiskQueue(path = queue.path)
+        assertTrue(otherQueue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+
+        val result = engine.getEntryAndStatus(
+            HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }),
+        )
+        assertEquals(EntryReplayResult.HeadBlocked, result)
+    }
+
+    @Test
+    fun `getEntryAndStatus returns ReplayFailed when replay throws`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { throw RuntimeException("boom") })
+
+        val result = engine.getEntryAndStatus(client)
+
+        assertEquals(EntryReplayResult.ReplayFailed, result)
+        assertTrue(queue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
     }
 
     @Test
@@ -461,6 +486,16 @@ class GhostSyncEngineTest {
     }
 
     @Test
+    fun `closeForShutdown rejects getEntry`() {
+        runBlocking {
+            engine.closeForShutdown()
+            assertFailsWith<IllegalStateException> {
+                engine.getEntry()
+            }
+        }
+    }
+
+    @Test
     fun `flush refuses a client that has the offline-queue plugin installed`() = runBlocking {
         // Replaying through a client that re-queues its own IOExceptions would duplicate any
         // entry that fails again mid-flush: the plugin re-enqueues it, and since trySend()
@@ -494,5 +529,59 @@ class GhostSyncEngineTest {
         assertEquals(FlushResult(delivered = 0, deadLettered = 0, stoppedEarly = true), result)
         assertTrue(!queue.isEmpty())
         assertEquals(0, failingDlq.size())
+    }
+
+    @Test
+    fun `getStatus clears the replay claim after a runtime replay failure`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/bad", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
+        val entry = engine.getEntry()!!
+        val client = HttpClient(MockEngine { throw RuntimeException("unexpected client fault") })
+
+        assertFailsWith<RuntimeException> {
+            engine.getStatus(client, entry)
+        }
+
+        val prepared = queue.prepareHeadForReplay()
+        assertTrue(prepared is com.ghostserializer.sync.queue.HeadReplayPrepareResult.Ready)
+    }
+
+    @Test
+    fun `flush rethrows cancellation during dead-letter persistence and clears the replay claim`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/bad", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
+        val dlqPath = (dir.toString() + "/dead-letter.bin").toPath()
+        val cancellingDlqFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                if (file == dlqPath) {
+                    throw CancellationException("cancelled mid dead-letter")
+                }
+                return super.appendingSink(file, mustExist)
+            }
+        }
+        val dlqStorage = DiskQueue(dlqPath, cancellingDlqFs)
+        val cancellingEngine = GhostSyncEngine(queue, DeadLetterQueue(queue, dlqStorage))
+        val client = HttpClient(MockEngine { respond("", HttpStatusCode.BadRequest, headersOf()) })
+
+        assertFailsWith<CancellationException> {
+            cancellingEngine.flush(client)
+        }
+
+        assertEquals(1, queue.size())
+        assertTrue(deadLetterQueue.peekAll().isEmpty())
+        val prepared = queue.prepareHeadForReplay()
+        assertTrue(prepared is HeadReplayPrepareResult.Ready)
+    }
+
+    @Test
+    fun `getHeadState reports Blocked when another process holds the replay claim`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val queueB = DiskQueue((dir.toString() + "/main.bin").toPath())
+        assertTrue(queueB.prepareHeadForReplay() is com.ghostserializer.sync.queue.HeadReplayPrepareResult.Ready)
+
+        assertEquals(QueueHeadState.Blocked, engine.getHeadState())
+    }
+
+    @Test
+    fun `getHeadState reports Empty on an empty queue`() = runBlocking {
+        assertEquals(QueueHeadState.Empty, engine.getHeadState())
     }
 }

@@ -25,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -320,6 +321,45 @@ class DiskQueueTest {
     }
 
     @Test
+    fun `enqueue leaves the queue unchanged when append flush fails`() = runBlocking {
+        var allowFlush = false
+        val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                val real = super.appendingSink(file, mustExist)
+                return object : ForwardingSink(real) {
+                    override fun write(source: Buffer, byteCount: Long) {
+                        real.write(source, byteCount)
+                    }
+
+                    override fun flush() {
+                        if (!allowFlush) {
+                            throw IOException("disk full")
+                        }
+                        real.flush()
+                    }
+
+                    override fun close() {
+                        real.close()
+                    }
+
+                    override fun timeout() = real.timeout()
+                }
+            }
+        }
+        val queue = DiskQueue(queuePath, failingFs)
+
+        assertFailsWith<IOException> {
+            queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        }
+        assertEquals(0, queue.size())
+
+        allowFlush = true
+        val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        assertEquals(1, queue.size())
+        assertEquals(id, queue.peek()?.id)
+    }
+
+    @Test
     fun `remove keeps the entry indexed when tombstone flush fails`() = runBlocking {
         var allowFlush = true
         val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
@@ -406,6 +446,78 @@ class DiskQueueTest {
 
         assertNull(queue.get(idA))
         assertNull(queue.get(idB))
+    }
+
+    @Test
+    fun `remove rejects an entry that is currently claimed for replay`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id = queue.enqueue("POST", "/claimed", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+
+        assertTrue(queue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+
+        assertFailsWith<IllegalStateException> {
+            queue.remove(id)
+        }
+
+        queue.abortHeadReplayClaim()
+        queue.remove(id)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `completeHeadReplay clears the claim when validation fails`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id1 = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
+        val id2 = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second".encodeToByteArray())
+
+        assertTrue(queue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+
+        assertFailsWith<IllegalStateException> {
+            queue.completeHeadReplay(id2)
+        }
+
+        val again = queue.prepareHeadForReplay()
+        assertTrue(again is HeadReplayPrepareResult.Ready)
+        assertEquals(id1, again.entry.id)
+    }
+
+    @Test
+    fun `get tombstones an unreadable index slot instead of leaving a ghost entry`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        val id1 = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
+        val id2 = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second".encodeToByteArray())
+
+        queue.repointIndexToWrongRecord(id1.sequenceId, id2.sequenceId)
+
+        assertNull(queue.get(id1))
+        assertEquals(1, queue.size())
+        assertEquals("/second", queue.peek()?.meta?.url)
+    }
+
+    @Test
+    fun `scrubbing unreadable entries bumps the generation counter for cross-process refresh`() = runBlocking {
+        val queueA = DiskQueue(queuePath)
+        val id1 = queueA.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
+        val id2 = queueA.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second".encodeToByteArray())
+
+        val queueB = DiskQueue(queuePath)
+        assertEquals(2, queueB.size())
+
+        queueA.repointIndexToWrongRecord(id1.sequenceId, id2.sequenceId)
+
+        assertEquals(2, queueB.size())
+
+        assertEquals(1, queueA.size())
+
+        assertEquals(1, queueB.size())
+        assertEquals("/second", queueB.peek()?.meta?.url)
+    }
+
+    private fun DiskQueue.repointIndexToWrongRecord(wrongId: Long, siblingId: Long) {
+        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val map = field.get(this) as LinkedHashMap<Long, Long>
+        map[wrongId] = map.getValue(siblingId)
     }
 
     /** Reaches into [DiskQueue]'s private live-offset index and swaps the packed offsets

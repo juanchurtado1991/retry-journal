@@ -99,14 +99,50 @@ class DiskQueueCompactionTest {
         assertEquals(1, queue.size())
     }
 
-    /** After tests corrupt the queue file on disk, prevent [DiskQueue]'s mtime-based rescan from
-     * rebuilding the index and skipping the corrupt entries this test expects [peek] to tombstone. */
+    @Test
+    fun `compaction aborts instead of dropping live entries when the index points at the wrong sequence id`() =
+        runBlocking {
+            val queue = DiskQueue(queuePath)
+            val ids = (1..10).map { i ->
+                queue.enqueue("POST", "/item-$i", FrozenHttpHeaders.EMPTY, "payload-$i".encodeToByteArray())
+            }
+            ids.dropLast(2).forEach { queue.remove(it) }
+            queue.repointIndexToSiblingRecord(ids[8].sequenceId, ids[9].sequenceId)
+
+            assertEquals(1, queue.size())
+            assertEquals("/item-10", queue.peek()?.meta?.url)
+
+            queue.remove(ids[8])
+
+            assertEquals("/item-10", queue.peek()?.meta?.url)
+            assertEquals(ids[9], queue.peek()?.id)
+        }
+
+    private fun DiskQueue.repointIndexToSiblingRecord(wrongId: Long, correctId: Long) {
+        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val map = field.get(this) as LinkedHashMap<Long, Long>
+        map[wrongId] = map.getValue(correctId)
+    }
+
+    private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
+        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val map = field.get(this) as LinkedHashMap<Long, Long>
+        val packedA = map.getValue(sequenceIdA)
+        val packedB = map.getValue(sequenceIdB)
+        map[sequenceIdA] = packedB
+        map[sequenceIdB] = packedA
+    }
+
+    /** After tests corrupt the queue file on disk, sync the generation counter so the next op
+     * does not rescan away from the corrupt entries this test expects [peek] to tombstone. */
     private fun DiskQueue.syncMetadataAfterExternalFileChange() {
-        val field = DiskQueue::class.java.getDeclaredField("lastKnownDiskModifiedAtMillis").apply {
+        val field = DiskQueue::class.java.getDeclaredField("lastKnownGeneration").apply {
             isAccessible = true
         }
         if (FileSystem.SYSTEM.exists(path)) {
-            field.set(this, FileSystem.SYSTEM.metadata(path).lastModifiedAtMillis)
+            field.setLong(this, DiskQueueIndexSync.readGenerationLocked(this))
         }
     }
 }
