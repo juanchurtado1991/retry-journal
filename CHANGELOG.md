@@ -4,6 +4,17 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+### Fixed (bug hunt round 17 — final 1.0.0)
+- `HeadReplayExecutor` writes the delivery journal **before** `DeadLetterQueue.record()` — crash after HTTP 4xx no longer forces a duplicate POST on recovery
+- `handleSuccessfulDelivery` aborts the replay claim when journal write throws — no 30-minute `HeadBlocked` wedge after a failed journal persist
+- Journal recovery skips redundant `record()` when the dead-letter journal already exists — `finishDeadLetteredFromJournal` / `finishDeliveredFromJournal` fast paths
+- `inspectHeadLocked()` atomically migrates legacy journals, peeks the head, reads the journal, and checks claims under one queue lock — fixes `getHeadState()` TOCTOU and legacy migration before first `flush()`
+- `GhostSync.shutdownLifecycle()` calls `diskQueue.closeForShutdown()` — rejects new queue work before HTTP clients tear down
+- `DiskQueue.closeForShutdown()` split from `close()` — matches engine/plugin/DLQ lifecycle pattern
+
+### Added
+- `BugHunt17Test` — 6 regression tests for journal ordering, recovery skip-HTTP, legacy migration, stale-claim UI state, and claim cleanup
+
 ## [1.0.0] - 2026-07-14
 
 First public release. **Breaking** — nothing was published before this; manual replay APIs were removed outright (not deprecated).

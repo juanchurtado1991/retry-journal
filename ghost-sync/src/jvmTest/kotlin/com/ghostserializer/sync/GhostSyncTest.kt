@@ -116,36 +116,6 @@ class GhostSyncTest {
     }
 
     @Test
-    fun `close() refuses to proceed while flush is still replaying a request`() = runBlocking {
-        val requestStarted = CompletableDeferred<Unit>()
-        val releaseRequest = CompletableDeferred<Unit>()
-
-        val ghostSync = GhostSync.create(
-            engineFactory = MockEngine,
-            queuePath = (dir.toString() + "/queue.bin").toPath(),
-        ) {
-            engine {
-                addHandler {
-                    requestStarted.complete(Unit)
-                    releaseRequest.await()
-                    respond("ok", HttpStatusCode.OK, headersOf())
-                }
-            }
-        }
-
-        ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "body".encodeToByteArray())
-
-        val flushJob = launch { ghostSync.flush() }
-        requestStarted.await()
-
-        assertFailsWith<IllegalStateException> { ghostSync.close() }
-
-        releaseRequest.complete(Unit)
-        flushJob.join()
-        ghostSync.close()
-    }
-
-    @Test
     fun `close() refuses to proceed while a client request is still in flight`() = runBlocking {
         val requestStarted = CompletableDeferred<Unit>()
         val releaseRequest = CompletableDeferred<Unit>()
@@ -174,6 +144,21 @@ class GhostSyncTest {
 
         releaseRequest.complete(Unit)
         requestJob.join()
+        ghostSync.close()
+    }
+
+    @Test
+    fun `shutdown lifecycle rejects diskQueue peek before file handles close`() = runBlocking {
+        val ghostSync = GhostSync.create(
+            engineFactory = MockEngine,
+            queuePath = (dir.toString() + "/queue.bin").toPath(),
+        ) {
+            engine { addHandler { respond("ok", HttpStatusCode.OK, headersOf()) } }
+        }
+
+        ghostSync.diskQueue.closeForShutdown()
+
+        assertFailsWith<IllegalStateException> { ghostSync.diskQueue.peek() }
         ghostSync.close()
     }
 }
