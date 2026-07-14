@@ -32,9 +32,11 @@ import okio.buffer
  * **Threading contract, two parts callers need to know:**
  * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
  *   so is [PlatformQueueFileLock]) on whatever thread the calling coroutine happens to be running
- *   on. Drive this class from [kotlinx.coroutines.Dispatchers.IO] (or an equivalently
- *   blocking-friendly dispatcher) — calling it from [kotlinx.coroutines.Dispatchers.Default]'s
- *   CPU-sized pool risks starving other CPU-bound work sharing that pool under real contention.
+ *   on. Drive this class from `Dispatchers.IO` (or an equivalently blocking-friendly dispatcher;
+ *   not linked here — it's declared for JVM/Native targets only, not in `commonMain`, so this
+ *   file can't reference it as a resolvable symbol) — calling it from
+ *   [kotlinx.coroutines.Dispatchers.Default]'s CPU-sized pool risks starving other CPU-bound work
+ *   sharing that pool under real contention.
  * - [close] is **not** synchronized with [Mutex] the way every other operation is: it's a plain,
  *   non-suspending function (matching the `Closeable`-style contract
  *   [com.ghostserializer.sync.GhostSync] implements), so
@@ -77,7 +79,7 @@ class DiskQueue(
     private var nextSequenceId = 0L
     private var opened = false
     private var closed = false
-    private var lastKnownDiskMtime: Long? = null
+    private var lastKnownDiskModifiedAtMillis: Long? = null
 
     private var scrubScratch = LongArray(8)
     private var scrubScratchCount = 0
@@ -97,7 +99,9 @@ class DiskQueue(
         }
     }
 
-    private suspend inline fun <T> withQueueLock(crossinline block: () -> T): T = mutex.withLock {
+    private suspend inline fun <T> withQueueLock(
+        crossinline block: () -> T
+    ): T = mutex.withLock {
         processLock.acquire()
         try {
             refreshIndexIfNeededLocked()
@@ -119,15 +123,15 @@ class DiskQueue(
             return
         }
         if (!fileSystem.exists(path)) {
-            if (fileLength != 0L || lastKnownDiskMtime != null) {
+            if (fileLength != 0L || lastKnownDiskModifiedAtMillis != null) {
                 rescanFromDiskLocked()
             }
             return
         }
         val metadata = fileSystem.metadata(path)
         val diskSize = metadata.size ?: 0L
-        val diskMtime = metadata.lastModifiedAtMillis
-        if (diskSize == fileLength && diskMtime == lastKnownDiskMtime) {
+        val diskModifiedAtMillis = metadata.lastModifiedAtMillis
+        if (diskSize == fileLength && diskModifiedAtMillis == lastKnownDiskModifiedAtMillis) {
             return
         }
         rescanFromDiskLocked()
@@ -146,10 +150,10 @@ class DiskQueue(
 
     private fun captureDiskMetadataLocked() {
         if (!fileSystem.exists(path)) {
-            lastKnownDiskMtime = null
+            lastKnownDiskModifiedAtMillis = null
             return
         }
-        lastKnownDiskMtime = fileSystem.metadata(path).lastModifiedAtMillis
+        lastKnownDiskModifiedAtMillis = fileSystem.metadata(path).lastModifiedAtMillis
     }
 
     suspend fun enqueue(

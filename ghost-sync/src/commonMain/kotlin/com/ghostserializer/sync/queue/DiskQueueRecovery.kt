@@ -51,30 +51,30 @@ internal object DiskQueueRecovery {
                 RecordScanCodec.scanRecord(currentSource, maxRecordFieldSize, scanBuffer, scanResult)
                 when (scanResult.type) {
                     RecordScanResult.TYPE_LIVE -> {
-                        val seqId = scanResult.sequenceId
-                        val len = scanResult.recordLength
-                        liveOffsetsBySequence[seqId] = PackedIndexEntry.pack(len, offset)
-                        if (seqId >= nextSequenceId) {
-                            nextSequenceId = seqId + 1
+                        val sequenceId = scanResult.sequenceId
+                        val recordLength = scanResult.recordLength
+                        liveOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(recordLength, offset)
+                        if (sequenceId >= nextSequenceId) {
+                            nextSequenceId = sequenceId + 1
                         }
-                        offset += len
+                        offset += recordLength
                         lastValidOffset = offset
                     }
 
                     RecordScanResult.TYPE_TOMBSTONE -> {
-                        val targetSeqId = scanResult.sequenceId
-                        val len = scanResult.recordLength
-                        val packed = liveOffsetsBySequence.remove(targetSeqId)
+                        val targetSequenceId = scanResult.sequenceId
+                        val recordLength = scanResult.recordLength
+                        val packed = liveOffsetsBySequence.remove(targetSequenceId)
                         if (packed != null) {
                             val deadLength = PackedIndexEntry.unpackLength(packed)
-                            deadBytes += deadLength + len
+                            deadBytes += deadLength + recordLength
                         }
 
-                        if (targetSeqId >= nextSequenceId) {
-                            nextSequenceId = targetSeqId + 1
+                        if (targetSequenceId >= nextSequenceId) {
+                            nextSequenceId = targetSequenceId + 1
                         }
 
-                        offset += len
+                        offset += recordLength
                         lastValidOffset = offset
                     }
 

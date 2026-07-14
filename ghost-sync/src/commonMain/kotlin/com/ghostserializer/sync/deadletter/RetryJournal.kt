@@ -61,16 +61,16 @@ internal object RetryJournal {
                 val names = ArrayList<String>(headersSize)
                 val values = ArrayList<String>(headersSize)
                 for (i in 0 until headersSize) {
-                    val kLen = readInt()
-                    if (kLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                    val headerNameLength = readInt()
+                    if (headerNameLength !in 0..MAX_RECORD_FIELD_SIZE) {
                         return@read null
                     }
-                    names.add(readUtf8(kLen.toLong()))
-                    val vLen = readInt()
-                    if (vLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                    names.add(readUtf8(headerNameLength.toLong()))
+                    val headerValueLength = readInt()
+                    if (headerValueLength !in 0..MAX_RECORD_FIELD_SIZE) {
                         return@read null
                     }
-                    values.add(readUtf8(vLen.toLong()))
+                    values.add(readUtf8(headerValueLength.toLong()))
                 }
 
                 val bodyLen = readInt()
