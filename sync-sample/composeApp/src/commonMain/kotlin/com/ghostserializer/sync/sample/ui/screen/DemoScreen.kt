@@ -47,7 +47,11 @@ internal fun DemoScreen() {
             onToggle = state::onServerToggleClick,
         )
 
-        StatsRow(pending = state.queueSize, deadLettered = state.deadLetterSize)
+        StatsRow(
+            pending = state.queueSize,
+            deadLettered = state.deadLetterSize,
+            headStateLabel = state.headStateLabel,
+        )
 
         QueueVisualization(chips = state.queueChips)
 

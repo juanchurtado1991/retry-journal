@@ -17,6 +17,7 @@ internal fun StatCard(
     title: String,
     value: Int,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     Card(modifier = modifier) {
         Column(
@@ -33,6 +34,13 @@ internal fun StatCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }

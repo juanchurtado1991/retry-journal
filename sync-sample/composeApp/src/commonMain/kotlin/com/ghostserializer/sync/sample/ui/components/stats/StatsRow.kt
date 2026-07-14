@@ -8,11 +8,16 @@ import com.ghostserializer.sync.sample.app.AppStrings
 import com.ghostserializer.sync.sample.ui.theme.AppDimens
 
 @Composable
-internal fun StatsRow(pending: Int, deadLettered: Int) {
+internal fun StatsRow(
+    pending: Int,
+    deadLettered: Int,
+    headStateLabel: String? = null,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.STAT_CARD_SPACING)) {
         StatCard(
             title = AppStrings.STAT_PENDING_TITLE,
             value = pending,
+            subtitle = headStateLabel,
             modifier = Modifier.weight(1f),
         )
         StatCard(

@@ -21,6 +21,8 @@ internal fun QueueChip(
 ) {
     val targetColor = when (chip.status) {
         ChipStatus.Pending -> MaterialTheme.colorScheme.surfaceVariant
+        ChipStatus.AwaitingLocalRemoval -> MaterialTheme.colorScheme.primaryContainer
+        ChipStatus.HeadBlocked -> MaterialTheme.colorScheme.tertiary
         ChipStatus.Delivered -> MaterialTheme.colorScheme.primary
         ChipStatus.DeadLettered -> MaterialTheme.colorScheme.error
     }

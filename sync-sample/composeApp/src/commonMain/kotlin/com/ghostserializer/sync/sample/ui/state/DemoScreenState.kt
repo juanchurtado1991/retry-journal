@@ -45,6 +45,9 @@ internal class DemoScreenState(
     var queueChips by mutableStateOf<List<QueueChipUiState>>(emptyList())
         private set
 
+    var headStateLabel by mutableStateOf<String?>(null)
+        private set
+
     val logEntries = mutableStateListOf<ActivityLogEntry>()
 
     fun log(message: String, kind: LogKind = LogKind.Info) {
@@ -55,10 +58,11 @@ internal class DemoScreenState(
     }
 
     suspend fun refreshCounts() {
-        val (pending, chips) = refreshQueueSnapshot()
-        queueSize = pending
+        val snapshot = refreshQueueSnapshot()
+        queueSize = snapshot.pending
         deadLetterSize = deadLetterCount()
-        queueChips = chips
+        queueChips = snapshot.chips
+        headStateLabel = snapshot.headStateLabel
     }
 
     suspend fun checkServerStatus() {

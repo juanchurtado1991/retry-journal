@@ -15,6 +15,9 @@ internal object AppStrings {
 
     const val STAT_PENDING_TITLE: String = "Pending"
     const val STAT_DEAD_LETTERED_TITLE: String = "Dead-lettered"
+    const val HEAD_STATE_AWAITING_REPLAY: String = "Head: awaiting replay"
+    const val HEAD_STATE_AWAITING_LOCAL_REMOVAL: String = "Head: finishing local removal"
+    const val HEAD_STATE_BLOCKED: String = "Head: blocked (another process)"
 
     const val SEND_BUTTON_PREFIX: String = "Send "
     const val SEND_BUTTON_SUFFIX: String = " JSON requests"
