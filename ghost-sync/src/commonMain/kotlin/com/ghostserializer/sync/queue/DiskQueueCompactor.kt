@@ -57,7 +57,7 @@ internal object DiskQueueCompactor {
                     val source = readHandle.source(offset).buffer()
                     try {
                         when (val result = RecordCodec.readRecord(source, maxRecordFieldSize)) {
-                            is RecordReadResult.Live -> {
+                            is RecordReadResult.Live -> if (result.sequenceId == sequenceId) {
                                 val written = RecordCodec.writeLive(
                                     sink,
                                     sequenceId,
@@ -66,6 +66,9 @@ internal object DiskQueueCompactor {
                                 )
                                 newOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(written, newOffset)
                                 newOffset += written
+                            } else {
+                                val writtenTombstone = RecordCodec.writeTombstone(sink, sequenceId)
+                                newOffset += writtenTombstone
                             }
 
                             else -> {

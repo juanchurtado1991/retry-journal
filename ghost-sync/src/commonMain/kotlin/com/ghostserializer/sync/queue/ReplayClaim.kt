@@ -43,11 +43,14 @@ internal object ReplayClaim {
     }
 
     fun write(fileSystem: FileSystem, claimPath: Path, sequenceId: Long, claimedAtMillis: Long) {
-        fileSystem.write(claimPath) {
+        val tempPath = (claimPath.toString() + DiskQueueConstants.REPLAY_CLAIM_TEMP_SUFFIX).toPath()
+        fileSystem.delete(tempPath, mustExist = false)
+        fileSystem.write(tempPath) {
             writeUtf8(sequenceId.toString())
             writeByte(DiskQueueConstants.NEWLINE_BYTE)
             writeUtf8(claimedAtMillis.toString())
         }
+        fileSystem.atomicMove(tempPath, claimPath)
     }
 
     fun delete(fileSystem: FileSystem, claimPath: Path) {
