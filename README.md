@@ -1,6 +1,8 @@
 # 👻 ghost-sync
 
-**Offline-first HTTP sync engine for Kotlin Multiplatform.** 
+**Offline-first HTTP sync engine for Kotlin Multiplatform.**
+
+*Tape-inspired append-only durability, built for offline HTTP replay in KMP.*
 
 `ghost-sync` automatically captures HTTP requests made while offline (or during connectivity drops), saves them safely to disk, and replays them automatically once connection is restored.
 

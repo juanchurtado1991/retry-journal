@@ -26,7 +26,7 @@ import io.ktor.http.content.ByteArrayContent
  */
 internal class HttpReplayer {
 
-    /** [flush] calls this eagerly so a misconfigured client fails immediately, even against an
+    /** flush calls this eagerly so a misconfigured client fails immediately, even against an
      * empty queue; [send] also calls it so a caller driving its own [GhostSyncEngine.getStatus]
      * loop can't skip it. Replaying through a client that re-queues its own failures would
      * duplicate every entry that fails again mid-replay — see
