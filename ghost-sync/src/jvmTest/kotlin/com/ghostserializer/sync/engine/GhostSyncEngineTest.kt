@@ -12,6 +12,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.ForwardingFileSystem
@@ -19,6 +21,7 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.Sink
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -44,6 +47,33 @@ class GhostSyncEngineTest {
     @AfterTest
     fun tearDown() {
         FileSystem.SYSTEM.deleteRecursively(dir, mustExist = false)
+    }
+
+    @Test
+    fun `concurrent flush calls replay each queued entry exactly once`() = runBlocking {
+        repeat(3) { index ->
+            queue.enqueue(
+                "POST",
+                "https://example.com/$index",
+                FrozenHttpHeaders.EMPTY,
+                "payload-$index".encodeToByteArray(),
+            )
+        }
+        val replayCount = AtomicInteger(0)
+        val client = HttpClient(
+            MockEngine {
+                replayCount.incrementAndGet()
+                respond("ok", HttpStatusCode.OK, headersOf())
+            },
+        )
+
+        coroutineScope {
+            launch { engine.flush(client) }
+            launch { engine.flush(client) }
+        }
+
+        assertEquals(3, replayCount.get())
+        assertTrue(queue.isEmpty())
     }
 
     @Test
@@ -229,6 +259,24 @@ class GhostSyncEngineTest {
         engine.flush(client)
 
         assertEquals("application/x-ghost", replayedContentType)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `a stored HTTP method that no longer parses does not permanently stall the queue`() = runBlocking {
+        // Same stall pattern Content-Type had before parseContentTypeOrNull — HttpMethod.parse()
+        // throwing here would wedge every future flush() behind this entry forever.
+        queue.enqueue(
+            "NOT_A_REAL_METHOD",
+            "https://example.com/malformed-method",
+            FrozenHttpHeaders.EMPTY,
+            "body".encodeToByteArray(),
+        )
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val result = engine.flush(client)
+
+        assertEquals(FlushResult(delivered = 1, deadLettered = 0, stoppedEarly = false), result)
         assertTrue(queue.isEmpty())
     }
 
