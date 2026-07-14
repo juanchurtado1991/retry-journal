@@ -52,7 +52,33 @@ El sample usa `ktor-client-darwin` en `iosMain`. Confirmar que:
 
 ---
 
-## 4. Tests iOS (recomendado — cerrar deuda)
+## 4. Cobertura de tests (JVM)
+
+Kover mide **solo `commonMain` + `jvmMain`** durante `jvmTest`. Los source sets `androidMain` e `iosMain` están excluidos del gate porque no tienen unit tests en CI Linux (ver §4 tests iOS y deuda Android abajo).
+
+| Target | Medido en CI | Gate |
+|--------|--------------|------|
+| JVM (`jvmTest`) | Sí | ≥ 90 % líneas |
+| Android (`androidMain`) | No | — |
+| iOS (`iosMain`) | No | — |
+
+Comandos locales:
+
+```bash
+./gradlew :ghost-sync:jvmTest
+./gradlew ciCoverage          # gate Kover
+./gradlew :ghost-sync:koverHtmlReport   # ghost-sync/build/reports/kover/html/index.html
+```
+
+Los serializers KSP (`*Serializer` en `com.ghostserializer.sync.queue`) y el paquete `com.ghost.serialization.generated` están excluidos del informe — se ejercitan indirectamente vía `Ghost.encodeToBytes` / `DiskQueue`.
+
+### Android (deuda)
+
+No hay `androidUnitTest` hoy. Cuando exista, añadir `:ghost-sync:testDebugUnitTest` a CI y revisar si el gate Kover debe incluir `androidMain`.
+
+---
+
+## 5. Tests iOS (recomendado — cerrar deuda)
 
 Hoy **no hay tests nativos iOS**. Opciones para cerrar la deuda:
 
@@ -70,7 +96,7 @@ Crear `ghost-sync/src/iosTest/` con al menos:
 
 ---
 
-## 5. Publicación Maven — artefactos iOS (antes del primer release)
+## 6. Publicación Maven — artefactos iOS (antes del primer release)
 
 Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS aparecen en el staging:
 
@@ -85,7 +111,7 @@ Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS a
 
 ---
 
-## 6. Checklist final en Mac
+## 7. Checklist final en Mac
 
 | # | Tarea | Estado |
 |---|-------|--------|

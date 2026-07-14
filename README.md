@@ -1,50 +1,73 @@
 # 👻 ghost-sync
 
-**Offline-first HTTP sync engine for Kotlin Multiplatform.**
+**Never lose an HTTP request because the network dropped.**
 
-*Tape-inspired append-only durability, built for offline HTTP replay in KMP.*
+Offline-first HTTP sync for **Kotlin Multiplatform** — Android, iOS, and JVM. Your user taps “Send” on a mountain with no signal? The request is **saved to disk**. When Wi‑Fi comes back and your app runs sync, it **goes out exactly as they sent it** — JSON, photos, multipart uploads, all of it.
 
-`ghost-sync` automatically captures HTTP requests made while offline (or during connectivity drops), saves them safely to disk, and replays them automatically once connection is restored.
-
----
-
-## ✨ Features
-
-- 📦 **No Database Needed**: Uses a single, fast, append-only file instead of heavy SQL tables.
-- ⚡ **No Scheduler Lock-in**: Run `flush()` anywhere (coroutine loops, WorkManager, button clicks).
-- 🔄 **Compatible with Any Serializer**: Works with Ghost, kotlinx.serialization, or custom JSON.
-- 📁 **Supports Files & Images**: Captures full multipart payloads exactly as they left the client.
-- 🛡️ **Crash-Safe**: CRC32 checks on every record automatically repair any partial write crashes.
-- 📬 **Dead Letter Queue (DLQ)**: Easily inspect and retry requests rejected by the server.
+No SQL database. No vendor lock-in on schedulers. Works with **Ghost**, **kotlinx.serialization**, or any Ktor body you already use.
 
 ---
 
-## 🚀 How it Works
+## The problem you already know
+
+| Without ghost-sync | With ghost-sync |
+|---|---|
+| User offline → request fails, data lost or manual retry UX | User offline → request **queued on disk**, clear “saved for later” UX |
+| App killed mid-request → maybe nothing persisted | **Crash-safe** append-only file + CRC recovery |
+| Background worker + UI both sync → duplicate POSTs | **Cross-process locks** + replay claims |
+| Server returns 400 → infinite retry loop | **Dead letter queue** — inspect, retry, or discard |
+
+---
+
+## Real-world flow (e.g. hiking, subway, airplane mode)
 
 ```
-Your App ────────▶ HttpClient.post(...)
-                       │
-             ┌─────────┴─────────┐
-             ▼                   ▼
-          [Online]           [Offline]
-             │                   │
-             ▼                   ▼
-         Delivered           DiskQueue (Saved to disk)
-                                 │
-                                 ▼ (GhostSyncEngine.flush())
-                             Replay Request
+1. User has no signal
+      ↓
+2. They post an order or upload a photo with ghostSync.client
+      ↓
+3. Network throws → plugin saves method, URL, headers, body bytes to disk
+      ↓
+4. App catches OfflineQueuedException → show “Saved — will sync when online”
+      ↓
+5. User gets Wi‑Fi again
+      ↓
+6. YOUR APP calls ghostSync.flush()  ← you wire this (WorkManager, NetworkCallback, etc.)
+      ↓
+7. Requests replay in order → 2xx removes from queue, done ✓
 ```
 
-### Response Replay Outcomes:
-- **`2xx` (Success)**: Request delivered and removed from the queue.
-- **`4xx` (Client Error)**: Server rejected the request; it is moved to the **DeadLetterQueue** so you can inspect/fix it.
-- **`5xx` or `IOException` (Server/Network Error)**: Senders wait and try again on the next `flush()`.
+**Important:** ghost-sync **persists** offline work and **replays** it when you call `flush()`. It does **not** watch the network by itself — you choose *when* to sync (background job on connectivity, periodic worker, “Sync now” button). That keeps the library small and lets *you* control battery and UX.
+
+See the [sample app](sync-sample/README.md) for a working demo (toggle server off → upload → toggle on → sync).
 
 ---
 
-## 📦 Installation
+## What happens on replay?
 
-Add `ghost-sync` to your Kotlin Multiplatform project:
+| Server / network result | What ghost-sync does |
+|---|---|
+| **2xx Success** | Delivered — removed from the queue |
+| **4xx Client error** (e.g. 400) | Moved to **Dead Letter Queue** — fix data or discard; no infinite retry |
+| **5xx or network error again** | Stays on queue — try again on the next `flush()` |
+
+Replay is **at-least-once**: if the server already accepted a 2xx but the app crashed before the entry was removed, the next `flush()` may send it again. Use **idempotent APIs** or server-side dedup keys for payments and other sensitive mutations.
+
+---
+
+## Features
+
+- **Single append-only queue file** — fast, no Room/SQLite for the sync pipeline
+- **Any serializer** — your JSON layer is separate; the queue stores raw wire bytes
+- **Files & multipart** — image uploads captured offline, replayed byte-for-byte
+- **Crash-safe** — CRC32 on every record; recovery after partial writes
+- **Dead Letter Queue** — UI-friendly list of server-rejected requests
+- **Cross-process safe** — app + background worker can share one queue file
+- **Scheduler-agnostic** — call `flush()` from WorkManager, coroutines, or a button
+
+---
+
+## Installation
 
 ```kotlin
 // libs.versions.toml
@@ -59,85 +82,139 @@ dependencies {
 }
 ```
 
-*Supported targets: `android`, `iosArm64`, `iosSimulatorArm64`, and `jvm`.*
+**Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`.
 
-> **iOS note:** iOS targets compile on macOS only. Verification steps are tracked in [`ios_techdebt.md`](ios_techdebt.md).
-
-### Important constraints
-- **Cross-process safe:** multiple processes can share the same queue file — `DiskQueue` acquires an advisory lock at `<queuePath>.lock` on every operation, and `flush()` writes a short-lived replay claim at `<queuePath>.replay-claim` so two processes cannot both replay the same head entry at once.
-- **At-least-once replay:** a `flush()` cancelled after the server already returned 2xx but before the entry is removed may deliver the same request again on the next `flush()`. Use idempotent endpoints or server-side dedup keys for non-idempotent mutations.
-- **Close guards are synchronized:** `close()` on `DiskQueue`, `GhostSyncEngine`, `GhostOfflineQueuePlugin`, and `GhostSync` uses an internal lifecycle gate so new operations cannot start in the window between an in-flight check and marking the instance closed (the usual TOCTOU race).
-- **Version `0.1.0`:** pre-release — see [CHANGELOG.md](CHANGELOG.md) for known limitations.
+> **iOS:** Kotlin/Native targets build on macOS. Checklist for device verification: [`ios_techdebt.md`](ios_techdebt.md).
 
 ---
 
-## ⚡ Quick Start
+## Quick start (3 steps)
 
-### 1. Initialize GhostSync
-Create a `GhostSync` instance. This automatically wires the `DiskQueue`, `DeadLetterQueue`, and the sync client:
+### 1. Create `GhostSync`
+
+One call wires the disk queue, dead-letter store, sync engine, and Ktor client with the offline plugin:
 
 ```kotlin
 val ghostSync = GhostSync.create(
-    engineFactory = CIO, // CIO, OkHttp, Darwin, etc.
-    queuePath = "/path/to/app/ghost-sync-queue.bin".toPath(),
+    engineFactory = CIO, // OkHttp on Android, Darwin on iOS, CIO on JVM, …
+    queuePath = dataDir.resolve("ghost-sync-queue.bin"),
 ) {
-    // Configure your ContentNegotiation, auth headers, logging, etc.
-    install(ContentNegotiation) { ghost() }
+    install(ContentNegotiation) { json() } // or ghost(), etc.
+    // logging, auth, timeouts — your usual HttpClient config
 }
 ```
 
-### 2. Make Network Requests
-Use the `ghostSync.client` just like a regular Ktor `HttpClient`:
+### 2. Send requests with `ghostSync.client`
+
+Use it like any Ktor client. Only **connectivity failures** (`IOException`) are queued — not HTTP 4xx/5xx from a live connection.
 
 ```kotlin
 try {
     ghostSync.client.post("https://api.example.com/orders") {
         contentType(ContentType.Application.Json)
-        setBody(CreateOrder("sku-123", 2))
+        setBody(CreateOrder("sku-123", qty = 2))
     }
-} catch (e: OfflineQueuedException) {
-    // We are offline! Request is safely queued on disk and will retry later.
+    showMessage("Order sent")
+} catch (_: OfflineQueuedException) {
+    // Queued on disk — safe across app restarts
+    showMessage("No connection — saved. We'll sync when you're back online.")
 }
 ```
 
-### 3. Sync Pending Requests
-Trigger queue replay whenever connectivity is restored:
+### 3. Sync when the network is back — `flush()`
+
+Call this when **you** decide there is connectivity (see [Scheduling](#scheduling-flush-when-wifi-returns) below):
 
 ```kotlin
 val result = ghostSync.flush()
-println("Delivered: ${result.delivered}, Failed: ${result.deadLettered}")
+// result.delivered      — sent successfully this run
+// result.deadLettered   — server rejected (now in DLQ)
+// result.stoppedEarly   — still offline or 5xx; run flush again later
 ```
 
 ---
 
-## 📬 Handling Failed Requests (Dead Letters)
+## Scheduling flush when Wi‑Fi returns
 
-When the server actively rejects a request (e.g. returns a `400 Bad Request`), it is sent to the `DeadLetterQueue` instead of being retried forever. You can easily build a "Failed Syncs" UI:
+This is the piece every production app needs. Examples:
 
 ```kotlin
-val failedRequests = mutableListOf<DeadLetterEntry>()
-ghostSync.deadLetterQueue.peekAll(failedRequests)
+// A) Android: WorkManager when network is available
+class SyncWorker(/* inject GhostSync */) : CoroutineWorker(...) {
+    override suspend fun doWork(): Result {
+        val result = ghostSync.flush()
+        return if (result.stoppedEarly) Result.retry() else Result.success()
+    }
+}
 
-// Retry a specific request
-ghostSync.deadLetterQueue.retry(failedRequests.first().id)
+// B) Simple polling while app is active
+lifecycleScope.launch {
+    while (isActive) {
+        ghostSync.flush()
+        delay(15.minutes)
+    }
+}
 
-// Discard it forever
-ghostSync.deadLetterQueue.discard(failedRequests.first().id)
+// C) Manual “Sync now” in settings or after ConnectivityManager callback
+syncButton.setOnClickListener {
+    lifecycleScope.launch {
+        val r = ghostSync.flush()
+        showSnackbar("Synced ${r.delivered} requests")
+    }
+}
 ```
+
+The [sync-sample](sync-sample/README.md) uses **kmpworkmanager** so sync can run in a background worker — copy that pattern or use your own.
 
 ---
 
-## 📂 Capturing Files & Multipart Data
+## GhostSyncRuntime (optional coordinator)
 
-`ghost-sync` automatically captures raw request bytes. This means you can queue image uploads offline without losing them:
+If multiple callers can trigger sync (UI button, `WorkManager`, connectivity callback), use
+`GhostSyncRuntime` to **serialize `flush()`** and optionally **auto-flush when your app reports
+online**:
+
+```kotlin
+val connectivity = callbackFlow {
+    // YOUR platform code: ConnectivityManager, NWPathMonitor, health check, …
+    awaitClose { }
+}
+
+val runtime = GhostSync.createRuntime(
+    ghostSync = ghostSync,
+    scope = lifecycleScope,
+    connectivity = connectivity, // optional — omit for manual flush only
+)
+
+runtime.start(autoFlushOnOnline = true)
+
+// UI or worker — same entry point, concurrency-safe
+runtime.flush()
+runtime.flushWhenOnline() // no-op (returns null) while offline
+
+// logout / process teardown
+runtime.shutdown()
+```
+
+If you wire [GhostSyncEngine] and a replay [HttpClient] yourself (e.g. separate live vs replay
+clients in the sample), use `GhostSyncRuntime.createForEngine(engine, replayClient, scope, connectivity)`.
+
+**The library does not observe the network or schedule background work** — you supply the
+`Flow<Boolean>`. WorkManager / BGTask stay in your app (see [sync-sample](sync-sample/README.md)).
+
+---
+
+## File & image uploads offline
+
+The plugin captures **whatever bytes** Ktor would have sent — including `MultiPartFormDataContent`:
 
 ```kotlin
 ghostSync.client.post("https://api.example.com/upload") {
     setBody(
         MultiPartFormDataContent(
             formData {
-                append("image", imageBytes, Headers.build {
-                    append(HttpHeaders.ContentDisposition, "filename=\"profile.jpg\"")
+                append("photo", imageBytes, Headers.build {
+                    append(HttpHeaders.ContentDisposition, "filename=\"trail.jpg\"")
                 })
             }
         )
@@ -145,53 +222,84 @@ ghostSync.client.post("https://api.example.com/upload") {
 }
 ```
 
+Same `OfflineQueuedException` flow — when `flush()` runs on Wi‑Fi, the upload is replayed.
+
+**Size limit:** each queued meta/body field defaults to **64 MiB** (`maxRecordFieldSize` in `GhostSync.create`). Larger uploads fail closed with `BodyCaptureException` instead of silently truncating.
+
 ---
 
-## ⏱️ Scheduling Flushes
+## Dead letters (server said no)
 
-You can trigger `flush()` using any scheduler or logic:
+When replay gets a **non-retry-worthy 4xx**, the request moves to the dead letter queue instead of blocking everything behind it:
 
 ```kotlin
-// Option A: Simple background loop
-while (isActive) {
-    delay(15.minutes)
-    ghostSync.flush()
-}
+val failed = mutableListOf<DeadLetterEntry>()
+ghostSync.deadLetterQueue.peekAll(failed)
 
-// Option B: Integration with WorkManager
-class SyncWorker(private val ghostSync: GhostSync) : CoroutineWorker(...) {
-    override suspend fun doWork(): Result {
-        val result = ghostSync.flush()
-        return if (result.stoppedEarly) Result.retry() else Result.success()
-    }
-}
+// Let the user fix and retry
+ghostSync.deadLetterQueue.retry(failed.first().id)
+
+// Or discard permanently
+ghostSync.deadLetterQueue.discard(failed.first().id)
+```
+
+Build a “Failed uploads” or “Sync issues” screen from `peekAll()`.
+
+---
+
+## What you build vs what the library gives you
+
+| You provide | ghost-sync provides |
+|---|---|
+| When to call `flush()` (network callback, worker, UI) | Durable queue on disk |
+| UX for `OfflineQueuedException` | Capture headers + body on connectivity failure |
+| Idempotent server APIs (recommended) | Ordered replay, DLQ, crash recovery |
+| Ktor `HttpClient` config (auth, JSON, etc.) | Engine that replays without re-queuing |
+
+---
+
+## Guarantees & honest limits
+
+**Designed for:** offline / flaky mobile networks, one queue file per app, cooperative processes (UI + background worker), local or reliable storage.
+
+| ✅ Strong | ⚠️ Know this |
+|---|---|
+| Survives app kill mid-queue | **At-least-once** delivery — plan for duplicates on critical mutations |
+| Two processes won’t double-replay the same head entry | **You** must call `flush()` after reconnect — not automatic network listening |
+| Corrupt tail records recovered via scan | Default **64 MiB** max per field — raise `maxRecordFieldSize` if needed |
+| Slow uploads keep replay claims alive (renewal during send) | **4xx** → dead letter, not retry forever |
+| | Advisory file locks — exotic network filesystems (some NFS setups) may differ |
+
+Full change history: [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## Build & test
+
+```bash
+./gradlew ciTestJvm ciCompile    # Linux CI parity
+./gradlew :ghost-sync:jvmTest   # library unit tests only
+./gradlew ciCoverage            # Kover gate (≥90% JVM)
+```
+
+Try the demo:
+
+```bash
+./gradlew :sync-sample:composeApp:run
 ```
 
 ---
 
-## 🛠️ Build & Test
+## Publishing
 
-Run the full Linux-verifiable CI suite locally:
-```bash
-./gradlew ciTestJvm ciCompile
-```
-
-JVM unit tests only:
-```bash
-./gradlew :ghost-sync:jvmTest
-```
-
-### Publishing to Maven Central
-
-Requires Sonatype credentials and GPG signing in `~/.gradle/gradle.properties`:
-```properties
-sonatypeUsername=...
-sonatypePassword=...
-signing.keyId=...
-signing.password=...
-signing.secretKeyRingFile=...
-```
+Sonatype + GPG in `~/.gradle/gradle.properties`, then:
 
 ```bash
 ./gradlew publishToMavenCentral
 ```
+
+---
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).

@@ -12,7 +12,7 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - GitHub Actions CI (`ciTestJvm` + multi-target compile)
 - Maven Central publish wiring via `com.vanniktech.maven.publish`
 - Apache 2.0 LICENSE
-- 97 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- 103 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
 - `ReplayClaim` — cross-process `<queuePath>.replay-claim` marker so two processes sharing a queue file cannot both replay the same head entry and duplicate a non-idempotent POST
 - `LifecycleGate` — serializes `enter`/`leave` against `close()` on [DiskQueue], [GhostSyncEngine], and [GhostOfflineQueuePlugin], eliminating the TOCTOU window where `close()` could proceed while a new operation was starting
 - `GhostSyncEngine.getEntryAndStatus()` reads head entry and queue status under the same replay [Mutex] as `flush()`, closing duplicate manual-replay footguns
@@ -70,6 +70,59 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `RequestCapture` bounds streamed body reads to [DiskQueue.maxRecordFieldSize] before enqueue, failing closed with [BodyCaptureException] instead of OOMing on oversized uploads
 - `ReplayClaim.write` uses temp-file + atomic rename so a crash mid-write cannot be misread as "no claim" and allow a duplicate replay
 - `DiskQueueCompactor` rejects on-disk records whose sequence id does not match the index entry, matching [readLiveEntryAtLocked]'s guard
+
+### Fixed (bug hunt round 8)
+- `GhostSyncEngine.getStatus` clears the [ReplayClaim] on any replay failure, not only [IOException] — a [RuntimeException] no longer leaves the head blocked for up to 15 minutes
+- `DiskQueue.remove` rejects removing an entry that another process has actively claimed for replay; [completeHeadReplay] still removes under its own claim via [removeLocked]
+- `DiskQueue.completeHeadReplay` clears the [ReplayClaim] in `finally` even when validation throws before removal starts
+- `DeadLetterQueue` recovery completes an in-flight `retry()` when the journal exists but the entry is still in dead-letter storage (crash after journal write, before `storage.remove`)
+- `DiskQueueCompactor.planCompaction` aborts without swapping when an indexed record's on-disk sequence id mismatches, instead of silently dropping the live entry
+- `ReplayClaim.isStale` treats future-dated claim timestamps as stale so a corrupt clock value cannot block the queue forever
+- `RetryJournal.write` uses temp-file + atomic rename, matching [ReplayClaim]'s durability pattern
+- `RequestCapture` copies [OutgoingContent.ByteArrayContent] bytes instead of retaining a reference to the caller's buffer
+
+### Fixed (bug hunt round 9)
+- `DeadLetterQueue.discard` and `retry` share [retryMutex] so a concurrent discard cannot be undone by an in-flight retry re-enqueuing onto the main queue
+- `DeadLetterQueue.retry` runs inline journal recovery when `mainQueue.enqueue` fails, instead of marooning the entry until a new process starts
+- `DeadLetterQueue.record` deduplicates under [retryMutex] so concurrent identical records cannot create duplicate dead-letter entries
+- `GhostSyncEngine.getEntry` respects the shutdown [LifecycleGate], matching `flush()` and `getEntryAndStatus()`
+- `DiskQueue.enqueue` truncates the file back to its pre-append offset when the append flush fails, matching tombstone rollback in [removeLocked]
+
+### Fixed (bug hunt round 10)
+- `DeadLetterQueue.discard` deletes the retry journal before recovery so an orphan journal cannot resurrect a discarded entry onto the main queue
+- `DeadLetterQueue.recoverSingleJournalFile` deletes retry journal files whose id suffix is not a valid number
+- `DeadLetterQueue` uses [LifecycleGate] for in-flight operations; [GhostSync.close] calls `closeForShutdown()` on the DLQ before closing queues
+- `GhostOfflineQueuePlugin` rethrows disk enqueue failures instead of masking them as [OfflineQueuedException]
+- `HttpReplayer.send` drains the response body in `finally` so replay does not leak Ktor connections
+
+### Fixed (cross-process index, replay claims)
+- `DiskQueue` tracks a monotonic `.gen` sidecar instead of mtime+size alone so cross-process index refresh cannot miss same-length writes
+- `DiskQueue.completeHeadReplay` requires an active [ReplayClaim] matching the entry — no head removal without a prior `prepareHeadForReplay()`
+- `GhostSyncEngine` renews the cross-process replay claim every five minutes during an in-flight HTTP round-trip so slow uploads are not capped by the stale-claim window; stale claims now mean "no renewal for 30 minutes" (crash artifact), not a fixed upload time limit
+
+### Fixed (bug hunt round 11 — final)
+- `DiskQueueScrubOps.scrubUnreadableEntriesLocked` bumps the `.gen` sidecar after bulk tombstoning so a second process cannot keep a stale in-memory index and miss scrubbed slots
+- `DiskQueue.get` tombstones unreadable index slots (CRC/sequence mismatch) instead of returning `null` while leaving ghost entries that block `size()`/`peek()`
+- `GhostSyncEngine.handleDeadLetterDelivery` rethrows [CancellationException] after clearing the replay claim instead of treating cooperative cancellation as a flush stop
+- `DeadLetterQueue.retry` rethrows [CancellationException] instead of running inline journal recovery as if enqueue had failed with I/O
+
+### Fixed (bug hunt round 12 — pre-release)
+- `DiskQueueIndexSync.refreshIfNeededLocked` rescans when on-disk file size diverges from the cached length even if `.gen` unchanged — covers crash after append flush but before generation bump
+- `DeadLetterQueue.retry` and `discard` serialize cross-process via `.dlq-retry.lock` so two processes cannot duplicate a retry onto the main queue
+- `GhostSyncEngine.withReplayClaimRenewal` uses `cancelAndJoin()` so a renewal coroutine cannot resurrect a claim after abort/complete
+- Scrub, `get()`, and head-scan skip tombstoning sequence ids with a non-stale active [ReplayClaim]
+- `claimHeadForReplay` returns [HeadReplayPrepareResult.HeadBlocked] for any non-stale claim, not only when it matches the head sequence id
+
+### Fixed (bug hunt round 13)
+- `DeadLetterQueue.record` and retry-journal recovery share `.dlq-ops.lock` cross-process so concurrent record/recovery cannot duplicate DLQ or main-queue entries
+- `claimHeadForReplay` clears orphan replay claims whose sequence id is no longer in the live index instead of blocking flush for up to 30 minutes
+- `DiskQueue.compactIfNeededLocked` skips compaction while a non-stale [ReplayClaim] is active
+- `DiskQueue.size` counts only readable entries, matching `peekAll`/`peekIds` when scrub skips claimed unreadable slots
+- `HttpReplayer` drops hop-by-hop headers (`Transfer-Encoding`, `Host`, `Connection`, etc.) on replay — bodies are materialized byte arrays
+- `GhostSyncEngine.getHeadState` distinguishes empty queue from head blocked by a cross-process replay claim; `getEntry()` docs updated accordingly
+
+### Added
+- `GhostSyncRuntime` — lifecycle- and concurrency-aware coordinator: serialized `flush()`, optional auto-flush from an app-supplied `Flow<Boolean>` connectivity signal, `flushWhenOnline()`, and `shutdown()`; factories `GhostSync.createRuntime(...)` and `GhostSyncRuntime.createForEngine(...)` for manual engine wiring
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
