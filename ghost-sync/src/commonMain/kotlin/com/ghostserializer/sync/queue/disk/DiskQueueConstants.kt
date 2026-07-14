@@ -55,6 +55,8 @@ internal object DiskQueueConstants {
         "completeHeadReplay() called while a different head entry is claimed for replay"
     const val COMPLETE_HEAD_CLAIM_STALE_MESSAGE: String =
         "completeHeadReplay() called with a stale replay claim"
+    const val COMPLETE_HEAD_SEQUENCE_MISSING_MESSAGE: String =
+        "completeHeadReplay() could not remove the head entry — sequence id missing from index"
     const val REMOVE_WHILE_CLAIMED_MESSAGE: String =
         "remove() called for an entry that is currently claimed for cross-process replay"
 

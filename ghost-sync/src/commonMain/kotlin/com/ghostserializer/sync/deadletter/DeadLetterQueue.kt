@@ -168,6 +168,17 @@ class DeadLetterQueue(
         }
     }
 
+    /** Used by [com.ghostserializer.sync.engine.HeadReplayExecutor] journal recovery. */
+    internal suspend fun hasMatchingEntry(
+        method: String,
+        url: String,
+        headers: FrozenHttpHeaders,
+        body: ByteArray,
+    ): Boolean = withDlqLifecycle {
+        ensureRecovered()
+        findExistingRecordId(method, url, headers, body) != null
+    }
+
     /** Guards the window between this enqueue and the caller's [DiskQueue.remove] of the original
      * entry on [mainQueue] (see [com.ghostserializer.sync.engine.GhostSyncEngine.flush]): if the
      * process dies in that window, the entry is still live on the main queue, and the next

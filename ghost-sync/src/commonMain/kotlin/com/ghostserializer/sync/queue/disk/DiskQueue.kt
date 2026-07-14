@@ -163,6 +163,9 @@ class DiskQueue(
         val claimPath = ReplayClaim.claimPath(path)
         try {
             validateCompleteHeadReplayLocked(entryId, claimPath)
+            if (!liveOffsetsBySequence.containsKey(entryId.sequenceId)) {
+                error(DiskQueueConstants.COMPLETE_HEAD_SEQUENCE_MISSING_MESSAGE)
+            }
             removeLocked(entryId.sequenceId)
             compactIfNeededLocked()
             bumpDiskGenerationLocked()
@@ -199,6 +202,7 @@ class DiskQueue(
      * tombstoned so the queue cannot stall behind unreadable data. */
     suspend fun peek(): QueueEntry? = withQueueLock {
         ensureOpenLocked()
+        DeliveryJournal.migrateLegacyJournalIfPresent(fileSystem, path)
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
         scan.entry

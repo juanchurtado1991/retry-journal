@@ -155,9 +155,12 @@ class GhostSyncRuntime internal constructor(
     }
 
     /** Delegates to [com.ghostserializer.sync.engine.GhostSyncEngine.getHeadState]. */
-    suspend fun getHeadState(): QueueHeadState = when {
-        ghostSync != null -> ghostSync.engine.getHeadState()
-        else -> engine!!.getHeadState()
+    suspend fun getHeadState(): QueueHeadState {
+        ensureNotShutdown()
+        return when {
+            ghostSync != null -> ghostSync.engine.getHeadState()
+            else -> engine!!.getHeadState()
+        }
     }
 
     private fun ensureNotShutdownNonSuspend() {

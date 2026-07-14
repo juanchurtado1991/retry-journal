@@ -176,7 +176,15 @@ internal class HeadReplayExecutor(
         delivered: Int,
         deadLettered: Int,
     ): ReplayOutcome = try {
-        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        if (!deadLetterQueue.hasMatchingEntry(
+                entry.meta.method,
+                entry.meta.url,
+                entry.meta.headers,
+                entry.body,
+            )
+        ) {
+            deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+        }
         if (!completeHeadReplayOrStop(entry.id)) {
             ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
         } else {
