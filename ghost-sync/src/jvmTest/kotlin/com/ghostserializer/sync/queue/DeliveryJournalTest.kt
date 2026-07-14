@@ -10,7 +10,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DeliveryJournalTest {
@@ -35,11 +34,12 @@ class DeliveryJournalTest {
     fun `write read and delete round-trip`() {
         DeliveryJournal.write(FileSystem.SYSTEM, queuePath, 42L, DeliveryJournal.OUTCOME_DELIVERED)
 
-        val pending = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
 
-        assertEquals(PendingDelivery(42L, DeliveryJournal.OUTCOME_DELIVERED), pending)
+        assertTrue(result is DeliveryJournalReadResult.Valid)
+        assertEquals(PendingDelivery(42L, DeliveryJournal.OUTCOME_DELIVERED), (result as DeliveryJournalReadResult.Valid).pending)
         DeliveryJournal.delete(FileSystem.SYSTEM, queuePath)
-        assertNull(DeliveryJournal.read(FileSystem.SYSTEM, queuePath))
+        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath) is DeliveryJournalReadResult.Absent)
     }
 
     @Test
@@ -52,6 +52,22 @@ class DeliveryJournalTest {
 
         DeliveryJournal.clearIfOrphan(FileSystem.SYSTEM, queuePath, emptySet())
 
-        assertNull(DeliveryJournal.read(FileSystem.SYSTEM, queuePath))
+        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath) is DeliveryJournalReadResult.Absent)
+    }
+
+    @Test
+    fun `corrupt crc is treated as pending delivery for recovery`() {
+        val path = DeliveryJournal.journalPath(queuePath)
+        FileSystem.SYSTEM.write(path) {
+            writeUtf8("ghost-sync-delivery-v1\n")
+            writeUtf8("99\n")
+            writeUtf8("delivered\n")
+            writeUtf8("0\n")
+        }
+
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+
+        assertTrue(result is DeliveryJournalReadResult.CorruptPending)
+        assertEquals(99L, (result as DeliveryJournalReadResult.CorruptPending).sequenceId)
     }
 }

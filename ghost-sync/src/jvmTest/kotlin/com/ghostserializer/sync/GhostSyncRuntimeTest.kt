@@ -1,5 +1,7 @@
 package com.ghostserializer.sync
 
+import com.ghostserializer.sync.GhostSync
+import com.ghostserializer.sync.engine.FlushResult
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -162,6 +164,44 @@ class GhostSyncRuntimeTest {
 
         val result = runtime.flush()
         assertEquals(1, result.delivered)
+        runtime.shutdown()
+    }
+
+    @Test
+    fun `direct ghostSync flush and runtime flush serialize through the same mutex`() = runBlocking {
+        val activeFlushes = AtomicInteger(0)
+        val maxConcurrent = AtomicInteger(0)
+        val release = CompletableDeferred<Unit>()
+
+        val ghostSync = GhostSync.create(
+            engineFactory = MockEngine,
+            queuePath = queuePath(),
+        ) {
+            engine {
+                addHandler {
+                    val concurrent = activeFlushes.incrementAndGet()
+                    maxConcurrent.updateAndGet { current -> maxOf(current, concurrent) }
+                    release.await()
+                    activeFlushes.decrementAndGet()
+                    respond("ok", HttpStatusCode.OK, headersOf())
+                }
+            }
+        }
+        ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        ghostSync.diskQueue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+
+        val runtime = GhostSync.createRuntime(ghostSync, this)
+
+        val first = async { ghostSync.flush() }
+        delay(50)
+        val second = async { runtime.flush() }
+        delay(50)
+        assertEquals(1, maxConcurrent.get())
+
+        release.complete(Unit)
+        awaitAll(first, second)
+
+        assertTrue(ghostSync.diskQueue.isEmpty())
         runtime.shutdown()
     }
 

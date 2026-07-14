@@ -4,6 +4,7 @@ import com.ghostserializer.sync.peekAll
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.queue.DeliveryJournal
+import com.ghostserializer.sync.queue.DeliveryJournalReadResult
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.HeadReplayPrepareResult
 import io.ktor.client.HttpClient
@@ -640,6 +641,89 @@ class GhostSyncEngineTest {
             result,
         )
         assertTrue(!failingQueue.isEmpty())
-        assertTrue(DeliveryJournal.read(failingFs, mainPath) != null)
+        assertTrue(DeliveryJournal.read(failingFs, mainPath) !is DeliveryJournalReadResult.Absent)
+    }
+
+    @Test
+    fun `flush clears a stale replay claim when a delivery journal is pending for the head`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        val otherQueue = DiskQueue(path = queue.path)
+        assertTrue(otherQueue.prepareHeadForReplay() is HeadReplayPrepareResult.Ready)
+
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+        val result = engine.flush(client)
+
+        assertEquals(FlushResult(delivered = 1, deadLettered = 0, stoppedEarly = false), result)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `getEntryAndStatus skips HTTP when delivery journal marks head already delivered`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        val httpCalls = AtomicInteger(0)
+        val client = HttpClient(MockEngine {
+            httpCalls.incrementAndGet()
+            respond("ok", HttpStatusCode.OK, headersOf())
+        })
+
+        val result = engine.getEntryAndStatus(client)
+
+        assertEquals(0, httpCalls.get())
+        assertTrue(result is EntryReplayResult.Ready)
+        result as EntryReplayResult.Ready
+        assertEquals(HttpStatusCode.OK, result.status)
+        engine.finalizeHeadReplay(result.entry, result.status)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `getStatus skips HTTP when delivery journal marks head already delivered`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        val httpCalls = AtomicInteger(0)
+        val client = HttpClient(MockEngine {
+            httpCalls.incrementAndGet()
+            respond("ok", HttpStatusCode.OK, headersOf())
+        })
+        val entry = engine.getEntry()!!
+
+        val status = engine.getStatus(client, entry)
+
+        assertEquals(0, httpCalls.get())
+        assertEquals(HttpStatusCode.OK, status)
+        engine.finalizeHeadReplay(entry, status)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `onProgress can call back into the engine without deadlocking`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val result = engine.flush(client) { progress ->
+            when (progress) {
+                is FlushProgress.Delivered -> assertEquals(QueueHeadState.Empty, engine.getHeadState())
+                is FlushProgress.DeadLettered -> Unit
+            }
+        }
+
+        assertEquals(1, result.delivered)
     }
 }
