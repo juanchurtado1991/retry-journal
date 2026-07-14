@@ -25,5 +25,9 @@ internal object HeaderDispatch {
             name.equals(HttpHeaders.Host, ignoreCase = true) ||
             name.equals(HttpHeaders.Connection, ignoreCase = true) ||
             name.equals("TE", ignoreCase = true) ||
-            name.equals(HttpHeaders.Trailer, ignoreCase = true)
+            name.equals(HttpHeaders.Trailer, ignoreCase = true) ||
+            name.equals("Keep-Alive", ignoreCase = true) ||
+            name.equals("Proxy-Connection", ignoreCase = true) ||
+            name.equals("Upgrade", ignoreCase = true) ||
+            name.equals("Proxy-Authorization", ignoreCase = true)
 }

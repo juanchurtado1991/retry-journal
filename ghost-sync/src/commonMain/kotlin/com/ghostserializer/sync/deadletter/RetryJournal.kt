@@ -1,8 +1,8 @@
 package com.ghostserializer.sync.deadletter
 
-import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
-import com.ghostserializer.sync.queue.DiskQueueConstants.NEWLINE_BYTE
-import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_TEMP_SUFFIX
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.NEWLINE_BYTE
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants.RETRY_JOURNAL_TEMP_SUFFIX
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.QueueEntry
 import okio.BufferedSource
@@ -23,6 +23,9 @@ internal object RetryJournal {
      * (HTTP servers/clients typically cap header counts far below this). */
     private const val MAX_HEADER_COUNT: Int = 10_000
 
+    /** Sum of all length-prefixed fields in one journal — bounds pathological many-header OOM. */
+    private const val MAX_JOURNAL_TOTAL_BYTES: Int = MAX_RECORD_FIELD_SIZE * 4
+
     /** Every length-prefixed field below is bounds-checked before it sizes a read or an
      * allocation: a corrupted journal (itself the product of a crash — the same one this journal
      * exists to recover from) could otherwise hand a garbage length to `readUtf8`/`readByteArray`
@@ -37,10 +40,11 @@ internal object RetryJournal {
                 if (!skipJournalIdLine()) {
                     return@read null
                 }
-                val method = readLengthPrefixedUtf8() ?: return@read null
-                val url = readLengthPrefixedUtf8() ?: return@read null
-                val headers = readHeadersBlock() ?: return@read null
-                val body = readBodyBlock() ?: return@read null
+                val totalBytes = ByteBudget()
+                val method = readLengthPrefixedUtf8(totalBytes) ?: return@read null
+                val url = readLengthPrefixedUtf8(totalBytes) ?: return@read null
+                val headers = readHeadersBlock(totalBytes) ?: return@read null
+                val body = readBodyBlock(totalBytes) ?: return@read null
                 RetryJournalData(method, url, headers, body)
             }
         } catch (_: Throwable) {
@@ -72,15 +76,16 @@ internal object RetryJournal {
         return true
     }
 
-    private fun BufferedSource.readLengthPrefixedUtf8(): String? {
+    private fun BufferedSource.readLengthPrefixedUtf8(totalBytes: ByteBudget): String? {
         val length = readInt()
+        totalBytes.add(length) ?: return null
         if (length !in 0..MAX_RECORD_FIELD_SIZE) {
             return null
         }
         return readUtf8(length.toLong())
     }
 
-    private fun BufferedSource.readHeadersBlock(): FrozenHttpHeaders? {
+    private fun BufferedSource.readHeadersBlock(totalBytes: ByteBudget): FrozenHttpHeaders? {
         val headersSize = readInt()
         if (headersSize !in 0..MAX_HEADER_COUNT) {
             return null
@@ -88,20 +93,32 @@ internal object RetryJournal {
         val names = ArrayList<String>(headersSize)
         val values = ArrayList<String>(headersSize)
         repeat(headersSize) {
-            val name = readLengthPrefixedUtf8() ?: return null
-            val value = readLengthPrefixedUtf8() ?: return null
+            val name = readLengthPrefixedUtf8(totalBytes) ?: return null
+            val value = readLengthPrefixedUtf8(totalBytes) ?: return null
             names.add(name)
             values.add(value)
         }
         return FrozenHttpHeaders(names, values)
     }
 
-    private fun BufferedSource.readBodyBlock(): ByteArray? {
+    private fun BufferedSource.readBodyBlock(totalBytes: ByteBudget): ByteArray? {
         val bodyLen = readInt()
+        totalBytes.add(bodyLen) ?: return null
         if (bodyLen !in 0..MAX_RECORD_FIELD_SIZE) {
             return null
         }
         return readByteArray(bodyLen.toLong())
+    }
+
+    private class ByteBudget(private var consumed: Int = 0) {
+        fun add(bytes: Int): ByteBudget? {
+            consumed += bytes
+            return if (consumed <= MAX_JOURNAL_TOTAL_BYTES) {
+                this
+            } else {
+                null
+            }
+        }
     }
 
     private fun okio.BufferedSink.writeLengthPrefixedUtf8(value: String) {
