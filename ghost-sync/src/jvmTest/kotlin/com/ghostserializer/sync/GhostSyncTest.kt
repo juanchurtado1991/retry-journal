@@ -116,7 +116,7 @@ class GhostSyncTest {
     }
 
     @Test
-    fun `close() refuses to proceed while engine getStatus is still replaying a request`() = runBlocking {
+    fun `close() refuses to proceed while flush is still replaying a request`() = runBlocking {
         val requestStarted = CompletableDeferred<Unit>()
         val releaseRequest = CompletableDeferred<Unit>()
 
@@ -134,27 +134,14 @@ class GhostSyncTest {
         }
 
         ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "body".encodeToByteArray())
-        val entry = ghostSync.engine.getEntry()!!
 
-        val replayClient = HttpClient(MockEngine) {
-            engine {
-                addHandler {
-                    requestStarted.complete(Unit)
-                    releaseRequest.await()
-                    respond("ok", HttpStatusCode.OK, headersOf())
-                }
-            }
-        }
-
-        val statusJob = launch {
-            ghostSync.engine.getStatus(replayClient, entry)
-        }
+        val flushJob = launch { ghostSync.flush() }
         requestStarted.await()
 
         assertFailsWith<IllegalStateException> { ghostSync.close() }
 
         releaseRequest.complete(Unit)
-        statusJob.join()
+        flushJob.join()
         ghostSync.close()
     }
 

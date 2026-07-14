@@ -1,7 +1,7 @@
 package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.queue.disk.DiskQueue
-import com.ghostserializer.sync.queue.FrozenHttpHeaders
+import com.ghostserializer.sync.queue.disk.DiskQueueConstants
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path.Companion.toPath
@@ -27,45 +27,47 @@ class DeliveryJournalTest {
     @AfterTest
     fun tearDown() {
         FileSystem.SYSTEM.delete(queuePath, mustExist = false)
-        DeliveryJournal.delete(FileSystem.SYSTEM, queuePath)
+        FileSystem.SYSTEM.delete(
+            (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX + "42").toPath(),
+            mustExist = false,
+        )
     }
 
     @Test
-    fun `write read and delete round-trip`() {
+    fun `write read and delete round-trip per sequence`() {
         DeliveryJournal.write(FileSystem.SYSTEM, queuePath, 42L, DeliveryJournal.OUTCOME_DELIVERED)
 
-        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 42L)
 
         assertTrue(result is DeliveryJournalReadResult.Valid)
-        assertEquals(PendingDelivery(42L, DeliveryJournal.OUTCOME_DELIVERED), (result as DeliveryJournalReadResult.Valid).pending)
-        DeliveryJournal.delete(FileSystem.SYSTEM, queuePath)
-        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath) is DeliveryJournalReadResult.Absent)
+        assertEquals(DeliveryJournal.OUTCOME_DELIVERED, (result as DeliveryJournalReadResult.Valid).outcome)
+        DeliveryJournal.delete(FileSystem.SYSTEM, queuePath, 42L)
+        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 42L) is DeliveryJournalReadResult.Absent)
     }
 
     @Test
-    fun `clearIfOrphan deletes a journal for a sequence no longer in the live index`() = runBlocking {
+    fun `clearStaleJournals removes a journal for a non-head sequence`() = runBlocking {
         val queue = DiskQueue(queuePath)
-        val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
-        DeliveryJournal.write(FileSystem.SYSTEM, queuePath, id.sequenceId, DeliveryJournal.OUTCOME_DELIVERED)
-        assertTrue(queue.prepareHeadForReplay() is com.ghostserializer.sync.queue.HeadReplayPrepareResult.Ready)
-        queue.completeHeadReplay(id)
+        val idA = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        DeliveryJournal.write(FileSystem.SYSTEM, queuePath, idB.sequenceId, DeliveryJournal.OUTCOME_DELIVERED)
 
-        DeliveryJournal.clearIfOrphan(FileSystem.SYSTEM, queuePath, emptySet())
+        queue.prepareHeadForReplay()
 
-        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath) is DeliveryJournalReadResult.Absent)
+        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath, idB.sequenceId) is DeliveryJournalReadResult.Absent)
+        assertEquals(idA, queue.peek()?.id)
     }
 
     @Test
     fun `corrupt crc is treated as pending delivery for recovery`() {
-        val path = DeliveryJournal.journalPath(queuePath)
+        val path = DeliveryJournal.journalPath(queuePath, 99L)
         FileSystem.SYSTEM.write(path) {
             writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("99\n")
             writeUtf8("delivered\n")
             writeUtf8("0\n")
         }
 
-        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 99L)
 
         assertTrue(result is DeliveryJournalReadResult.CorruptPending)
         assertEquals(99L, (result as DeliveryJournalReadResult.CorruptPending).sequenceId)
@@ -73,52 +75,41 @@ class DeliveryJournalTest {
 
     @Test
     fun `partial journal without a valid outcome is treated as absent`() {
-        val path = DeliveryJournal.journalPath(queuePath)
+        val path = DeliveryJournal.journalPath(queuePath, 42L)
         FileSystem.SYSTEM.write(path) {
             writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("42\n")
         }
 
-        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 42L)
 
         assertTrue(result is DeliveryJournalReadResult.Absent)
     }
 
     @Test
-    fun `regression legacy journal without magic header is treated as absent`() {
-        val path = DeliveryJournal.journalPath(queuePath)
-        FileSystem.SYSTEM.write(path) {
-            writeUtf8("1\n")
+    fun `legacy single-file journal migrates to per-sequence path`() {
+        val legacyPath = (queuePath.toString() + DiskQueueConstants.DELIVERY_JOURNAL_LEGACY_SUFFIX).toPath()
+        FileSystem.SYSTEM.write(legacyPath) {
+            writeUtf8("ghost-sync-delivery-v1\n")
+            writeUtf8("7\n")
             writeUtf8("delivered\n")
             writeUtf8("0\n")
         }
 
-        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        DeliveryJournal.migrateLegacyJournalIfPresent(FileSystem.SYSTEM, queuePath)
 
-        assertTrue(result is DeliveryJournalReadResult.Absent)
+        assertTrue(DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 7L) is DeliveryJournalReadResult.Valid)
+        assertTrue(!FileSystem.SYSTEM.exists(legacyPath))
     }
 
     @Test
-    fun `regression journal with an invalid outcome token is treated as absent`() {
-        val path = DeliveryJournal.journalPath(queuePath)
-        FileSystem.SYSTEM.write(path) {
-            writeUtf8("ghost-sync-delivery-v1\n")
-            writeUtf8("7\n")
-            writeUtf8("unknown-outcome\n")
-            writeUtf8("0\n")
-        }
-
-        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
-
-        assertTrue(result is DeliveryJournalReadResult.Absent)
-    }
-
-    @Test
-    fun `regression pendingForSequence ignores a journal for a different sequence id`() {
+    fun `pendingForSequence only matches the requested sequence id`() {
         DeliveryJournal.write(FileSystem.SYSTEM, queuePath, 99L, DeliveryJournal.OUTCOME_DELIVERED)
-        val read = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+        val read = DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 99L)
 
-        assertEquals(null, DeliveryJournal.pendingForSequence(read, 42L))
+        assertEquals(null, DeliveryJournal.pendingForSequence(
+            DeliveryJournal.read(FileSystem.SYSTEM, queuePath, 42L),
+            42L,
+        ))
         assertEquals(
             PendingDelivery(99L, DeliveryJournal.OUTCOME_DELIVERED),
             DeliveryJournal.pendingForSequence(read, 99L),
