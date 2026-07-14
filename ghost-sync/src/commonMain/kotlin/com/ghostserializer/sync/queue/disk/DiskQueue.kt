@@ -65,6 +65,12 @@ class DiskQueue(
         require(maxRecordFieldSize > 0) {
             DiskQueueConstants.INVALID_MAX_RECORD_FIELD_SIZE_MESSAGE
         }
+        require(
+            DiskQueueConstants.RECORD_FIXED_OVERHEAD + 2L * maxRecordFieldSize <=
+                DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
+        ) {
+            DiskQueueConstants.MAX_RECORD_FIELD_SIZE_UNPACKABLE_MESSAGE
+        }
     }
 
     private val mutex = Mutex()

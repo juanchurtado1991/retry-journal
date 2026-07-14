@@ -17,10 +17,27 @@ internal object DiskQueueConstants {
     /** Rejects a corrupt length field before it is used to size an allocation. */
     const val MAX_RECORD_FIELD_SIZE: Int = 64 * 1024 * 1024
 
-    /** Live index packs record length in 26 bits (64 - [INDEX_OFFSET_BITS]). */
-    const val INDEX_OFFSET_BITS: Int = 38
+    /** Live index packs record length in 30 bits (64 - [INDEX_OFFSET_BITS]) — must stay large
+     * enough that a record with *both* fields at [MAX_RECORD_FIELD_SIZE] still fits: the packed
+     * length is [RECORD_HEADER_SIZE] + [SEQUENCE_FIELD_SIZE] + 2×[LENGTH_FIELD_SIZE] +
+     * `metaBytes.size` + `body.size`, so at the default cap that's already
+     * `21 + 2×67_108_864 ≈ 134 MiB` — comfortably under this 30-bit ceiling (~1 GiB) with headroom
+     * for callers who raise `maxRecordFieldSize`. A 26-bit length field (the previous value) could
+     * not even hold *one* field at the default max plus the fixed overhead, so `enqueue()` failed
+     * closed on every upload at (not just over) the documented limit — see [DiskQueue]'s
+     * `maxRecordFieldSize` guard for the general case. */
+    const val INDEX_OFFSET_BITS: Int = 34
     const val INDEX_LENGTH_BITS: Int = 64 - INDEX_OFFSET_BITS
     const val MAX_PACKABLE_RECORD_LENGTH: Int = (1 shl INDEX_LENGTH_BITS) - 1
+
+    /** Fixed per-record framing bytes counted by [MAX_PACKABLE_RECORD_LENGTH] on top of the two
+     * variable-length fields — kept in sync with
+     * [com.ghostserializer.sync.queue.disk.DiskQueueEnqueueOps.computePackedLiveRecordLength]. */
+    const val RECORD_FIXED_OVERHEAD: Int = RECORD_HEADER_SIZE + SEQUENCE_FIELD_SIZE + 2 * LENGTH_FIELD_SIZE
+
+    const val MAX_RECORD_FIELD_SIZE_UNPACKABLE_MESSAGE: String =
+        "maxRecordFieldSize is too large to pack: a record with both meta and body at this size " +
+            "could never fit in DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH — lower maxRecordFieldSize"
 
     const val QUEUE_CLOSED_MESSAGE: String = "DiskQueue is closed"
     const val INVALID_MAX_RECORD_FIELD_SIZE_MESSAGE: String = "maxRecordFieldSize must be positive"
