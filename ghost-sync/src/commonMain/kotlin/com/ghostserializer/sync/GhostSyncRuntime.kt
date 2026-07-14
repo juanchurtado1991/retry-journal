@@ -17,6 +17,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.concurrent.Volatile
 
 /**
  * Lifecycle- and concurrency-aware coordinator for a [GhostSync] instance.
@@ -53,6 +54,7 @@ class GhostSyncRuntime internal constructor(
 
     private var shutdown = false
 
+    @Volatile
     private var lastKnownOnline: Boolean = connectivity == null
 
     private var connectivityJob: Job? = null
