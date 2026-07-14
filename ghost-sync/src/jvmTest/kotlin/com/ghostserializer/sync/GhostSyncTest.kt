@@ -1,5 +1,6 @@
 package com.ghostserializer.sync
 
+import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.engine.mock.MockEngine
@@ -8,6 +9,8 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
@@ -71,5 +74,41 @@ class GhostSyncTest {
         // leaking their file handles.
         assertFailsWith<IllegalStateException> { ghostSync.diskQueue.peek() }
         assertFailsWith<IllegalStateException> { ghostSync.deadLetterQueue.size() }
+    }
+
+    @Test
+    fun `close() refuses to proceed while flush() is still replaying a request`() = runBlocking {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseRequest = CompletableDeferred<Unit>()
+
+        val ghostSync = GhostSync.create(
+            engineFactory = MockEngine,
+            queuePath = (dir.toString() + "/queue.bin").toPath(),
+        ) {
+            engine {
+                addHandler {
+                    requestStarted.complete(Unit)
+                    releaseRequest.await()
+                    respond("ok", HttpStatusCode.OK, headersOf())
+                }
+            }
+        }
+
+        ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "body".encodeToByteArray())
+
+        // flush() is mid-request (suspended inside the mock handler, exactly where a real
+        // network round-trip would be) when close() runs — replayClient.close() would otherwise
+        // cut that request out from under it, since DiskQueue's own in-flight guard only covers
+        // the brief peek()/remove() calls around it, not the request itself.
+        val flushJob = launch { ghostSync.flush() }
+        requestStarted.await()
+
+        assertFailsWith<IllegalStateException> { ghostSync.close() }
+
+        releaseRequest.complete(Unit)
+        flushJob.join()
+
+        // flush() finished; close() must now succeed.
+        ghostSync.close()
     }
 }
