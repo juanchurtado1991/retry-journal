@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.queue
 
 import com.ghost.serialization.Ghost
+import com.ghostserializer.sync.queue.DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
 import kotlinx.coroutines.sync.Mutex
@@ -30,24 +31,13 @@ import kotlin.concurrent.Volatile
  * [peek] skips corrupt head entries (tombstoning them) so [com.ghostserializer.sync.engine.GhostSyncEngine]
  * never stalls on unreadable data; [size] and [peekIds] only count entries that can actually be read.
  *
- * **Threading contract, two parts callers used to need to know by convention — both now enforced
- * instead of merely documented:**
- * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
- *   so is [PlatformQueueFileLock]). Rather than trust the caller to remember a blocking-friendly
- *   dispatcher, [withQueueLock] dispatches onto [ioDispatcher] itself — the platform's own
- *   `Dispatchers.IO` (not linked here: it's declared for JVM/Native targets only, not in
- *   `commonMain`, so this file can't reference it as a resolvable symbol). Call this class from
- *   any dispatcher; it never runs its blocking work on the caller's.
- * - [close] is still a plain, non-suspending function — it can't take [mutex] itself without
- *   either blocking a thread it shouldn't or becoming suspend and breaking the `Closeable`-style
- *   contract [com.ghostserializer.sync.GhostSync] needs it to satisfy — so it still can't be
- *   perfectly synchronized with an operation that's already running. What it *can* do, and does,
- *   is refuse: [activeOperationCount] is only ever mutated while holding [mutex] (so writes never
- *   race each other) and read as a plain volatile field by [close] (so it always sees the latest
- *   value); [close] throws [IllegalStateException] instead of proceeding if that count is nonzero.
- *   There's still a narrow window between that check and a brand-new operation starting — this
- *   isn't [mutex]-grade exclusion — but it turns the overwhelming majority of "closed while still
- *   in use" mistakes into a loud, immediate error instead of silent corruption.
+ * **Threading contract:**
+ * - Safe to call from any dispatcher — this class always does its own blocking file I/O off the
+ *   caller's thread, not on whatever dispatcher happened to call it.
+ * - [close] throws [IllegalStateException] if another operation on this instance is still
+ *   running. Same rule as closing any other resource: make sure nothing is still using it first.
+ *   (Mechanism details for both, if you're working on this class rather than just calling it, are
+ *   on [withQueueLock] and [close] themselves.)
  */
 class DiskQueue(
     internal val path: Path,
@@ -89,13 +79,18 @@ class DiskQueue(
 
     private val fileHandles = RecordFileHandles(fileSystem, path)
 
-    /** How many callers are currently inside [withQueueLock]'s critical section — only ever
-     * mutated while holding [mutex] (see [withQueueLock]), so writes to it never race each other;
-     * [Volatile] makes [close]'s unsynchronized read of it see the latest value. A best-effort
-     * misuse guard, not a substitute for [mutex] — see this class's own "Threading contract" doc. */
+    /** How many callers are currently inside [withQueueLock]'s critical section. Only ever
+     * mutated while holding [mutex] (see [withQueueLock]), so concurrent increments/decrements
+     * never race each other and lose an update; [Volatile] is what makes [close]'s own
+     * *unsynchronized* read of it (it doesn't take [mutex] — see [close]) see the latest value
+     * instead of a stale one cached on whatever thread called [close]. */
     @Volatile
     private var activeOperationCount = 0
 
+    /** [ioDispatcher] instead of trusting the caller's own dispatcher: every operation here does
+     * blocking file I/O (Okio's [FileSystem] is synchronous, and so is [PlatformQueueFileLock]),
+     * and running that on, say, [kotlinx.coroutines.Dispatchers.Default]'s CPU-sized pool risks
+     * starving other CPU-bound work sharing it under real contention. */
     private suspend inline fun <T> withQueueLock(
         crossinline block: () -> T
     ): T = withContext(ioDispatcher) {
@@ -156,7 +151,8 @@ class DiskQueue(
             lastKnownDiskModifiedAtMillis = null
             return
         }
-        lastKnownDiskModifiedAtMillis = fileSystem.metadata(path).lastModifiedAtMillis
+        lastKnownDiskModifiedAtMillis =
+            fileSystem.metadata(path).lastModifiedAtMillis
     }
 
     suspend fun enqueue(
@@ -387,12 +383,19 @@ class DiskQueue(
         captureDiskMetadataLocked()
     }
 
-    /** Throws if an operation is currently in flight on this instance — see this class's own doc
-     * ("Threading contract") for why this is a best-effort check, not an ironclad guarantee. */
+    /** Throws if an operation is currently in flight on this instance, via [activeOperationCount] —
+     * see that field's own doc for why the write side of that check is race-free. The check
+     * itself is still best-effort, not [mutex]-grade exclusion: [close] is a plain, non-suspending
+     * function on purpose (matching the `Closeable`-style contract [com.ghostserializer.sync.GhostSync]
+     * needs it to satisfy), so it can't take [mutex] without either blocking a thread it shouldn't
+     * or becoming suspend and breaking that contract. That leaves a narrow window between this
+     * check and a brand-new operation starting — but it turns the overwhelming majority of
+     * "closed while still in use" mistakes into a loud, immediate error instead of silently
+     * corrupting state. */
     fun close() {
         if (closed) return
 
-        check(activeOperationCount == 0) { DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE }
+        check(activeOperationCount == 0) { CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE }
         closed = true
         fileHandles.closeAll()
     }
