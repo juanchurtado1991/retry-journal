@@ -15,6 +15,8 @@ import io.ktor.client.plugins.plugin
 import io.ktor.utils.io.core.Closeable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -51,13 +53,18 @@ class GhostSync private constructor(
     private val offlineQueuePlugin: GhostOfflineQueuePlugin,
 ) : Closeable {
 
+    /** Serializes [flush] with [GhostSyncRuntime.flush] so direct and runtime callers cannot overlap. */
+    internal val processFlushMutex = Mutex()
+
     /** Delegates to [GhostSyncEngine.flush] using a private client that never risks the
      * duplicate-enqueue footgun documented there — you never have to think about it. [onProgress]
      * is the same per-entry callback [GhostSyncEngine.flush] takes, for a caller that wants to
      * show the queue draining in real time. */
     suspend fun flush(
-        onProgress: suspend (FlushProgress) -> Unit = {}
-    ): FlushResult = engine.flush(replayClient, onProgress)
+        onProgress: suspend (FlushProgress) -> Unit = {},
+    ): FlushResult = processFlushMutex.withLock {
+        engine.flush(replayClient, onProgress)
+    }
 
     /** Closes every owned resource even if an earlier one throws while closing — a failure
      * closing [client] (the underlying engine tearing down sockets, say) must not leak
@@ -185,6 +192,7 @@ class GhostSync private constructor(
             parentScope = scope,
             connectivity = connectivity,
             onShutdown = null,
+            flushMutex = ghostSync.processFlushMutex,
         )
     }
 }

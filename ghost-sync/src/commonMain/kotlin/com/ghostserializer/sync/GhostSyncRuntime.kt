@@ -44,10 +44,10 @@ class GhostSyncRuntime internal constructor(
     parentScope: CoroutineScope,
     private val connectivity: Flow<Boolean>?,
     private val onShutdown: (suspend () -> Unit)?,
+    private val flushMutex: Mutex,
 ) {
     private val supervisorJob = SupervisorJob(parentScope.coroutineContext.job)
     private val scope = CoroutineScope(parentScope.coroutineContext + supervisorJob)
-    private val flushMutex = Mutex()
 
     private var started = false
 
@@ -125,9 +125,12 @@ class GhostSyncRuntime internal constructor(
         onProgress: suspend (FlushProgress) -> Unit = {},
     ): FlushResult {
         ensureNotShutdown()
-        return flushMutex.withLock {
-            ensureNotShutdown()
-            flushInternal(onProgress)
+        return when {
+            ghostSync != null -> ghostSync.flush(onProgress)
+            else -> flushMutex.withLock {
+                ensureNotShutdown()
+                flushInternal(onProgress)
+            }
         }
     }
 
@@ -185,6 +188,7 @@ class GhostSyncRuntime internal constructor(
             parentScope = scope,
             connectivity = connectivity,
             onShutdown = onShutdown ?: { engine.closeForShutdown() },
+            flushMutex = Mutex(),
         )
     }
 }
