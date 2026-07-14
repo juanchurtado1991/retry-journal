@@ -55,7 +55,11 @@ class GhostSync private constructor(
 
     /** Closes every owned resource even if an earlier one throws while closing — a failure
      * closing [client] (the underlying engine tearing down sockets, say) must not leak
-     * [replayClient]'s connections or [diskQueue]/[deadLetterQueue]'s open file handles. */
+     * [replayClient]'s connections or [diskQueue]/[deadLetterQueue]'s open file handles.
+     *
+     * Not synchronized with in-flight operations on [diskQueue]/[deadLetterQueue] — same caveat
+     * as [DiskQueue.close] itself (see that class's "Threading contract" doc): callers own making
+     * sure nothing is still using this instance when [close] runs. */
     override fun close() {
         try {
             client.close()

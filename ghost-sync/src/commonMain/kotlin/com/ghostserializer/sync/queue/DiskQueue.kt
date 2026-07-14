@@ -29,6 +29,20 @@ import okio.use
  *
  * [peek] skips corrupt head entries (tombstoning them) so [com.ghostserializer.sync.engine.GhostSyncEngine]
  * never stalls on unreadable data; [size] and [peekIds] only count entries that can actually be read.
+ *
+ * **Threading contract, two parts callers need to know:**
+ * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
+ *   so is [PlatformQueueFileLock]) on whatever thread the calling coroutine happens to be running
+ *   on. Drive this class from [kotlinx.coroutines.Dispatchers.IO] (or an equivalently
+ *   blocking-friendly dispatcher) — calling it from [kotlinx.coroutines.Dispatchers.Default]'s
+ *   CPU-sized pool risks starving other CPU-bound work sharing that pool under real contention.
+ * - [close] is **not** synchronized with [Mutex] the way every other operation is: it's a plain,
+ *   non-suspending function (matching the `Closeable`-style contract [GhostSync] implements), so
+ *   it can't take a suspend-only lock without either blocking a thread it shouldn't or becoming
+ *   suspend itself and breaking that contract. Calling [close] while another coroutine has an
+ *   operation in flight on the same instance is undefined behavior — the same caveat as closing
+ *   any stream, socket, or file handle while something else is actively using it. Callers own
+ *   sequencing their own shutdown so nothing is in flight when [close] runs.
  */
 class DiskQueue(
     internal val path: Path,
@@ -44,12 +58,14 @@ class DiskQueue(
     private val maxRecordFieldSize: Int = MAX_RECORD_FIELD_SIZE,
 ) {
     init {
-        require(maxRecordFieldSize > 0) { DiskQueueConstants.INVALID_MAX_RECORD_FIELD_SIZE_MESSAGE }
+        require(maxRecordFieldSize > 0) {
+            DiskQueueConstants.INVALID_MAX_RECORD_FIELD_SIZE_MESSAGE
+        }
     }
 
     private val mutex = Mutex()
     private val processLock = PlatformQueueFileLock(
-        (path.toString() + DiskQueueConstants.LOCK_FILE_SUFFIX).toPath(),
+        lockPath = (path.toString() + DiskQueueConstants.LOCK_FILE_SUFFIX).toPath(),
         fileSystem,
     )
 
@@ -69,7 +85,9 @@ class DiskQueue(
     private var appendSink: BufferedSink? = null
     private var readHandle: okio.FileHandle? = null
 
-    private fun pack(length: Int, offset: Long): Long = (length.toLong() shl INDEX_OFFSET_BITS) or offset
+    private fun pack(length: Int, offset: Long): Long =
+        (length.toLong() shl INDEX_OFFSET_BITS) or offset
+
     private fun unpackLength(packed: Long): Int = (packed ushr INDEX_OFFSET_BITS).toInt()
     private fun unpackOffset(packed: Long): Long = packed and OFFSET_MASK
 
@@ -159,18 +177,30 @@ class DiskQueue(
 
         val metaBytes = Ghost.encodeToBytes(meta)
         if (metaBytes.size > maxRecordFieldSize) {
-            throw RecordTooLargeException(DiskQueueConstants.META_FIELD_NAME, metaBytes.size, maxRecordFieldSize)
+            throw RecordTooLargeException(
+                DiskQueueConstants.META_FIELD_NAME,
+                metaBytes.size,
+                maxRecordFieldSize
+            )
         }
         if (body.size > maxRecordFieldSize) {
-            throw RecordTooLargeException(DiskQueueConstants.BODY_FIELD_NAME, body.size, maxRecordFieldSize)
+            throw RecordTooLargeException(
+                DiskQueueConstants.BODY_FIELD_NAME,
+                body.size,
+                maxRecordFieldSize
+            )
         }
 
         val packedLength = DiskQueueConstants.RECORD_HEADER_SIZE +
-            DiskQueueConstants.SEQUENCE_FIELD_SIZE +
-            DiskQueueConstants.LENGTH_FIELD_SIZE + metaBytes.size +
-            DiskQueueConstants.LENGTH_FIELD_SIZE + body.size
+                DiskQueueConstants.SEQUENCE_FIELD_SIZE +
+                DiskQueueConstants.LENGTH_FIELD_SIZE + metaBytes.size +
+                DiskQueueConstants.LENGTH_FIELD_SIZE + body.size
         if (packedLength > MAX_PACKABLE_RECORD_LENGTH) {
-            throw RecordTooLargeException(DiskQueueConstants.RECORD_FIELD_NAME, packedLength, MAX_PACKABLE_RECORD_LENGTH)
+            throw RecordTooLargeException(
+                DiskQueueConstants.RECORD_FIELD_NAME,
+                packedLength,
+                MAX_PACKABLE_RECORD_LENGTH
+            )
         }
 
         val offset = fileLength
@@ -250,33 +280,35 @@ class DiskQueue(
     }
 
     /** The first [limit] readable live entry ids, oldest first. */
-    suspend fun peekIds(limit: Int, outResult: MutableCollection<QueueEntryId>): Int = withQueueLock {
-        ensureOpenLocked()
-        scrubUnreadableEntriesLocked()
-        var count = 0
-        for (sequenceId in liveOffsetsBySequence.keys) {
-            if (count >= limit) {
-                break
+    suspend fun peekIds(limit: Int, outResult: MutableCollection<QueueEntryId>): Int =
+        withQueueLock {
+            ensureOpenLocked()
+            scrubUnreadableEntriesLocked()
+            var count = 0
+            for (sequenceId in liveOffsetsBySequence.keys) {
+                if (count >= limit) {
+                    break
+                }
+                val packed = liveOffsetsBySequence[sequenceId] ?: continue
+                if (readLiveEntryAtLocked(sequenceId, unpackOffset(packed)) != null) {
+                    outResult.add(QueueEntryId(sequenceId))
+                    count++
+                }
             }
-            val packed = liveOffsetsBySequence[sequenceId] ?: continue
-            if (readLiveEntryAtLocked(sequenceId, unpackOffset(packed)) != null) {
-                outResult.add(QueueEntryId(sequenceId))
-                count++
-            }
+            count
         }
-        count
-    }
 
-    internal suspend fun peekAllRaw(action: (Long, FrozenHttpRequestMeta, ByteArray) -> Unit) = withQueueLock {
-        ensureOpenLocked()
-        scrubUnreadableEntriesLocked()
-        for ((sequenceId, packed) in liveOffsetsBySequence) {
-            val entry = readLiveEntryAtLocked(sequenceId, unpackOffset(packed))
-            if (entry != null) {
-                action(sequenceId, entry.meta, entry.body)
+    internal suspend fun peekAllRaw(action: (Long, FrozenHttpRequestMeta, ByteArray) -> Unit) =
+        withQueueLock {
+            ensureOpenLocked()
+            scrubUnreadableEntriesLocked()
+            for ((sequenceId, packed) in liveOffsetsBySequence) {
+                val entry = readLiveEntryAtLocked(sequenceId, unpackOffset(packed))
+                if (entry != null) {
+                    action(sequenceId, entry.meta, entry.body)
+                }
             }
         }
-    }
 
     private fun scrubUnreadableEntriesLocked() {
         scrubScratchCount = 0
@@ -304,7 +336,8 @@ class DiskQueue(
     }
 
     private fun appendSinkLocked(): BufferedSink =
-        appendSink ?: fileSystem.appendingSink(path, mustExist = false).buffer().also { appendSink = it }
+        appendSink ?: fileSystem.appendingSink(path, mustExist = false).buffer()
+            .also { appendSink = it }
 
     private fun closeAppendSinkLocked() {
         try {
@@ -483,6 +516,8 @@ class DiskQueue(
         captureDiskMetadataLocked()
     }
 
+    /** Not synchronized with in-flight operations on this instance — see this class's own doc
+     * ("Threading contract") for why, and for the caller's responsibility here. */
     fun close() {
         if (closed) {
             return
