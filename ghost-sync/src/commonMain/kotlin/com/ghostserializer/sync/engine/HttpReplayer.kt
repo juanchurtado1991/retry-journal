@@ -16,6 +16,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.ByteArrayContent
+import io.ktor.utils.io.errors.IOException
 
 /**
  * Replays one queued [QueueEntry] over the wire — the only place [GhostSyncEngine] touches Ktor
@@ -39,16 +40,27 @@ internal class HttpReplayer {
         assertSafeToReplayWith(client)
 
         val meta = entry.meta
-        val response: HttpResponse = client.request(meta.url) {
-            method = parseMethodOrFallback(meta.method)
-            val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
-            setBody(
-                if (contentType != null) {
-                    ByteArrayContent(entry.body, contentType)
-                } else {
-                    entry.body
-                },
-            )
+        val response: HttpResponse = try {
+            client.request(meta.url) {
+                method = parseMethodOrFallback(meta.method)
+                val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
+                setBody(
+                    if (contentType != null) {
+                        ByteArrayContent(entry.body, contentType)
+                    } else {
+                        entry.body
+                    },
+                )
+            }
+        } catch (e: IOException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // A stored URL that no longer parses must not permanently wedge the whole queue behind
+            // it — same stall pattern method/Content-Type had before their fallbacks. Returning a
+            // synthetic 400 routes the entry through the normal dead-letter path instead.
+            return HttpStatusCode.BadRequest
         }
         return response.status
     }
