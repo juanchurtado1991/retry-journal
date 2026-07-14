@@ -36,6 +36,7 @@ internal object DiskQueueRecovery {
         // original path is still the source of truth since atomicMove never ran.
         val tempPath = (path.toString() + COMPACTION_FILE_SUFFIX).toPath()
         fileSystem.delete(tempPath, mustExist = false)
+        ReplayClaim.clearIfStale(fileSystem, ReplayClaim.claimPath(path))
 
         val liveOffsetsBySequence = LinkedHashMap<Long, Long>()
         var nextSequenceId = 0L

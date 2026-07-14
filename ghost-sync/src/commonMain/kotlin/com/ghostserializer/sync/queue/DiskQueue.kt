@@ -19,7 +19,6 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.SYSTEM
 import okio.buffer
-import kotlin.concurrent.Volatile
 
 /**
  * Append-only, crash-safe FIFO queue backed by a single file. Nothing is ever rewritten in
@@ -78,7 +77,6 @@ class DiskQueue(
     private var deadBytes = 0L
     private var nextSequenceId = 0L
     private var opened = false
-    private var closed = false
     private var lastKnownDiskModifiedAtMillis: Long? = null
 
     private var scrubScratch = LongArray(8)
@@ -86,13 +84,10 @@ class DiskQueue(
 
     private val fileHandles = RecordFileHandles(fileSystem, path)
 
-    /** How many callers are currently inside [withQueueLock]'s critical section. Only ever
-     * mutated while holding [mutex] (see [withQueueLock]), so concurrent increments/decrements
-     * never race each other and lose an update; [Volatile] is what makes [close]'s own
-     * *unsynchronized* read of it (it doesn't take [mutex] — see [close]) see the latest value
-     * instead of a stale one cached on whatever thread called [close]. */
-    @Volatile
-    private var activeOperationCount = 0
+    private val lifecycleGate = LifecycleGate(
+        closedMessage = DiskQueueConstants.QUEUE_CLOSED_MESSAGE,
+        closeWhileBusyMessage = DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE,
+    )
 
     /** [ioDispatcher] instead of trusting the caller's own dispatcher: every operation here does
      * blocking file I/O (Okio's [FileSystem] is synchronous, and so is [PlatformQueueFileLock]),
@@ -102,24 +97,19 @@ class DiskQueue(
         crossinline block: () -> T
     ): T = withContext(ioDispatcher) {
         mutex.withLock {
-            activeOperationCount++
+            lifecycleGate.enter()
             try {
                 processLock.acquire()
                 try {
                     refreshIndexIfNeededLocked()
-                    ensureNotClosedLocked()
                     block()
                 } finally {
                     processLock.release()
                 }
             } finally {
-                activeOperationCount--
+                lifecycleGate.leave()
             }
         }
-    }
-
-    private fun ensureNotClosedLocked() {
-        if (closed) error(DiskQueueConstants.QUEUE_CLOSED_MESSAGE)
     }
 
     /** Another process may have appended while this instance held stale in-memory indexes — rescan
@@ -218,6 +208,63 @@ class DiskQueue(
         captureDiskMetadataLocked()
 
         QueueEntryId(sequenceId)
+    }
+
+    /** Prepares the oldest readable entry for replay: writes a cross-process
+     * [ReplayClaim] so a second flusher in another process cannot send the same head entry
+     * concurrently. Call [completeHeadReplay] after a successful delivery/dead-letter, or
+     * [abortHeadReplayClaim] when replay stops early without removing the entry. */
+    suspend fun prepareHeadForReplay(): HeadReplayPrepareResult = withQueueLock {
+        ensureOpenLocked()
+        val claimPath = ReplayClaim.claimPath(path)
+        ReplayClaim.clearIfStale(fileSystem, claimPath)
+
+        var result: QueueEntry? = null
+        var removedAny = false
+        while (true) {
+            val (sequenceId, packed) = liveOffsetsBySequence.entries.firstOrNull() ?: break
+            val entry = readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
+            if (entry != null) {
+                result = entry
+                break
+            }
+            removeLocked(sequenceId)
+            removedAny = true
+        }
+        if (removedAny) {
+            compactIfNeededLocked()
+            captureDiskMetadataLocked()
+        }
+
+        val entry = result ?: return@withQueueLock HeadReplayPrepareResult.Empty
+
+        val nowMillis = currentTimeMillis()
+        val activeClaim = ReplayClaim.read(fileSystem, claimPath)
+        if (activeClaim != null &&
+            activeClaim.sequenceId == entry.id.sequenceId &&
+            !ReplayClaim.isStale(activeClaim, nowMillis)
+        ) {
+            return@withQueueLock HeadReplayPrepareResult.HeadBlocked
+        }
+
+        ReplayClaim.write(fileSystem, claimPath, entry.id.sequenceId, nowMillis)
+        HeadReplayPrepareResult.Ready(entry)
+    }
+
+    /** Removes a replayed entry and clears its [ReplayClaim] — call after 2xx delivery or
+     * dead-letter persistence. */
+    suspend fun completeHeadReplay(entryId: QueueEntryId) = withQueueLock {
+        ensureOpenLocked()
+        removeLocked(entryId.sequenceId)
+        compactIfNeededLocked()
+        captureDiskMetadataLocked()
+        ReplayClaim.delete(fileSystem, ReplayClaim.claimPath(path))
+    }
+
+    /** Clears the [ReplayClaim] without removing the entry — call when replay stops early. */
+    suspend fun abortHeadReplayClaim() = withQueueLock {
+        ensureOpenLocked()
+        ReplayClaim.delete(fileSystem, ReplayClaim.claimPath(path))
     }
 
     /** The oldest readable live entry, or `null` if the queue is empty. Corrupt head entries are
@@ -404,28 +451,14 @@ class DiskQueue(
         captureDiskMetadataLocked()
     }
 
-    /** Throws if an operation is currently in flight on this instance, via [activeOperationCount] —
-     * see that field's own doc for why the write side of that check is race-free. The check
-     * itself is still best-effort, not [mutex]-grade exclusion: [close] is a plain, non-suspending
-     * function on purpose (matching the `Closeable`-style contract [com.ghostserializer.sync.GhostSync]
-     * needs it to satisfy), so it can't take [mutex] without either blocking a thread it shouldn't
-     * or becoming suspend and breaking that contract. That leaves a narrow window between this
-     * check and a brand-new operation starting — but it turns the overwhelming majority of
-     * "closed while still in use" mistakes into a loud, immediate error instead of silently
-     * corrupting state.
+    /** Closes this queue. [LifecycleGate] serializes [close] against new [withQueueLock]
+     * operations so there is no TOCTOU window between an in-flight check and marking the
+     * instance closed.
      *
-     * [closed] is set *before* [RecordFileHandles.closeAll] runs, not after: if `closeAll()`
-     * throws, this instance is left permanently closed rather than retryable. Deliberate, not an
-     * oversight — `closeAll()` already clears its own cached handle references in a `finally`
-     * regardless of whether the underlying OS-level `close()` throws (see its own doc), so the
-     * handles aren't leaked either way; the alternative (`closed = true` only on success) would let
-     * a caller whose first `close()` threw retry indefinitely against handles that were already
-     * torn down, for no real benefit. */
+     * [RecordFileHandles.closeAll] runs after the gate closes: if it throws, this instance stays
+     * permanently closed rather than retryable — see [RecordFileHandles.closeAll]'s own doc. */
     fun close() {
-        if (closed) return
-
-        check(activeOperationCount == 0) { CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE }
-        closed = true
+        lifecycleGate.close()
         fileHandles.closeAll()
     }
 }

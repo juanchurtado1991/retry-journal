@@ -37,6 +37,13 @@ internal object DiskQueueConstants {
     const val COMPACTION_DEAD_RATIO_THRESHOLD: Double = 0.8
     const val COMPACTION_FILE_SUFFIX: String = ".compact"
     const val LOCK_FILE_SUFFIX: String = ".lock"
+    const val REPLAY_CLAIM_SUFFIX: String = ".replay-claim"
+
+    /** A replay claim older than this is treated as a crash artifact and ignored — long enough
+     * for a slow upload on a bad connection, short enough that a dead claim doesn't block the queue
+     * forever after a process kill mid-replay. */
+    const val REPLAY_CLAIM_STALE_MILLIS: Long = 15L * 60L * 1000L
+
     const val LOCK_ACQUIRE_FAILED_MESSAGE: String = "Failed to acquire exclusive queue file lock"
 
     const val META_FIELD_NAME: String = "meta"

@@ -305,6 +305,19 @@ class DiskQueueTest {
     }
 
     @Test
+    fun `operations after close fail immediately without a TOCTOU window`() {
+        runBlocking {
+            val queue = DiskQueue(queuePath)
+            queue.close()
+
+            assertFailsWith<IllegalStateException> {
+                queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+            }
+            assertFailsWith<IllegalStateException> { queue.peek() }
+        }
+    }
+
+    @Test
     fun `get() refuses to return an entry when the on-disk sequenceId doesn't match what the index expected`() = runBlocking {
         val queue = DiskQueue(queuePath)
         val idA = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
