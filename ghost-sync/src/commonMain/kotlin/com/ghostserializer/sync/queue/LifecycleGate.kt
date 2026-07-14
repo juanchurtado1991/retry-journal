@@ -20,29 +20,21 @@ internal class LifecycleGate(
 
     suspend fun enter() {
         mutex.withLock {
-            if (closed) {
-                error(closedMessage)
-            }
+            if (closed) { error(closedMessage) }
             activeCount++
         }
     }
 
     suspend fun leave() {
-        mutex.withLock {
-            activeCount--
-        }
+        mutex.withLock { activeCount-- }
     }
 
     /** @throws IllegalStateException when [activeCount] is still nonzero. */
     fun close() {
         runBlocking {
             mutex.withLock {
-                if (closed) {
-                    return@runBlocking
-                }
-                if (activeCount != 0) {
-                    error(closeWhileBusyMessage)
-                }
+                if (closed) { return@runBlocking }
+                if (activeCount != 0) { error(closeWhileBusyMessage) }
                 closed = true
             }
         }

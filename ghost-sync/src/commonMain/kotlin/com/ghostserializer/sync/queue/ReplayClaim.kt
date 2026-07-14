@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.queue.platform.currentTimeMillis
+import okio.BufferedSource
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -14,28 +15,16 @@ import okio.Path.Companion.toPath
  */
 internal object ReplayClaim {
 
-    data class Active(val sequenceId: Long, val claimedAtMillis: Long)
-
     fun claimPath(queuePath: Path): Path =
         (queuePath.toString() + DiskQueueConstants.REPLAY_CLAIM_SUFFIX).toPath()
 
-    fun read(fileSystem: FileSystem, claimPath: Path): Active? {
+    fun read(fileSystem: FileSystem, claimPath: Path): ReplayClaimActive? {
         if (!fileSystem.exists(claimPath)) {
             return null
         }
         return try {
             fileSystem.read(claimPath) {
-                val lineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
-                if (lineBreak <= 0L) {
-                    return@read null
-                }
-                val sequenceId = readUtf8(lineBreak).toLongOrNull() ?: return@read null
-                skip(1)
-                if (exhausted()) {
-                    return@read null
-                }
-                val claimedAtMillis = readUtf8().toLongOrNull() ?: return@read null
-                Active(sequenceId, claimedAtMillis)
+                parseClaimContent()
             }
         } catch (_: Exception) {
             null
@@ -57,13 +46,53 @@ internal object ReplayClaim {
         fileSystem.delete(claimPath, mustExist = false)
     }
 
-    fun isStale(claim: Active, nowMillis: Long): Boolean =
-        nowMillis - claim.claimedAtMillis > DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS
+    fun isStale(claim: ReplayClaimActive, nowMillis: Long): Boolean =
+        claim.claimedAtMillis > nowMillis + DiskQueueConstants.REPLAY_CLAIM_CLOCK_SKEW_MILLIS ||
+            nowMillis - claim.claimedAtMillis > DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS
 
     fun clearIfStale(fileSystem: FileSystem, claimPath: Path) {
         val claim = read(fileSystem, claimPath) ?: return
         if (isStale(claim, currentTimeMillis())) {
             delete(fileSystem, claimPath)
         }
+    }
+
+    fun isActiveClaimForSequence(
+        fileSystem: FileSystem,
+        claimPath: Path,
+        sequenceId: Long,
+        nowMillis: Long = currentTimeMillis(),
+    ): Boolean {
+        val claim = read(fileSystem, claimPath) ?: return false
+        if (isStale(claim, nowMillis)) {
+            return false
+        }
+        return claim.sequenceId == sequenceId
+    }
+
+    fun hasNonStaleClaim(
+        fileSystem: FileSystem,
+        claimPath: Path,
+        nowMillis: Long = currentTimeMillis(),
+    ): ReplayClaimActive? {
+        val claim = read(fileSystem, claimPath) ?: return null
+        if (isStale(claim, nowMillis)) {
+            return null
+        }
+        return claim
+    }
+
+    private fun BufferedSource.parseClaimContent(): ReplayClaimActive? {
+        val lineBreak = indexOf(DiskQueueConstants.NEWLINE_BYTE.toByte())
+        if (lineBreak <= 0L) {
+            return null
+        }
+        val sequenceId = readUtf8(lineBreak).toLongOrNull() ?: return null
+        skip(1)
+        if (exhausted()) {
+            return null
+        }
+        val claimedAtMillis = readUtf8().toLongOrNull() ?: return null
+        return ReplayClaimActive(sequenceId, claimedAtMillis)
     }
 }
