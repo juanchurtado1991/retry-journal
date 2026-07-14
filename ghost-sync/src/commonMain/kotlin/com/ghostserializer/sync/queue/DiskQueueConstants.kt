@@ -24,6 +24,9 @@ internal object DiskQueueConstants {
 
     const val QUEUE_CLOSED_MESSAGE: String = "DiskQueue is closed"
     const val INVALID_MAX_RECORD_FIELD_SIZE_MESSAGE: String = "maxRecordFieldSize must be positive"
+    const val CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE: String =
+        "DiskQueue.close() called while an operation is still in flight on this instance. " +
+            "Make sure every enqueue()/peek()/remove()/etc. call has completed before closing."
 
     /** [DiskQueue]'s crash-recovery scan verifies every record's CRC but never needs to keep the
      * meta/body bytes once it has — reading them in bounded chunks this size, instead of one

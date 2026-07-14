@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.queue
 
 import okio.BufferedSink
+import okio.FileHandle
 import okio.FileSystem
 import okio.Path
 import okio.buffer
@@ -16,31 +17,32 @@ internal class RecordFileHandles(
     private val path: Path,
 ) {
     private var appendSink: BufferedSink? = null
-    private var readHandle: okio.FileHandle? = null
+    private var readHandle: FileHandle? = null
 
-    fun appendSink(): BufferedSink =
-        appendSink ?: fileSystem.appendingSink(path, mustExist = false).buffer().also { appendSink = it }
+    fun appendSink(): BufferedSink = appendSink
+        ?: fileSystem.appendingSink(path, mustExist = false)
+            .buffer()
+            .also { appendSink = it }
 
-    fun readHandle(): okio.FileHandle =
-        readHandle ?: fileSystem.openReadOnly(path).also { readHandle = it }
+    fun readHandle(): FileHandle = readHandle
+        ?: fileSystem
+            .openReadOnly(path)
+            .also { readHandle = it }
 
-    fun closeAppendSink() {
-        try {
-            appendSink?.close()
-        } finally {
-            appendSink = null
-        }
+    fun closeAppendSink() = try {
+        appendSink?.close()
+    } finally {
+        appendSink = null
     }
 
-    fun closeReadHandle() {
-        try {
-            readHandle?.close()
-        } finally {
-            readHandle = null
-        }
+    fun closeReadHandle() = try {
+        readHandle?.close()
+    } finally {
+        readHandle = null
     }
 
-    /** Closes both, guaranteeing the read handle is still released even if closing the append
+    /** Closes both, guaranteeing the read handle
+     *  is still released even if closing the append
      * sink throws. */
     fun closeAll() {
         try {

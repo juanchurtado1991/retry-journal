@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okio.FileSystem
@@ -16,6 +17,7 @@ import okio.Path.Companion.toPath
 import okio.Sink
 import java.io.IOException
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -267,6 +269,38 @@ class DiskQueueTest {
 
         assertNull(queue.readFileHandlesField("appendSink"), "appendSink should be cleared even though closing it threw")
         assertNull(queue.readFileHandlesField("readHandle"), "readHandle should still be released after the append sink's close throws")
+    }
+
+    @Test
+    fun `close throws instead of racing an operation that is still in flight`() = runBlocking {
+        // Holds a real enqueue() paused mid-write on a background thread, so close() is called
+        // while activeOperationCount is genuinely nonzero — not a simulated value.
+        val operationStarted = CountDownLatch(1)
+        val releaseOperation = CountDownLatch(1)
+        val blockingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                operationStarted.countDown()
+                releaseOperation.await()
+                return super.appendingSink(file, mustExist)
+            }
+        }
+        val queue = DiskQueue(queuePath, blockingFs)
+
+        val enqueueJob = launch(Dispatchers.Default) {
+            queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        }
+
+        operationStarted.await()
+        try {
+            assertFailsWith<IllegalStateException> { queue.close() }
+        } finally {
+            releaseOperation.countDown()
+            enqueueJob.join()
+        }
+
+        // close() correctly refused to tear the queue down mid-operation — it's still usable.
+        assertEquals(1, queue.size())
+        queue.close()
     }
 
     /** [DiskQueue] delegates its cached append sink/read handle to [RecordFileHandles] — reaches

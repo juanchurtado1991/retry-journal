@@ -5,11 +5,13 @@ import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_PACKABLE_RECORD_LEN
 import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.SYSTEM
 import okio.buffer
+import kotlin.concurrent.Volatile
 
 /**
  * Append-only, crash-safe FIFO queue backed by a single file. Nothing is ever rewritten in
@@ -28,22 +30,24 @@ import okio.buffer
  * [peek] skips corrupt head entries (tombstoning them) so [com.ghostserializer.sync.engine.GhostSyncEngine]
  * never stalls on unreadable data; [size] and [peekIds] only count entries that can actually be read.
  *
- * **Threading contract, two parts callers need to know:**
+ * **Threading contract, two parts callers used to need to know by convention — both now enforced
+ * instead of merely documented:**
  * - Every suspend function here does blocking file I/O (Okio's [FileSystem] is synchronous, and
- *   so is [PlatformQueueFileLock]) on whatever thread the calling coroutine happens to be running
- *   on. Drive this class from `Dispatchers.IO` (or an equivalently blocking-friendly dispatcher;
- *   not linked here — it's declared for JVM/Native targets only, not in `commonMain`, so this
- *   file can't reference it as a resolvable symbol) — calling it from
- *   [kotlinx.coroutines.Dispatchers.Default]'s CPU-sized pool risks starving other CPU-bound work
- *   sharing that pool under real contention.
- * - [close] is **not** synchronized with [Mutex] the way every other operation is: it's a plain,
- *   non-suspending function (matching the `Closeable`-style contract
- *   [com.ghostserializer.sync.GhostSync] implements), so
- *   it can't take a suspend-only lock without either blocking a thread it shouldn't or becoming
- *   suspend itself and breaking that contract. Calling [close] while another coroutine has an
- *   operation in flight on the same instance is undefined behavior — the same caveat as closing
- *   any stream, socket, or file handle while something else is actively using it. Callers own
- *   sequencing their own shutdown so nothing is in flight when [close] runs.
+ *   so is [PlatformQueueFileLock]). Rather than trust the caller to remember a blocking-friendly
+ *   dispatcher, [withQueueLock] dispatches onto [ioDispatcher] itself — the platform's own
+ *   `Dispatchers.IO` (not linked here: it's declared for JVM/Native targets only, not in
+ *   `commonMain`, so this file can't reference it as a resolvable symbol). Call this class from
+ *   any dispatcher; it never runs its blocking work on the caller's.
+ * - [close] is still a plain, non-suspending function — it can't take [mutex] itself without
+ *   either blocking a thread it shouldn't or becoming suspend and breaking the `Closeable`-style
+ *   contract [com.ghostserializer.sync.GhostSync] needs it to satisfy — so it still can't be
+ *   perfectly synchronized with an operation that's already running. What it *can* do, and does,
+ *   is refuse: [activeOperationCount] is only ever mutated while holding [mutex] (so writes never
+ *   race each other) and read as a plain volatile field by [close] (so it always sees the latest
+ *   value); [close] throws [IllegalStateException] instead of proceeding if that count is nonzero.
+ *   There's still a narrow window between that check and a brand-new operation starting — this
+ *   isn't [mutex]-grade exclusion — but it turns the overwhelming majority of "closed while still
+ *   in use" mistakes into a loud, immediate error instead of silent corruption.
  */
 class DiskQueue(
     internal val path: Path,
@@ -85,16 +89,30 @@ class DiskQueue(
 
     private val fileHandles = RecordFileHandles(fileSystem, path)
 
+    /** How many callers are currently inside [withQueueLock]'s critical section — only ever
+     * mutated while holding [mutex] (see [withQueueLock]), so writes to it never race each other;
+     * [Volatile] makes [close]'s unsynchronized read of it see the latest value. A best-effort
+     * misuse guard, not a substitute for [mutex] — see this class's own "Threading contract" doc. */
+    @Volatile
+    private var activeOperationCount = 0
+
     private suspend inline fun <T> withQueueLock(
         crossinline block: () -> T
-    ): T = mutex.withLock {
-        processLock.acquire()
-        try {
-            refreshIndexIfNeededLocked()
-            ensureNotClosedLocked()
-            block()
-        } finally {
-            processLock.release()
+    ): T = withContext(ioDispatcher) {
+        mutex.withLock {
+            activeOperationCount++
+            try {
+                processLock.acquire()
+                try {
+                    refreshIndexIfNeededLocked()
+                    ensureNotClosedLocked()
+                    block()
+                } finally {
+                    processLock.release()
+                }
+            } finally {
+                activeOperationCount--
+            }
         }
     }
 
@@ -105,9 +123,8 @@ class DiskQueue(
     /** Another process may have appended while this instance held stale in-memory indexes — rescan
      * when the on-disk file size or last-modified time no longer matches what we last saw. */
     private fun refreshIndexIfNeededLocked() {
-        if (!opened) {
-            return
-        }
+        if (!opened) return
+
         if (!fileSystem.exists(path)) {
             if (fileLength != 0L || lastKnownDiskModifiedAtMillis != null) {
                 rescanFromDiskLocked()
@@ -336,9 +353,8 @@ class DiskQueue(
     }
 
     private fun ensureOpenLocked() {
-        if (opened) {
-            return
-        }
+        if (opened) return
+
         val result = DiskQueueRecovery.recover(fileSystem, path, maxRecordFieldSize)
         liveOffsetsBySequence.clear()
         liveOffsetsBySequence.putAll(result.liveOffsetsBySequence)
@@ -371,12 +387,12 @@ class DiskQueue(
         captureDiskMetadataLocked()
     }
 
-    /** Not synchronized with in-flight operations on this instance — see this class's own doc
-     * ("Threading contract") for why, and for the caller's responsibility here. */
+    /** Throws if an operation is currently in flight on this instance — see this class's own doc
+     * ("Threading contract") for why this is a best-effort check, not an ironclad guarantee. */
     fun close() {
-        if (closed) {
-            return
-        }
+        if (closed) return
+
+        check(activeOperationCount == 0) { DiskQueueConstants.CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE }
         closed = true
         fileHandles.closeAll()
     }
