@@ -40,7 +40,7 @@ internal class HttpReplayer {
 
         val meta = entry.meta
         val response: HttpResponse = client.request(meta.url) {
-            method = HttpMethod.parse(meta.method)
+            method = parseMethodOrFallback(meta.method)
             val contentType = applyHeaders(meta.headers)?.let(::parseContentTypeOrNull)
             setBody(
                 if (contentType != null) {
@@ -51,6 +51,17 @@ internal class HttpReplayer {
             )
         }
         return response.status
+    }
+
+    /** A stored HTTP method that no longer parses must not permanently wedge the whole queue
+     * behind it — same reasoning as [parseContentTypeOrNull] below. Falling back to a custom
+     * [HttpMethod] built from the raw stored string still lets the request reach the server,
+     * which can then reject it (4xx) through the normal dead-letter path instead of a permanent
+     * stall on every future `flush()`. */
+    private fun parseMethodOrFallback(value: String): HttpMethod = try {
+        HttpMethod.parse(value)
+    } catch (_: Exception) {
+        HttpMethod(value)
     }
 
     /** A stored Content-Type that no longer parses must not permanently wedge the whole queue
