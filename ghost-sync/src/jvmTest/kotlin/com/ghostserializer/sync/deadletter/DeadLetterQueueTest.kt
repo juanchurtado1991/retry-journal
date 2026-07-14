@@ -219,4 +219,53 @@ class DeadLetterQueueTest {
         assertEquals(setOf("token-a", "token-b"), recovered.map { it.meta.headers.findValue("Authorization") }.toSet())
         assertTrue(!FileSystem.SYSTEM.exists(journalFile))
     }
+
+    @Test
+    fun `a corrupted retry journal is deleted during recovery instead of lingering forever`() = runBlocking {
+        val entryId = deadLetterQueue.record("POST", "/rejected", FrozenHttpHeaders.EMPTY, "payload".encodeToByteArray())
+        val dlqStorage = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val entry = dlqStorage.peek()!!
+
+        val journalFile = (dlqStorage.path.toString() + ".retry." + entryId.value).toPath()
+        val writeJournalMethod = DeadLetterQueue::class.java.declaredMethods.first { it.name == "writeJournal" }.apply {
+            isAccessible = true
+        }
+        writeJournalMethod.invoke(deadLetterQueue, journalFile, entryId.value, entry)
+        dlqStorage.remove(entry.id)
+
+        // Truncate the journal mid-record so it can never parse back — nothing about a future
+        // restart makes these same bytes readable again.
+        val bytes = FileSystem.SYSTEM.read(journalFile) { readByteArray() }
+        FileSystem.SYSTEM.write(journalFile) { write(bytes.copyOfRange(0, bytes.size / 2)) }
+
+        val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
+        val dlqStorage2 = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val deadLetterQueue2 = DeadLetterQueue(mainQueue2, dlqStorage2)
+
+        deadLetterQueue2.size() // triggers recovery
+
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile), "an unreadable journal must not be left behind to be re-attempted forever")
+        assertTrue(mainQueue2.isEmpty())
+    }
+
+    @Test
+    fun `a corrupted header count in a journal does not crash recovery`() = runBlocking {
+        // Hand-crafted directly, bypassing writeJournal, so the header count field can be set to
+        // something no real write would ever produce: ArrayList(headersSize) must not trust it.
+        val journalFile = (dir.toString() + "/dead-letter.bin.retry.7").toPath()
+        FileSystem.SYSTEM.write(journalFile) {
+            writeDecimalLong(7L)
+            writeByte('\n'.code)
+            writeInt(4)
+            writeUtf8("POST")
+            writeInt(1)
+            writeUtf8("/")
+            writeInt(Int.MAX_VALUE) // corrupted header count
+        }
+
+        deadLetterQueue.size() // triggers recovery; must not throw OutOfMemoryError
+
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile))
+        assertTrue(mainQueue.isEmpty())
+    }
 }

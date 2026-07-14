@@ -2,6 +2,7 @@ package com.ghostserializer.sync.deadletter
 
 import com.ghostserializer.sync.queue.DiskQueue
 import com.ghostserializer.sync.queue.DiskQueueConstants.CURRENT_DIRECTORY_PATH
+import com.ghostserializer.sync.queue.DiskQueueConstants.MAX_RECORD_FIELD_SIZE
 import com.ghostserializer.sync.queue.DiskQueueConstants.NEWLINE_BYTE
 import com.ghostserializer.sync.queue.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.ghostserializer.sync.queue.FrozenHttpHeaders
@@ -41,6 +42,12 @@ class DeadLetterQueue(
         val body: ByteArray,
     )
 
+    /** Every length-prefixed field below is bounds-checked before it sizes a read or an
+     * allocation: a corrupted journal (itself the product of a crash — the same one this journal
+     * exists to recover from) could otherwise hand a garbage length to `readUtf8`/`readByteArray`
+     * or to `ArrayList(headersSize)`. A wildly negative or oversized [Int] there can throw
+     * [OutOfMemoryError], which is a [Throwable], not an [Exception] — the `catch (_: Exception)`
+     * below would never have caught it. */
     private fun readJournal(file: Path): JournalData? {
         return try {
             storage.fileSystem.read(file) {
@@ -51,22 +58,40 @@ class DeadLetterQueue(
                 skip(newlineIndex + 1)
 
                 val methodLen = readInt()
+                if (methodLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                    return@read null
+                }
                 val method = readUtf8(methodLen.toLong())
 
                 val urlLen = readInt()
+                if (urlLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                    return@read null
+                }
                 val url = readUtf8(urlLen.toLong())
 
                 val headersSize = readInt()
+                if (headersSize !in 0..MAX_JOURNAL_HEADER_COUNT) {
+                    return@read null
+                }
                 val names = ArrayList<String>(headersSize)
                 val values = ArrayList<String>(headersSize)
                 for (i in 0 until headersSize) {
                     val kLen = readInt()
+                    if (kLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                        return@read null
+                    }
                     names.add(readUtf8(kLen.toLong()))
                     val vLen = readInt()
+                    if (vLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                        return@read null
+                    }
                     values.add(readUtf8(vLen.toLong()))
                 }
 
                 val bodyLen = readInt()
+                if (bodyLen !in 0..MAX_RECORD_FIELD_SIZE) {
+                    return@read null
+                }
                 val body = readByteArray(bodyLen.toLong())
                 JournalData(method, url, FrozenHttpHeaders(names, values), body)
             }
@@ -121,7 +146,14 @@ class DeadLetterQueue(
                 continue
             }
 
-            val journalData = readJournal(file) ?: continue
+            val journalData = readJournal(file)
+            if (journalData == null) {
+                // Unreadable now means unreadable forever — nothing about a future process
+                // restart makes these same bytes parse differently. Leaving the file behind would
+                // just re-attempt (and re-fail) this same read on every future startup for good.
+                storage.fileSystem.delete(file)
+                continue
+            }
             if (!mainQueueAlreadyContains(journalData)) {
                 mainQueue.enqueue(
                     method = journalData.method,
@@ -228,5 +260,12 @@ class DeadLetterQueue(
 
     fun close() {
         storage.close()
+    }
+
+    private companion object {
+        /** A sanity cap on a journal's header count — bounds the `ArrayList(headersSize)`
+         * preallocation in [readJournal] against a corrupted count field. Generous for any real
+         * request (HTTP servers/clients typically cap header counts far below this). */
+        const val MAX_JOURNAL_HEADER_COUNT: Int = 10_000
     }
 }
