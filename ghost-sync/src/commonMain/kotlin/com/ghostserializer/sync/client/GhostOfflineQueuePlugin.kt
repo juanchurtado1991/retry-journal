@@ -8,6 +8,7 @@ import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.errors.IOException
+import kotlin.concurrent.Volatile
 
 /**
  * Installed on Ghost's Ktor client. When a request fails to reach the network — not a business
@@ -22,11 +23,25 @@ class GhostOfflineQueuePlugin private constructor(
 ) {
     private val requestCapture = RequestCapture()
 
+    /** How many requests are currently between [HttpSend]'s `execute()` starting and returning.
+     * [Volatile] lets [com.ghostserializer.sync.GhostSync.close]'s unsynchronized read see the
+     * latest value — same best-effort tradeoff [DiskQueue] documents on its own in-flight guard. */
+    @Volatile
+    var inFlightRequestCount: Int = 0
+        private set
+
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
+            inFlightRequestCount++
             try {
                 execute(request)
-            } catch (_: IOException) {
+            } catch (cause: Throwable) {
+                if (cause is BodyCaptureException) {
+                    throw cause
+                }
+                if (!Plugin.causesOrIsIOException(cause)) {
+                    throw cause
+                }
                 val url = request.url.buildString()
                 try {
                     enqueueLocked(request, url)
@@ -34,6 +49,8 @@ class GhostOfflineQueuePlugin private constructor(
                     throw capture
                 }
                 throw OfflineQueuedException(url)
+            } finally {
+                inFlightRequestCount--
             }
         }
     }
@@ -66,6 +83,17 @@ class GhostOfflineQueuePlugin private constructor(
 
         override fun install(plugin: GhostOfflineQueuePlugin, scope: HttpClient) {
             plugin.intercept(scope)
+        }
+
+        private fun causesOrIsIOException(cause: Throwable): Boolean {
+            var current: Throwable? = cause
+            while (current != null) {
+                if (current is IOException) {
+                    return true
+                }
+                current = current.cause
+            }
+            return false
         }
     }
 }

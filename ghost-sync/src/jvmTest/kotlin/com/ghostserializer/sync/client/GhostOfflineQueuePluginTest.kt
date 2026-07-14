@@ -203,6 +203,22 @@ class GhostOfflineQueuePluginTest {
     }
 
     @Test
+    fun `a wrapped IOException still queues the request for later delivery`() = runBlocking {
+        val client = HttpClient(MockEngine { throw RuntimeException(IOException("no network")) }) {
+            install(GhostOfflineQueuePlugin) { this.diskQueue = this@GhostOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.post("https://example.com/mutations") { setBody("hello-ghost") }
+        }
+
+        val queued = diskQueue.peek()
+        assertEquals("POST", queued?.meta?.method)
+        assertEquals("https://example.com/mutations", queued?.meta?.url)
+        assertEquals("hello-ghost", queued?.body?.decodeToString())
+    }
+
+    @Test
     fun `installing plugin without configuring diskQueue throws informative exception`() {
         val exception = assertFailsWith<IllegalStateException> {
             HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }) {

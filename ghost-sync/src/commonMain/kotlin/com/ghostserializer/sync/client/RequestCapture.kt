@@ -40,13 +40,9 @@ internal class RequestCapture {
         request: HttpRequestBuilder,
         outgoingBody: OutgoingContent?,
     ): FrozenHttpHeaders {
-        val builderEntries = request.headers.entries()
-        var count = 0
-        builderEntries.forEach { _ -> count++ }
-        ensureHeaderScratch(count)
-
         var index = 0
-        for (entry in builderEntries) {
+        for (entry in request.headers.entries()) {
+            ensureHeaderScratch(index + 1)
             headerNameScratch[index] = entry.key
             headerValueScratch[index] = encodeHeaderValues(entry.value)
             index++
