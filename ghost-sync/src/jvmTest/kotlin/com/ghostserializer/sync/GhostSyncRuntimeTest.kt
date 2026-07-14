@@ -205,6 +205,30 @@ class GhostSyncRuntimeTest {
         runtime.shutdown()
     }
 
+    @Test
+    fun `regression flushWhenOnline observes connectivity transition after start`() = runBlocking {
+        val connectivity = MutableStateFlow(false)
+        val ghostSync = ghostSyncThatAlwaysSucceeds()
+        ghostSync.diskQueue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+
+        val runtime = GhostSync.createRuntime(ghostSync, this, connectivity)
+        runtime.start(autoFlushOnOnline = false)
+        delay(50)
+
+        assertNull(runtime.flushWhenOnline())
+        assertEquals(1, ghostSync.diskQueue.size())
+
+        connectivity.value = true
+        delay(100)
+
+        assertTrue(runtime.isOnline)
+        val result = runtime.flushWhenOnline()
+        assertEquals(1, result?.delivered)
+        assertTrue(ghostSync.diskQueue.isEmpty())
+
+        runtime.shutdown()
+    }
+
     private fun ghostSyncThatAlwaysSucceeds(): GhostSync =
         GhostSync.create(
             engineFactory = MockEngine,

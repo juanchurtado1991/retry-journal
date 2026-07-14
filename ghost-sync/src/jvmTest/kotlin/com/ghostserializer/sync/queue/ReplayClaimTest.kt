@@ -181,4 +181,22 @@ class ReplayClaimTest {
         assertTrue(prepared is HeadReplayPrepareResult.Ready)
         assertEquals("/b", prepared.entry.meta.url)
     }
+
+    @Test
+    fun `regression prepareHeadForReplay is not HeadBlocked when only a non-head claim is active`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        ReplayClaim.write(
+            FileSystem.SYSTEM,
+            ReplayClaim.claimPath(queuePath),
+            idB.sequenceId,
+            currentTimeMillis(),
+        )
+
+        val prepared = queue.prepareHeadForReplay()
+
+        assertTrue(prepared is HeadReplayPrepareResult.Ready)
+        assertEquals("/a", prepared.entry.meta.url)
+    }
 }

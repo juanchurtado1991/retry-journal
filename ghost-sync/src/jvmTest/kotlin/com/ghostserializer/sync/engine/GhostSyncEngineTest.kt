@@ -809,4 +809,44 @@ class GhostSyncEngineTest {
         assertEquals(HeadFinalizeResult.LeftOnQueue, result)
         assertTrue(DeliveryJournal.read(queue.fileSystem, queue.path) is DeliveryJournalReadResult.Absent)
     }
+
+    @Test
+    fun `regression getEntry returns head while getHeadState reports PendingLocalRemoval`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            id.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+
+        val entry = engine.getEntry()
+        val state = engine.getHeadState()
+
+        assertEquals(id, entry?.id)
+        assertTrue(state is QueueHeadState.PendingLocalRemoval)
+        assertEquals(id, (state as QueueHeadState.PendingLocalRemoval).entry.id)
+    }
+
+    @Test
+    fun `regression getEntryAndStatus sends HTTP when journal only targets a non-head sequence`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = queue.enqueue("POST", "https://example.com/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+        DeliveryJournal.write(
+            queue.fileSystem,
+            queue.path,
+            idB.sequenceId,
+            DeliveryJournal.OUTCOME_DELIVERED,
+        )
+        val httpCalls = AtomicInteger(0)
+        val client = HttpClient(MockEngine {
+            httpCalls.incrementAndGet()
+            respond("ok", HttpStatusCode.OK, headersOf())
+        })
+
+        val result = engine.getEntryAndStatus(client)
+
+        assertEquals(1, httpCalls.get())
+        assertTrue(result is EntryReplayResult.Ready)
+    }
 }

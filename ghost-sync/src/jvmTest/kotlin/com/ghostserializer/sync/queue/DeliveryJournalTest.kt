@@ -83,4 +83,45 @@ class DeliveryJournalTest {
 
         assertTrue(result is DeliveryJournalReadResult.Absent)
     }
+
+    @Test
+    fun `regression legacy journal without magic header is treated as absent`() {
+        val path = DeliveryJournal.journalPath(queuePath)
+        FileSystem.SYSTEM.write(path) {
+            writeUtf8("1\n")
+            writeUtf8("delivered\n")
+            writeUtf8("0\n")
+        }
+
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+
+        assertTrue(result is DeliveryJournalReadResult.Absent)
+    }
+
+    @Test
+    fun `regression journal with an invalid outcome token is treated as absent`() {
+        val path = DeliveryJournal.journalPath(queuePath)
+        FileSystem.SYSTEM.write(path) {
+            writeUtf8("ghost-sync-delivery-v1\n")
+            writeUtf8("7\n")
+            writeUtf8("unknown-outcome\n")
+            writeUtf8("0\n")
+        }
+
+        val result = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+
+        assertTrue(result is DeliveryJournalReadResult.Absent)
+    }
+
+    @Test
+    fun `regression pendingForSequence ignores a journal for a different sequence id`() {
+        DeliveryJournal.write(FileSystem.SYSTEM, queuePath, 99L, DeliveryJournal.OUTCOME_DELIVERED)
+        val read = DeliveryJournal.read(FileSystem.SYSTEM, queuePath)
+
+        assertEquals(null, DeliveryJournal.pendingForSequence(read, 42L))
+        assertEquals(
+            PendingDelivery(99L, DeliveryJournal.OUTCOME_DELIVERED),
+            DeliveryJournal.pendingForSequence(read, 99L),
+        )
+    }
 }
