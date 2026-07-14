@@ -122,13 +122,12 @@ internal class RequestCapture {
                     val writeJob = launch { content.writeTo(channel) }
                     try {
                         writeJob.join()
+                        channel.readRemaining().readBytes()
                     } catch (cause: Throwable) {
-                        channel.close()
                         throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
                     } finally {
                         channel.close()
                     }
-                    channel.readRemaining().readBytes()
                 }
             }
 
