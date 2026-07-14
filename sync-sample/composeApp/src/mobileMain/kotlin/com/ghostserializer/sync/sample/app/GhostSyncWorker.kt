@@ -4,18 +4,22 @@ import com.ghostserializer.sync.GhostSyncRuntime
 import dev.brewkits.kmpworkmanager.background.domain.Worker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import kotlinx.coroutines.CancellationException
 
 /**
  * Background sync worker — delegates to [GhostSyncRuntime] from `:ghost-sync` so flush is
  * serialized with the UI and respects the same lifecycle coordinator. Platform adapters
- * ([SyncWorkerAndroid], [SyncWorkerIos]) are thin kmpworkmanager shells.
+ * (SyncWorkerAndroid, SyncWorkerIos) are thin kmpworkmanager shells.
  */
 class GhostSyncWorker(
     private val runtime: GhostSyncRuntime = SyncSetup.runtime,
 ) : Worker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult {
         return try {
-            val result = runtime.flushWhenOnline() ?: return retry(AppStrings.WORKER_RETRY_REASON_OFFLINE)
+            val result = runtime
+                .flushWhenOnline()
+                ?: return retry(AppStrings.WORKER_RETRY_REASON_OFFLINE)
+
             if (result.stoppedEarly) {
                 retry(reason = AppStrings.WORKER_RETRY_REASON_STOPPED_EARLY)
             } else {
@@ -25,9 +29,7 @@ class GhostSyncWorker(
                 )
             }
         } catch (cause: Exception) {
-            if (cause is kotlinx.coroutines.CancellationException) {
-                throw cause
-            }
+            if (cause is CancellationException) throw cause
             retry(reason = AppStrings.WORKER_RETRY_REASON_THREW_PREFIX + cause.message)
         }
     }

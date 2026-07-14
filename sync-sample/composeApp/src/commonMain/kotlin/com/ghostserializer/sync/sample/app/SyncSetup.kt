@@ -5,7 +5,7 @@ import com.ghostserializer.sync.GhostSyncRuntime
 import com.ghostserializer.sync.client.GhostOfflineQueuePlugin
 import com.ghostserializer.sync.deadletter.DeadLetterQueue
 import com.ghostserializer.sync.engine.GhostSyncEngine
-import com.ghostserializer.sync.queue.DiskQueue
+import com.ghostserializer.sync.queue.disk.DiskQueue
 import com.ghostserializer.sync.sample.shared.SampleApiConstants
 import de.jensklingenberg.ktorfit.Ktorfit
 import io.ktor.client.HttpClient

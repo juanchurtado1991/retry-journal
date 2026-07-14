@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.sample.app
+package com.ghostserializer.sync.sample.ui.theme
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -19,10 +19,6 @@ internal object AppDimens {
     val QUEUE_CHIP_SIZE: Dp = 28.dp
     val QUEUE_CHIP_SPACING: Dp = 6.dp
 
-    /** Compose Desktop's own default (800x600) is shorter than this screen's content — the
-     * activity log and advanced section would be clipped off below the fold instead of just
-     * needing a scroll. Sized to comfortably fit the primary flow without scrolling on a typical
-     * desktop display. */
     val DESKTOP_WINDOW_WIDTH: Dp = 900.dp
     val DESKTOP_WINDOW_HEIGHT: Dp = 800.dp
 }

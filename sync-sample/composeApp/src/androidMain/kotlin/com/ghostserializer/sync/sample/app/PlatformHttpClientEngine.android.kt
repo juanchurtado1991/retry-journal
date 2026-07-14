@@ -16,8 +16,6 @@ internal actual fun platformHttpClientEngine(): HttpClientEngine =
                 AppConstants.CLIENT_SOCKET_TIMEOUT_MS,
                 TimeUnit.MILLISECONDS
             )
-            // OkHttp's own default (5 requests per host) would otherwise be the real cap on
-            // enqueueMutations()'s concurrency, regardless of its own Semaphore permit count.
             dispatcher(
                 Dispatcher().apply {
                     maxRequests = AppConstants.ENQUEUE_CONCURRENCY

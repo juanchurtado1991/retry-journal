@@ -16,7 +16,7 @@ import io.ktor.http.content.PartData
  * know Ktorfit exists — it intercepts at the `HttpSend` phase, which every request reaches no
  * matter how it was built. Ktorfit's generated `_MutationApiImpl` is itself just calling that same
  * `HttpClient` under the hood, so routing everything through it here proves the plugin doesn't
- * care — a hand-written `HttpClient.post(...)` (see the root README's Quick start) is captured and
+ * care — a handwritten `HttpClient.post(...)` (see the root README's Quick start) is captured and
  * queued exactly the same way.
  */
 interface MutationApi {

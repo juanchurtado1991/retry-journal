@@ -4,6 +4,8 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.ghostserializer.sync.sample.ui.App
+import com.ghostserializer.sync.sample.ui.theme.AppDimens
 
 fun main() = application {
     val windowState = rememberWindowState(
