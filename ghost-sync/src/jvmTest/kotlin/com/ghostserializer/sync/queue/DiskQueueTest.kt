@@ -9,9 +9,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okio.FileSystem
+import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.Sink
 import okio.buffer
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -392,5 +395,30 @@ class DiskQueueTest {
             queue.enqueue("POST", "https://example.com/huge", FrozenHttpHeaders.EMPTY, hugeBody)
         }
         assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `close still releases the read handle when closing the append sink throws`() = runBlocking {
+        val throwingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun appendingSink(file: Path, mustExist: Boolean): Sink {
+                val real = super.appendingSink(file, mustExist)
+                return object : Sink by real {
+                    override fun close() {
+                        real.close()
+                        throw IOException("simulated append-sink close failure")
+                    }
+                }
+            }
+        }
+        val queue = DiskQueue(queuePath, throwingFs)
+        queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        queue.peek() // populates the cached read handle so there is something to release
+
+        assertFailsWith<IOException> { queue.close() }
+
+        val appendSinkField = DiskQueue::class.java.getDeclaredField("appendSink").apply { isAccessible = true }
+        val readHandleField = DiskQueue::class.java.getDeclaredField("readHandle").apply { isAccessible = true }
+        assertNull(appendSinkField.get(queue), "appendSink should be cleared even though closing it threw")
+        assertNull(readHandleField.get(queue), "readHandle should still be released after the append sink's close throws")
     }
 }

@@ -53,11 +53,23 @@ class GhostSync private constructor(
      * show the queue draining in real time. */
     suspend fun flush(onProgress: suspend (FlushProgress) -> Unit = {}): FlushResult = engine.flush(replayClient, onProgress)
 
+    /** Closes every owned resource even if an earlier one throws while closing — a failure
+     * closing [client] (the underlying engine tearing down sockets, say) must not leak
+     * [replayClient]'s connections or [diskQueue]/[deadLetterQueue]'s open file handles. */
     override fun close() {
-        client.close()
-        replayClient.close()
-        diskQueue.close()
-        deadLetterQueue.close()
+        try {
+            client.close()
+        } finally {
+            try {
+                replayClient.close()
+            } finally {
+                try {
+                    diskQueue.close()
+                } finally {
+                    deadLetterQueue.close()
+                }
+            }
+        }
     }
 
     companion object {

@@ -77,8 +77,11 @@ class DiskQueue(
         readHandle ?: fileSystem.openReadOnly(path).also { readHandle = it }
 
     private fun closeReadHandleLocked() {
-        readHandle?.close()
-        readHandle = null
+        try {
+            readHandle?.close()
+        } finally {
+            readHandle = null
+        }
     }
 
     private suspend inline fun <T> withQueueLock(crossinline block: () -> T): T = mutex.withLock {
@@ -304,8 +307,11 @@ class DiskQueue(
         appendSink ?: fileSystem.appendingSink(path, mustExist = false).buffer().also { appendSink = it }
 
     private fun closeAppendSinkLocked() {
-        appendSink?.close()
-        appendSink = null
+        try {
+            appendSink?.close()
+        } finally {
+            appendSink = null
+        }
     }
 
     private fun readLiveEntryAtLocked(sequenceId: Long, offset: Long): QueueEntry? {
@@ -482,8 +488,11 @@ class DiskQueue(
             return
         }
         closed = true
-        closeAppendSinkLocked()
-        closeReadHandleLocked()
+        try {
+            closeAppendSinkLocked()
+        } finally {
+            closeReadHandleLocked()
+        }
     }
 
     private companion object {
