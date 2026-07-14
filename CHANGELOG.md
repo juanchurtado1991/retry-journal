@@ -12,7 +12,7 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - GitHub Actions CI (`ciTestJvm` + multi-target compile)
 - Maven Central publish wiring via `com.vanniktech.maven.publish`
 - Apache 2.0 LICENSE
-- 103 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
+- 169 JVM unit tests covering queue, engine, plugin, DLQ, and header storage
 - `ReplayClaim` — cross-process `<queuePath>.replay-claim` marker so two processes sharing a queue file cannot both replay the same head entry and duplicate a non-idempotent POST
 - `LifecycleGate` — serializes `enter`/`leave` against `close()` on [DiskQueue], [GhostSyncEngine], and [GhostOfflineQueuePlugin], eliminating the TOCTOU window where `close()` could proceed while a new operation was starting
 - `GhostSyncEngine.getEntryAndStatus()` reads head entry and queue status under the same replay [Mutex] as `flush()`, closing duplicate manual-replay footguns
@@ -121,7 +121,22 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - `HttpReplayer` drops hop-by-hop headers (`Transfer-Encoding`, `Host`, `Connection`, etc.) on replay — bodies are materialized byte arrays
 - `GhostSyncEngine.getHeadState` distinguishes empty queue from head blocked by a cross-process replay claim; `getEntry()` docs updated accordingly
 
+### Changed
+- `DiskQueue` and disk-operation helpers moved to `com.ghostserializer.sync.queue.disk` package (public API unchanged — same class names, new package path)
+- sync-sample demo UI split into `ui/` subpackages (`components/`, `screen/`, `state/`, `action/`, `effects/`, `theme/`, `model/`)
+
+### Fixed (bug hunt round 14)
+- `DeliveryJournal` — two-phase commit after HTTP 2xx or successful dead-letter `record()`: durable `.delivery-pending` sidecar lets the next `flush()` retry local removal without re-sending HTTP, closing duplicate-delivery when tombstone flush fails after server success
+- `FlushResult.persistenceFailed` — surfaces when the server side-effect succeeded but queue removal did not finish (journal left for recovery)
+- `claimHeadForReplay` clears non-head orphan replay claims instead of blocking the FIFO head for up to 30 minutes
+- `validateCompleteHeadReplayLocked` rejects stale replay claims
+- `HeaderDispatch` skips additional hop-by-hop headers (`Keep-Alive`, `Proxy-Connection`, `Upgrade`, `Proxy-Authorization`) on replay
+- `RetryJournal.read` bounds cumulative parsed bytes across all length-prefixed fields
+- `GhostSyncRuntime.shutdown` joins the connectivity collector before cancelling the supervisor scope
+
 ### Added
+- `DeliveryJournal` — `.delivery-pending` sidecar for two-phase delivery commit (HTTP/DLQ succeeded, local removal retried on next flush)
+- `FlushResult.persistenceFailed` — flag when delivery journal remains after a failed tombstone write
 - `GhostSyncRuntime` — lifecycle- and concurrency-aware coordinator: serialized `flush()`, optional auto-flush from an app-supplied `Flow<Boolean>` connectivity signal, `flushWhenOnline()`, and `shutdown()`; factories `GhostSync.createRuntime(...)` and `GhostSyncRuntime.createForEngine(...)` for manual engine wiring
 
 ### Known limitations
