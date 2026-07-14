@@ -1,5 +1,6 @@
 package com.ghostserializer.sync.queue
 
+import com.ghostserializer.sync.queue.platform.PlatformQueueFileLock
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import java.nio.file.Files

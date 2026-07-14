@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.platform
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers

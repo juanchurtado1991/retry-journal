@@ -1,7 +1,8 @@
 @file:OptIn(ExperimentalForeignApi::class)
 
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.platform
 
+import com.ghostserializer.sync.queue.DiskQueueConstants
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.cstr
@@ -25,10 +26,11 @@ import platform.posix.open
  * Unlike the JVM/Android [FileChannel][java.nio.channels.FileChannel]-based implementation, this
  * one does not need an intra-process lock layered on top of [flock]: POSIX `flock()` locks are
  * scoped to the *open file description* created by [open], not to the process, so two [open]
- * calls in this same process — e.g. two [DiskQueue] instances on the same path — each get their
- * own lock and the second `flock(..., LOCK_EX)` genuinely blocks the calling thread until the
- * first is released, instead of throwing the way `FileChannel.lock()` does on the JVM. See the
- * JVM/Android `PlatformQueueFileLock`'s own doc for the failure mode this sidesteps.
+ * calls in this same process — e.g. two [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]
+ * instances on the same path — each get their own lock and the second `flock(..., LOCK_EX)`
+ * genuinely blocks the calling thread until the first is released, instead of throwing the way
+ * `FileChannel.lock()` does on the JVM. See the JVM/Android `PlatformQueueFileLock`'s own doc for
+ * the failure mode this sidesteps.
  */
 internal actual class PlatformQueueFileLock actual constructor(
     private val lockPath: Path,

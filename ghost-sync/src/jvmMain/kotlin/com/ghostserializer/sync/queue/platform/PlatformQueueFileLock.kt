@@ -1,4 +1,4 @@
-package com.ghostserializer.sync.queue
+package com.ghostserializer.sync.queue.platform
 
 import okio.FileSystem
 import okio.Path
@@ -16,13 +16,14 @@ import java.util.concurrent.locks.ReentrantLock
  * own bookkeeping rather than by blocking: a second [FileChannel] in this same JVM contending for
  * a lock another [FileChannel] here already holds on the same file throws
  * [java.nio.channels.OverlappingFileLockException] immediately instead of waiting. That breaks
- * [DiskQueue]'s documented guarantee that two of its instances can safely share a queue file —
- * two `DiskQueue`s on the same path, used concurrently from real parallel threads in one process
- * (e.g. `Dispatchers.IO`), would crash instead of serializing. [intraJvmLocks] closes that gap by
- * making every acquirer in this JVM queue up on an ordinary blocking lock, keyed by the resolved
- * lock-file path, before ever calling [FileChannel.lock] — so only one thread per JVM is ever
- * attempting that call for a given path at a time, and the OS-level lock is left to do its actual
- * job of arbitrating between separate processes.
+ * [DiskQueue][com.ghostserializer.sync.queue.DiskQueue]'s documented guarantee that two of its
+ * instances can safely share a queue file — two `DiskQueue`s on the same path, used concurrently
+ * from real parallel threads in one process (e.g. `Dispatchers.IO`), would crash instead of
+ * serializing. [intraJvmLocks] closes that gap by making every acquirer in this JVM queue up on
+ * an ordinary blocking lock, keyed by the resolved lock-file path, before ever calling
+ * [FileChannel.lock] — so only one thread per JVM is ever attempting that call for a given path
+ * at a time, and the OS-level lock is left to do its actual job of arbitrating between separate
+ * processes.
  */
 internal actual class PlatformQueueFileLock actual constructor(
     private val lockPath: Path,
