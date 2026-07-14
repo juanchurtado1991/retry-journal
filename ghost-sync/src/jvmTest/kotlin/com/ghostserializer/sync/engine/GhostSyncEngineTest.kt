@@ -137,6 +137,22 @@ class GhostSyncEngineTest {
     }
 
     @Test
+    fun `getStatus refuses a client that has the offline-queue plugin installed`(): Unit = runBlocking {
+        // A hand-rolled getEntry/getStatus loop (the pattern the previous test exercises) hits
+        // the exact same duplicate-enqueue risk flush() already guards against if handed a client
+        // with the plugin installed.
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val selfQueuingClient = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }) {
+            install(GhostOfflineQueuePlugin) { diskQueue = queue }
+        }
+        val entry = engine.getEntry()!!
+
+        assertFailsWith<IllegalStateException> {
+            engine.getStatus(selfQueuingClient, entry)
+        }
+    }
+
+    @Test
     fun `getEntry returns null once the queue is drained`() = runBlocking {
         assertEquals(null, engine.getEntry())
     }

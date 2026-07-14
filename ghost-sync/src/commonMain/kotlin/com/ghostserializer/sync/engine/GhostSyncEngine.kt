@@ -69,7 +69,13 @@ class GhostSyncEngine(
 
     suspend fun getEntry(): QueueEntry? = queue.peek()
 
-    suspend fun getStatus(client: HttpClient, entry: QueueEntry): HttpStatusCode = send(client, entry)
+    /** Same duplicate-enqueue risk as [flush] if [client] has [GhostOfflineQueuePlugin] installed
+     * — a caller driving its own [getEntry]/[getStatus] loop hits it exactly the same way a
+     * misconfigured [flush] call would. */
+    suspend fun getStatus(client: HttpClient, entry: QueueEntry): HttpStatusCode {
+        check(client.pluginOrNull(GhostOfflineQueuePlugin) == null) { REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE }
+        return send(client, entry)
+    }
 
     private suspend fun trySend(client: HttpClient, entry: QueueEntry): HttpStatusCode? = try {
         getStatus(client, entry)
