@@ -148,7 +148,44 @@ class GhostSyncEngineTest {
     }
 
     @Test
-    fun `getEntry and getStatus let a caller drive its own step-by-step loop`() = runBlocking {
+    fun `getEntryAndStatus replays the head atomically for manual step-by-step loops`() = runBlocking {
+        val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val snapshot = engine.getEntryAndStatus(client)
+        assertEquals(id, snapshot?.entry?.id)
+
+        // getEntryAndStatus alone has none of flush()'s side effects — the entry is still on the queue.
+        assertEquals(HttpStatusCode.OK, snapshot?.status)
+        assertEquals(id, queue.peek()?.id)
+
+        // The caller owns applying the outcome; completeHeadReplay(...) mirrors what flush() would
+        // have done automatically for a 2xx.
+        queue.completeHeadReplay(snapshot!!.entry.id)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `concurrent getEntryAndStatus calls replay the head at most once`() = runBlocking {
+        queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val replayCount = AtomicInteger(0)
+        val client = HttpClient(
+            MockEngine {
+                replayCount.incrementAndGet()
+                respond("ok", HttpStatusCode.OK, headersOf())
+            },
+        )
+
+        coroutineScope {
+            launch { engine.getEntryAndStatus(client) }
+            launch { engine.getEntryAndStatus(client) }
+        }
+
+        assertEquals(1, replayCount.get())
+    }
+
+    @Test
+    fun `getEntry and getStatus let a caller drive its own step-by-step loop when serialized`() = runBlocking {
         val id = queue.enqueue("POST", "https://example.com/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
         val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
 
@@ -161,7 +198,8 @@ class GhostSyncEngineTest {
         assertEquals(id, queue.peek()?.id)
 
         // The caller owns applying the outcome; queue.remove(...) here mirrors what flush() would
-        // have done automatically for a 2xx.
+        // have done automatically for a 2xx — prefer getEntryAndStatus + completeHeadReplay when
+        // multiple threads may replay.
         queue.remove(entry.id)
         assertTrue(queue.isEmpty())
     }
@@ -201,7 +239,7 @@ class GhostSyncEngineTest {
         queue.enqueue("POST", "https://example.com/bad", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
         val client = HttpClient(MockEngine { request ->
             if (request.url.encodedPath == "/bad") {
-                throw IllegalArgumentException("Malformed URL or body")
+                throw IOException("transport failure during replay")
             } else {
                 respond("ok", HttpStatusCode.OK, headersOf())
             }
@@ -297,6 +335,63 @@ class GhostSyncEngineTest {
 
         assertEquals(FlushResult(delivered = 1, deadLettered = 0, stoppedEarly = false), result)
         assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `concurrent flush from two queue instances on the same file replays each entry once`() = runBlocking {
+        repeat(3) { index ->
+            queue.enqueue(
+                "POST",
+                "https://example.com/$index",
+                FrozenHttpHeaders.EMPTY,
+                "payload-$index".encodeToByteArray(),
+            )
+        }
+        val replayCount = AtomicInteger(0)
+        val client = HttpClient(
+            MockEngine {
+                replayCount.incrementAndGet()
+                respond("ok", HttpStatusCode.OK, headersOf())
+            },
+        )
+        val secondQueue = DiskQueue(path = queue.path)
+        val secondEngine = GhostSyncEngine(secondQueue, deadLetterQueue)
+
+        coroutineScope {
+            launch { engine.flush(client) }
+            launch { secondEngine.flush(client) }
+        }
+
+        assertEquals(3, replayCount.get())
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `a stored URL that no longer parses is dead-lettered instead of stalling the queue`() = runBlocking {
+        queue.enqueue(
+            "POST",
+            "://not-a-valid-url",
+            FrozenHttpHeaders.EMPTY,
+            "body".encodeToByteArray(),
+        )
+        val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+
+        val result = engine.flush(client)
+
+        assertEquals(FlushResult(delivered = 0, deadLettered = 1, stoppedEarly = false), result)
+        assertTrue(queue.isEmpty())
+        assertEquals(1, deadLetterQueue.peekAll().size)
+    }
+
+    @Test
+    fun `closeForShutdown rejects new flush calls`() {
+        runBlocking {
+            val client = HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) })
+            engine.closeForShutdown()
+            assertFailsWith<IllegalStateException> {
+                engine.flush(client)
+            }
+        }
     }
 
     @Test

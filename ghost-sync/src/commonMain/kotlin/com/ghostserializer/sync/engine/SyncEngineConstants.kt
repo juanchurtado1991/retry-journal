@@ -16,4 +16,10 @@ internal object SyncEngineConstants {
             "while the original entry is still on the queue, duplicating it. Use a separate " +
             "HttpClient without the plugin for replay, or use GhostSync.create(...) + " +
             "GhostSync.flush(), which wires this correctly for you."
+
+    const val ENGINE_CLOSED_MESSAGE: String = "GhostSyncEngine is closed"
+
+    const val CLOSE_WHILE_REPLAY_IN_FLIGHT_MESSAGE: String =
+        "GhostSyncEngine.close() called while a replay session is still in flight on this instance. " +
+            "Make sure every flush()/getStatus()/getEntryAndStatus() call has completed before closing."
 }
