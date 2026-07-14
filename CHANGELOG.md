@@ -31,6 +31,7 @@ All notable changes to `ghost-sync` are documented here. Format follows [Keep a 
 - JVM/Android `DiskQueue` instances sharing a queue file no longer crash with `OverlappingFileLockException` when driven from real parallel threads in the same process
 - `DeadLetterQueue.record` is idempotent for an identical replayed entry, closing a crash window that could duplicate a dead-letter record
 - `GhostSyncEngine.flush` rejects an `HttpClient` with `GhostOfflineQueuePlugin` installed instead of silently duplicating entries on replay failure
+- `GhostSync.close`/`DiskQueue.close` keep closing the rest of their owned resources instead of abandoning them behind the first one that throws
 
 ### Known limitations
 - iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
