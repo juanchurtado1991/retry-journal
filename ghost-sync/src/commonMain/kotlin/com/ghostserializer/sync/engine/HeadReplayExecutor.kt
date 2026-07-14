@@ -14,11 +14,13 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Single owner of head replay transitions — [GhostSyncEngine.flush] delegates here exclusively.
@@ -105,7 +107,7 @@ internal class HeadReplayExecutor(
                 trySend(client, entry)
             }
         } catch (e: CancellationException) {
-            queue.abortHeadReplayClaim()
+            abortHeadReplayClaimNonCancellable()
             throw e
         } ?: run {
             queue.abortHeadReplayClaim()
@@ -193,7 +195,7 @@ internal class HeadReplayExecutor(
             ReplayOutcome.Continue(delivered, deadLettered + 1)
         }
     } catch (e: CancellationException) {
-        queue.abortHeadReplayClaim()
+        abortHeadReplayClaimNonCancellable()
         throw e
     } catch (_: Throwable) {
         queue.abortHeadReplayClaim()
@@ -220,7 +222,7 @@ internal class HeadReplayExecutor(
             ReplayOutcome.Continue(delivered + 1, deadLettered)
         }
     } catch (e: CancellationException) {
-        queue.abortHeadReplayClaim()
+        abortHeadReplayClaimNonCancellable()
         throw e
     } catch (_: Throwable) {
         queue.abortHeadReplayClaim()
@@ -248,7 +250,7 @@ internal class HeadReplayExecutor(
             ReplayOutcome.Continue(delivered, deadLettered + 1)
         }
     } catch (e: CancellationException) {
-        queue.abortHeadReplayClaim()
+        abortHeadReplayClaimNonCancellable()
         throw e
     } catch (_: Throwable) {
         queue.abortHeadReplayClaim()
@@ -272,9 +274,18 @@ internal class HeadReplayExecutor(
         }
     }
 
+    /** Cancellation already tripped this coroutine's job, so a plain suspend call to
+     * [DiskQueue.abortHeadReplayClaim] would throw immediately without running — clearing the
+     * claim here still needs to happen so another process/flush isn't blocked until it goes
+     * stale, hence [NonCancellable]. */
+    private suspend fun abortHeadReplayClaimNonCancellable() =
+        withContext(NonCancellable) { queue.abortHeadReplayClaim() }
+
     private suspend fun completeHeadReplayOrStop(entryId: QueueEntryId): Boolean = try {
         queue.completeHeadReplay(entryId)
         true
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Throwable) {
         false
     }
