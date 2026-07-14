@@ -30,9 +30,11 @@ internal object RetryJournal {
     /** Every length-prefixed field below is bounds-checked before it sizes a read or an
      * allocation: a corrupted journal (itself the product of a crash — the same one this journal
      * exists to recover from) could otherwise hand a garbage length to `readUtf8`/`readByteArray`
-     * or to `ArrayList(headersSize)`. A wildly negative or oversized [Int] there can throw
-     * [OutOfMemoryError], which is a [Throwable], not an [Exception] — the `catch (_: Exception)`
-     * below would never have caught it. */
+     * or to `ArrayList(headersSize)`. The per-field bound alone doesn't cap the *sum* across many
+     * headers in one journal, so a corrupted-but-in-range header count can still add up to a real
+     * [OutOfMemoryError] — a [Throwable], not an [Exception] — which is why the catch below is
+     * [Throwable], matching [RecordCodec][com.ghostserializer.sync.queue.record.RecordCodec]'s own
+     * `Ghost.deserialize` guard for the same "untrusted crash artifact, fail closed" reasoning. */
     fun read(fileSystem: FileSystem, file: Path): Data? {
         return try {
             fileSystem.read(file) {
@@ -80,7 +82,7 @@ internal object RetryJournal {
                 val body = readByteArray(bodyLen.toLong())
                 Data(method, url, FrozenHttpHeaders(names, values), body)
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }

@@ -6,8 +6,10 @@ import com.ghostserializer.sync.queue.FrozenHttpHeaders
 import com.ghostserializer.sync.queue.QueueEntry
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
+import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.Source
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -255,5 +257,26 @@ class DeadLetterQueueTest {
 
         assertTrue(!FileSystem.SYSTEM.exists(journalFile))
         assertTrue(mainQueue.isEmpty())
+    }
+
+    @Test
+    fun `read treats an OutOfMemoryError from the file system as an unreadable journal, not a crash`() {
+        val journalFile = (dir.toString() + "/dead-letter.bin.retry.9").toPath()
+        FileSystem.SYSTEM.write(journalFile) { writeUtf8("never read — the throwing file system below fails first") }
+
+        val throwingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun source(file: Path): Source {
+                if (file == journalFile) {
+                    throw OutOfMemoryError("simulated allocation failure reading a corrupted journal")
+                }
+                return super.source(file)
+            }
+        }
+
+        // A per-field bound doesn't cap the *sum* across many headers in one journal (see
+        // RetryJournal's own doc) — a real OutOfMemoryError from a corrupted journal is a
+        // Throwable, not an Exception, and must be swallowed like any other unreadable journal
+        // instead of propagating up through recovery.
+        assertNull(RetryJournal.read(throwingFs, journalFile))
     }
 }
