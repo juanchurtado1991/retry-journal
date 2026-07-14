@@ -1,6 +1,7 @@
 package com.ghostserializer.sync.queue
 
 import com.ghostserializer.sync.peekAll
+import com.ghostserializer.sync.indexOfSubarray
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
@@ -69,5 +70,29 @@ class DiskQueueCompactionTest {
 
         // The new ID sequenceId must be strictly greater than the maximum sequenceId previously assigned (which was ids.last().sequenceId = 10, so newId must be 11 or greater).
         assertTrue(newId.sequenceId > ids.last().sequenceId, "newId sequence ID should be greater than previous max")
+    }
+
+    @Test
+    fun `peek tombstoning corrupt heads triggers compaction when dead ratio is high enough`() = runBlocking {
+        val queue = DiskQueue(queuePath)
+        repeat(10) { index ->
+            queue.enqueue("POST", "/item-$index", FrozenHttpHeaders.EMPTY, "payload-$index".encodeToByteArray())
+        }
+
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        for (index in 0 until 9) {
+            val marker = "payload-$index".encodeToByteArray()
+            val bodyStart = bytes.indexOfSubarray(marker)
+            bytes[bodyStart] = (bytes[bodyStart] + 1).toByte()
+        }
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        val sizeBefore = FileSystem.SYSTEM.metadata(queuePath).size!!
+        val peeked = queue.peek()
+        assertEquals("/item-9", peeked?.meta?.url)
+
+        val sizeAfter = FileSystem.SYSTEM.metadata(queuePath).size!!
+        assertTrue(sizeAfter < sizeBefore / 2)
+        assertEquals(1, queue.size())
     }
 }

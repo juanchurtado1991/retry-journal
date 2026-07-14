@@ -225,6 +225,7 @@ class DiskQueue(
     suspend fun peek(): QueueEntry? = withQueueLock {
         ensureOpenLocked()
         var result: QueueEntry? = null
+        var removedAny = false
         while (true) {
             val (sequenceId, packed) = liveOffsetsBySequence.entries.firstOrNull() ?: break
             val entry = readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
@@ -233,6 +234,11 @@ class DiskQueue(
                 break
             }
             removeLocked(sequenceId)
+            removedAny = true
+        }
+        if (removedAny) {
+            compactIfNeededLocked()
+            captureDiskMetadataLocked()
         }
         result
     }
@@ -324,6 +330,9 @@ class DiskQueue(
         }
         for (index in 0 until scrubScratchCount) {
             removeLocked(scrubScratch[index])
+        }
+        if (scrubScratchCount > 0) {
+            compactIfNeededLocked()
         }
     }
 
