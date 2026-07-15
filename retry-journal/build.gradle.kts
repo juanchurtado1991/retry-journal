@@ -104,3 +104,4 @@ kover {
 }
 
 apply(from = "../gradle/warnings.gradle.kts")
+apply(from = "../gradle/mutation-testing.gradle.kts")
