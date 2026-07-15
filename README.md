@@ -1,8 +1,8 @@
-# 👻 ghost-sync
+# 🔁 retry-journal
 
 **Never lose an HTTP request because the network dropped — Offline-first HTTP Request Replay for Kotlin Multiplatform.**
 
-`ghost-sync` is a lightweight, durable **HTTP Request Replay Queue** for Android, iOS, and JVM. It intercepts and captures outgoing Ktor requests on network failures, saves them to disk, and replays them exactly as originally configured when connectivity returns.
+`retry-journal` is a lightweight, durable **HTTP Request Replay Queue** for Android, iOS, and JVM. It intercepts and captures outgoing Ktor requests on network failures, saves them to disk, and replays them exactly as originally configured when connectivity returns.
 
 > [!NOTE]
 > This is a dedicated **HTTP outbox queue**, not a general-purpose database synchronizer (like Room/SQLDelight state sync). It focuses purely on guaranteeing HTTP delivery.
@@ -11,7 +11,7 @@
 
 ## The problem you already know
 
-| Without ghost-sync | With ghost-sync |
+| Without retry-journal | With retry-journal |
 |---|---|
 | User offline → request fails, data lost or manual retry UX | User offline → request **queued on disk**, clear “saved for later” UX |
 | App killed mid-request → maybe nothing persisted | **Crash-safe** append-only file + CRC recovery |
@@ -25,7 +25,7 @@
 ```
 1. User has no signal
       ↓
-2. They post an order or upload a photo with ghostSync.client
+2. They post an order or upload a photo with retryJournal.client
       ↓
 3. Network throws → plugin saves method, URL, headers, body bytes to disk
       ↓
@@ -33,20 +33,20 @@
       ↓
 5. User gets Wi‑Fi again
       ↓
-6. YOUR APP calls ghostSync.flush()  ← you wire this (WorkManager, NetworkCallback, etc.)
+6. YOUR APP calls retryJournal.flush()  ← you wire this (WorkManager, NetworkCallback, etc.)
       ↓
 7. Requests replay in order → 2xx removes from queue, done ✓
 ```
 
-**Important:** ghost-sync **persists** offline work and **replays** it when you call `flush()`. It does **not** watch the network by itself — you choose *when* to sync (background job on connectivity, periodic worker, “Sync now” button). That keeps the library small and lets *you* control battery and UX.
+**Important:** retry-journal **persists** offline work and **replays** it when you call `flush()`. It does **not** watch the network by itself — you choose *when* to sync (background job on connectivity, periodic worker, “Sync now” button). That keeps the library small and lets *you* control battery and UX.
 
-See the [sample app](sync-sample/README.md) for a working demo (toggle server off → upload → toggle on → sync).
+See the [sample app](retry-sample/README.md) for a working demo (toggle server off → upload → toggle on → sync).
 
 ---
 
 ## What happens on replay?
 
-| Server / network result | What ghost-sync does |
+| Server / network result | What retry-journal does |
 |---|---|
 | **2xx Success** | Delivered — removed from the queue |
 | **4xx Client error** (e.g. 400) | Moved to **Dead Letter Queue** — fix data or discard; no infinite retry |
@@ -58,7 +58,7 @@ Replay is **at-least-once**: if the server already accepted a 2xx but the app cr
 
 ## Features
 
-- **Dedicated append-only queue file** — purpose-built FIFO HTTP sync pipeline (not a general-purpose DB; Room KMP is great for app state, ghost-sync owns the offline mutation queue)
+- **Dedicated append-only queue file** — purpose-built FIFO HTTP sync pipeline (not a general-purpose DB; Room KMP is great for app state, retry-journal owns the offline mutation queue)
 - **Any serializer** — your JSON layer is separate; the queue stores raw wire bytes
 - **Files & multipart** — image uploads captured offline, replayed byte-for-byte
 - **Crash-safe** — CRC32 on every record; recovery after partial writes
@@ -72,9 +72,9 @@ Replay is **at-least-once**: if the server already accepted a 2xx but the app cr
 
 Libraries like [Square Tape](https://github.com/square/tape) solve a **different** problem: a generic `byte[]` FIFO on disk (`QueueFile` / `ObjectQueue`). You still build capture, retry policy, HTTP replay, dead letters, and multi-process coordination yourself.
 
-**ghost-sync is the sync layer**, not a queue primitive:
+**retry-journal is the sync layer**, not a queue primitive:
 
-| Tape-style file queue | ghost-sync |
+| Tape-style file queue | retry-journal |
 |---|---|
 | Arbitrary `byte[]` blobs | Frozen HTTP requests — method, URL, headers, body bytes |
 | Android / Java | **KMP** — Android, iOS, JVM |
@@ -83,9 +83,9 @@ Libraries like [Square Tape](https://github.com/square/tape) solve a **different
 | Single-process assumption | **Cross-process** file locks + replay claims (app + WorkManager) |
 | No delivery semantics | **Per-sequence delivery journal** — two-phase commit so a crash after server 2xx doesn't force a duplicate POST |
 
-Room KMP is great for **app state** (users, settings, cached reads). ghost-sync owns the **offline mutation queue** — the ordered pipe of POSTs/PUTs that must survive no signal and replay when you're back.
+Room KMP is great for **app state** (users, settings, cached reads). retry-journal owns the **offline mutation queue** — the ordered pipe of POSTs/PUTs that must survive no signal and replay when you're back.
 
-Tape is a fine brick if you want to build all of the above from scratch. ghost-sync gives you the stack; you only decide **when** to call `flush()`.
+Tape is a fine brick if you want to build all of the above from scratch. retry-journal gives you the stack; you only decide **when** to call `flush()`.
 
 ---
 
@@ -94,17 +94,19 @@ Tape is a fine brick if you want to build all of the above from scratch. ghost-s
 ```kotlin
 // libs.versions.toml
 [libraries]
-ghost-sync = { module = "com.ghostserializer:ghost-sync", version = "1.0.0" }
+retry-journal = { module = "com.retryjournal:retry-journal", version = "1.0.0" }
 ```
 
 ```kotlin
 // build.gradle.kts (shared module)
 dependencies {
-    implementation(libs.ghost.sync)
+    implementation(libs.retry.journal)
 }
 ```
 
 **Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`.
+
+Optional out-of-the-box background scheduling — `com.retryjournal:retry-worker` (WorkManager on Android, `BGTaskScheduler` on iOS, no-op on JVM). See [Background scheduling out of the box](#background-scheduling-out-of-the-box-retry-worker).
 
 > **iOS:** Kotlin/Native targets build on macOS. Handoff checklist: [`ios_techdebt.md`](ios_techdebt.md) (1.0.0 — compilar, sample E2E, publicar).
 
@@ -112,27 +114,37 @@ dependencies {
 
 ## Quick start (3 steps)
 
-### 1. Create `GhostSync`
+### 1. Create `RetryJournal`
 
 One call wires the disk queue, dead-letter store, sync engine, and Ktor client with the offline plugin:
 
 ```kotlin
-val ghostSync = GhostSync.create(
+val retryJournal = RetryJournal.create(
     engineFactory = CIO, // OkHttp on Android, Darwin on iOS, CIO on JVM, …
-    queuePath = dataDir.resolve("ghost-sync-queue.bin"),
+    queuePath = dataDir.resolve("retry-journal-queue.bin"),
 ) {
     install(ContentNegotiation) { json() } // or ghost(), etc.
     // logging, auth, timeouts — your usual HttpClient config
 }
 ```
 
-### 2. Send requests with `ghostSync.client`
+> [!IMPORTANT]
+> **Using Ghost Serialization on iOS / Kotlin Native?**
+> Since Kotlin/Native does not support reflection-based `ServiceLoader` discovery, if you install Ghost Serialization (`ghost()`), you **must** register KSP-generated registries manually at app startup (e.g. inside a shared `init` block or during iOS app launch):
+> ```kotlin
+> import com.ghost.serialization.Ghost
+> 
+> Ghost.addRegistry(com.ghost.serialization.generated.GhostModuleRegistry_retry_journal.INSTANCE)
+> Ghost.addRegistry(com.ghost.serialization.generated.GhostModuleRegistry_[your_module_name].INSTANCE)
+> ```
+
+### 2. Send requests with `retryJournal.client`
 
 Use it like any Ktor client. Only **connectivity failures** (`IOException`) are queued — not HTTP 4xx/5xx from a live connection.
 
 ```kotlin
 try {
-    ghostSync.client.post("https://api.example.com/orders") {
+    retryJournal.client.post("https://api.example.com/orders") {
         contentType(ContentType.Application.Json)
         setBody(CreateOrder("sku-123", qty = 2))
     }
@@ -148,7 +160,7 @@ try {
 Call this when **you** decide there is connectivity (see [Scheduling](#scheduling-flush-when-wifi-returns) below):
 
 ```kotlin
-val result = ghostSync.flush()
+val result = retryJournal.flush()
 // result.delivered      — sent successfully this run
 // result.deadLettered   — server rejected (now in DLQ)
 // result.stoppedEarly   — still offline or 5xx; run flush again later
@@ -160,7 +172,7 @@ val result = ghostSync.flush()
 Use `getHeadState()` for read-only UI — it never claims or mutates the queue:
 
 ```kotlin
-when (val head = ghostSync.engine.getHeadState()) {
+when (val head = retryJournal.engine.getHeadState()) {
     QueueHeadState.Empty -> showEmpty()
     QueueHeadState.Blocked -> showSyncInProgressElsewhere()
     is QueueHeadState.AwaitingReplay -> showPending(head.entry)
@@ -178,9 +190,9 @@ This is the piece every production app needs. Examples:
 
 ```kotlin
 // A) Android: WorkManager when network is available
-class SyncWorker(/* inject GhostSync */) : CoroutineWorker(...) {
+class SyncWorker(/* inject RetryJournal */) : CoroutineWorker(...) {
     override suspend fun doWork(): Result {
-        val result = ghostSync.flush()
+        val result = retryJournal.flush()
         return if (result.stoppedEarly) Result.retry() else Result.success()
     }
 }
@@ -188,7 +200,7 @@ class SyncWorker(/* inject GhostSync */) : CoroutineWorker(...) {
 // B) Simple polling while app is active
 lifecycleScope.launch {
     while (isActive) {
-        ghostSync.flush()
+        retryJournal.flush()
         delay(15.minutes)
     }
 }
@@ -196,20 +208,135 @@ lifecycleScope.launch {
 // C) Manual “Sync now” in settings or after ConnectivityManager callback
 syncButton.setOnClickListener {
     lifecycleScope.launch {
-        val r = ghostSync.flush()
+        val r = retryJournal.flush()
         showSnackbar("Synced ${r.delivered} requests")
     }
 }
 ```
 
-The [sync-sample](sync-sample/README.md) uses **kmpworkmanager** so sync can run in a background worker — copy that pattern or use your own.
+Want it out of the box instead of writing (A)/(C) yourself? Keep reading.
 
 ---
 
-## GhostSyncRuntime (optional coordinator)
+## Background scheduling out of the box (`:retry-worker`)
+
+`:retry-journal` itself depends on **no scheduler** — it only defines the contract, in package `com.retryjournal.scheduler`:
+
+```kotlin
+interface RetryJournalScheduler {
+    fun schedule(config: RetryJournalSchedulerConfig)
+    fun cancel()
+}
+
+data class RetryJournalSchedulerConfig(
+    val intervalMs: Long = 15 * 60 * 1_000L,  // WorkManager floors periodic work to 15 min anyway
+    val requiresNetwork: Boolean = true,
+    val retryDelayMs: Long = 60_000L,
+    val maxRetryAttempts: Int = 5,
+)
+```
+
+`:retry-worker` is a separate Maven artifact that **implements** that contract so you don't have to: `androidx.work` (WorkManager) on Android, `BGTaskScheduler` on iOS, and a no-op on JVM/desktop (no OS-standardized background scheduler there — drive `flush()` from your own timer instead, see (B) above). Use it, or implement `RetryJournalScheduler` yourself against whatever scheduler your app already has — `:retry-journal` never knows the difference.
+
+### Installation
+
+```kotlin
+// libs.versions.toml
+[libraries]
+retry-worker = { module = "com.retryjournal:retry-worker", version = "1.0.0" }
+```
+
+```kotlin
+// build.gradle.kts (shared module)
+dependencies {
+    implementation(libs.retry.worker) // pulls in :retry-journal transitively
+}
+```
+
+**Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`.
+
+### Android
+
+One call, once, after building your `RetryJournalRuntime` (see [RetryJournalRuntime](#retryjournalruntime-optional-coordinator) below) — it registers the periodic worker and schedules it via `WorkManager.getInstance(context).enqueueUniquePeriodicWork(...)`:
+
+```kotlin
+import com.retryjournal.scheduler.RetryJournalSchedulerConfig
+import com.retryjournal.worker.setupBackgroundSync
+
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        runtime.setupBackgroundSync(
+            context = this,
+            config = RetryJournalSchedulerConfig(
+                intervalMs = 15 * 60 * 1_000L,
+                retryDelayMs = 60_000L,
+                maxRetryAttempts = 5,
+            ),
+        )
+    }
+}
+```
+
+`setupBackgroundSync` returns the `RetryJournalScheduler` it created — hold onto it if you need `cancel()` later (e.g. on logout).
+
+### iOS
+
+Apple requires `BGTaskScheduler` registration to happen **synchronously**, before `application(_:didFinishLaunchingWithOptions:)` returns — so call the Kotlin function as early as possible, typically from `AppDelegate.init()`:
+
+```kotlin
+// Kotlin (iosMain) — a small facade keeps the exported Objective-C header trivial for Swift.
+import com.retryjournal.scheduler.RetryJournalSchedulerConfig
+import com.retryjournal.worker.registerRetryJournalBackgroundTask
+
+object BackgroundSyncSetup {
+    fun register() {
+        registerRetryJournalBackgroundTask(
+            taskIdentifier = "com.example.app.retry_journal_task",
+            runtime = runtime,
+            config = RetryJournalSchedulerConfig(),
+        )
+    }
+}
+```
+
+```swift
+// Swift — AppDelegate.swift
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    override init() {
+        super.init()
+        BackgroundSyncSetup.shared.register()
+    }
+}
+```
+
+```xml
+<!-- Info.plist -->
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+    <string>com.example.app.retry_journal_task</string>
+</array>
+```
+
+`registerRetryJournalBackgroundTask` registers the `BGAppRefreshTask` launch handler, submits the first request, and re-submits the next one every time the task runs (`BGTaskScheduler` never repeats a request on its own).
+
+### `RetryJournalSchedulerConfig` fields
+
+| Field | Default | Android | iOS |
+|---|---|---|---|
+| `intervalMs` | 15 min | Target period; WorkManager floors it to 15 min regardless. | `earliestBeginDate` offset for the next `BGAppRefreshTaskRequest` — a target, not a guarantee; iOS decides the actual run time. |
+| `requiresNetwork` | `true` | `NetworkType.NOT_REQUIRED` if `false`. | Not used — `BGAppRefreshTask` has no network constraint to set. |
+| `retryDelayMs` | 60 s | Backoff delay (`BackoffPolicy.LINEAR`) between retries; WorkManager floors it to 10 s. | Not used. |
+| `maxRetryAttempts` | 5 | After this many attempts, the worker reports failure instead of retrying again. | Not used — every scheduled run is independent; there's no attempt cap. |
+
+Full reference wiring for both platforms: [retry-sample](retry-sample/README.md).
+
+---
+
+## RetryJournalRuntime (optional coordinator)
 
 If multiple callers can trigger sync (UI button, `WorkManager`, connectivity callback), use
-`GhostSyncRuntime` to **serialize `flush()`** and optionally **auto-flush when your app reports
+`RetryJournalRuntime` to **serialize `flush()`** and optionally **auto-flush when your app reports
 online**:
 
 ```kotlin
@@ -218,8 +345,8 @@ val connectivity = callbackFlow {
     awaitClose { }
 }
 
-val runtime = GhostSync.createRuntime(
-    ghostSync = ghostSync,
+val runtime = RetryJournal.createRuntime(
+    retryJournal = retryJournal,
     scope = lifecycleScope,
     connectivity = connectivity, // optional — omit for manual flush only
 )
@@ -234,11 +361,11 @@ runtime.flushWhenOnline() // no-op (returns null) while offline
 runtime.shutdown()
 ```
 
-If you wire [GhostSyncEngine] and a replay [HttpClient] yourself (e.g. separate live vs replay
-clients in the sample), use `GhostSyncRuntime.createForEngine(engine, replayClient, scope, connectivity)`.
+If you wire [RetryJournalEngine] and a replay [HttpClient] yourself (e.g. separate live vs replay
+clients in the sample), use `RetryJournalRuntime.createForEngine(engine, replayClient, scope, connectivity)`.
 
 **The library does not observe the network or schedule background work** — you supply the
-`Flow<Boolean>`. WorkManager / BGTask stay in your app (see [sync-sample](sync-sample/README.md)).
+`Flow<Boolean>`. WorkManager / BGTask stay in your app (see [retry-sample](retry-sample/README.md)).
 
 ---
 
@@ -247,7 +374,7 @@ clients in the sample), use `GhostSyncRuntime.createForEngine(engine, replayClie
 The plugin captures **whatever bytes** Ktor would have sent — including `MultiPartFormDataContent`:
 
 ```kotlin
-ghostSync.client.post("https://api.example.com/upload") {
+retryJournal.client.post("https://api.example.com/upload") {
     setBody(
         MultiPartFormDataContent(
             formData {
@@ -262,7 +389,7 @@ ghostSync.client.post("https://api.example.com/upload") {
 
 Same `OfflineQueuedException` flow — when `flush()` runs on Wi‑Fi, the upload is replayed.
 
-**Size limit:** each queued meta/body field defaults to **64 MiB** (`maxRecordFieldSize` in `GhostSync.create`). Larger uploads fail closed with `BodyCaptureException` instead of silently truncating.
+**Size limit:** each queued meta/body field defaults to **64 MiB** (`maxRecordFieldSize` in `RetryJournal.create`). Larger uploads fail closed with `BodyCaptureException` instead of silently truncating.
 
 ---
 
@@ -272,13 +399,13 @@ When replay gets a **non-retry-worthy 4xx**, the request moves to the dead lette
 
 ```kotlin
 val failed = mutableListOf<DeadLetterEntry>()
-ghostSync.deadLetterQueue.peekAll(failed)
+retryJournal.deadLetterQueue.peekAll(failed)
 
 // Let the user fix and retry
-ghostSync.deadLetterQueue.retry(failed.first().id)
+retryJournal.deadLetterQueue.retry(failed.first().id)
 
 // Or discard permanently
-ghostSync.deadLetterQueue.discard(failed.first().id)
+retryJournal.deadLetterQueue.discard(failed.first().id)
 ```
 
 Build a “Failed uploads” or “Sync issues” screen from `peekAll()`.
@@ -287,7 +414,7 @@ Build a “Failed uploads” or “Sync issues” screen from `peekAll()`.
 
 ## What you build vs what the library gives you
 
-| You provide | ghost-sync provides |
+| You provide | retry-journal provides |
 |---|---|
 | When to call `flush()` (network callback, worker, UI) | Durable queue on disk |
 | UX for `OfflineQueuedException` | Capture headers + body on connectivity failure |
@@ -316,14 +443,14 @@ Full change history: [CHANGELOG.md](CHANGELOG.md).
 
 ```bash
 ./gradlew ciTestJvm ciCompile    # Linux CI parity
-./gradlew :ghost-sync:jvmTest   # library unit tests only
+./gradlew :retry-journal:jvmTest   # library unit tests only
 ./gradlew ciCoverage            # Kover gate (≥90% JVM)
 ```
 
 Try the demo:
 
 ```bash
-./gradlew :sync-sample:composeApp:run
+./gradlew :retry-sample:composeApp:run
 ```
 
 ---

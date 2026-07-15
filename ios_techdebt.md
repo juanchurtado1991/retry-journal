@@ -1,6 +1,6 @@
 # iOS Tech Debt — resolver en macOS
 
-**Estado en Linux (2026-07-14, última sesión):** `ghost-sync` **1.0.0** está listo en JVM — API `flush()` + `getHeadState()`, state machine en `HeadReplayExecutor`, **181 tests JVM**, Kover ≥90 %, `ciTestJvm ciCompile ciCoverage` en verde. Bug hunts hasta **ronda 20** completados (ver `CHANGELOG.md`/`git log` para detalle; rondas 1–18 por un agente Cursor, 19–20 por Claude Code en esta sesión). **Solo falta validar iOS en Mac** antes de publicar a Maven Central.
+**Estado en Linux (2026-07-14, última sesión):** `retry-journal` **1.0.0** está listo en JVM — API `flush()` + `getHeadState()`, state machine en `HeadReplayExecutor`, **181 tests JVM**, Kover ≥90 %, `ciTestJvm ciCompile ciCoverage` en verde. Bug hunts hasta **ronda 20** completados (ver `CHANGELOG.md`/`git log` para detalle; rondas 1–18 por un agente Cursor, 19–20 por Claude Code en esta sesión). **Solo falta validar iOS en Mac** antes de publicar a Maven Central.
 
 **Rondas 19–20 (esta sesión, 2026-07-14):**
 - Ronda 19 (`HeadReplayExecutor.kt`): cancelar `flush()` a mitad de una llamada HTTP dejaba el `ReplayClaim` cross-process sin liberar — una limpieza `suspend` dentro de `catch (CancellationException)` se descartaba silenciosamente al estar el job ya cancelado. Arreglado con `withContext(NonCancellable)`. También se corrigió `completeHeadReplayOrStop` tragándose `CancellationException` en su `catch (Throwable)`.
@@ -27,7 +27,7 @@ git log -6 --oneline
 ./gradlew ciTestJvm ciCompile ciCoverage --no-daemon
 
 # Compilar sample desktop (sanity check rápido, opcional)
-./gradlew :sync-sample:composeApp:run
+./gradlew :retry-sample:composeApp:run
 ```
 
 **Commits esperados en la punta de `main`:** `test: add bug hunt round 20 regression suite (181 JVM tests)` sobre `fix: bug hunt round 20 hardening on max record field packing` sobre `test: add bug hunt round 19 ...` / `fix: bug hunt round 19 ...`.
@@ -38,18 +38,18 @@ git log -6 --oneline
 
 ```bash
 ./gradlew \
-  :ghost-sync:compileKotlinIosArm64 \
-  :ghost-sync:compileKotlinIosSimulatorArm64 \
-  :sync-sample:shared:compileKotlinIosArm64 \
-  :sync-sample:shared:compileKotlinIosSimulatorArm64 \
-  :sync-sample:composeApp:compileKotlinIosArm64 \
-  :sync-sample:composeApp:compileKotlinIosSimulatorArm64 \
+  :retry-journal:compileKotlinIosArm64 \
+  :retry-journal:compileKotlinIosSimulatorArm64 \
+  :retry-sample:shared:compileKotlinIosArm64 \
+  :retry-sample:shared:compileKotlinIosSimulatorArm64 \
+  :retry-sample:composeApp:compileKotlinIosArm64 \
+  :retry-sample:composeApp:compileKotlinIosSimulatorArm64 \
   --no-daemon
 ```
 
 **Criterio de éxito:** las 6 tareas terminan sin errores.
 
-**Si falla:** revisar `ghost-sync/src/iosMain/kotlin/com/ghostserializer/sync/queue/CurrentTimeMillis.kt` (cinterop `gettimeofday`) y `PlatformQueueFileLock.kt` (cinterop `flock`), además de dependencias Ghost/Ktor en targets nativos.
+**Si falla:** revisar `retry-journal/src/iosMain/kotlin/com/retryjournal/queue/CurrentTimeMillis.kt` (cinterop `gettimeofday`) y `PlatformQueueFileLock.kt` (cinterop `flock`), además de dependencias Ghost/Ktor en targets nativos.
 
 ---
 
@@ -57,21 +57,21 @@ git log -6 --oneline
 
 ```bash
 # Terminal 1 — chaos server (misma máquina)
-./gradlew :sync-sample:server:run
+./gradlew :retry-sample:server:run
 
-# Terminal 2 — desde sync-sample/iosApp/ (crear .xcodeproj una vez — ver iosApp/README.md)
+# Terminal 2 — desde retry-sample/iosApp/ (crear .xcodeproj una vez — ver iosApp/README.md)
 xcodebuild -scheme iosApp -destination 'platform=iOS Simulator,name=iPhone 16' build
 ```
 
 **Verificar manualmente:**
 - [ ] La app arranca en simulador
-- [ ] `GhostSyncWorker` (kmpworkmanager) se registra sin crash al inicio
+- [ ] `RetryJournalBackgroundSetup` (`:retry-worker`, `BGTaskScheduler`) se registra sin crash al inicio
 - [ ] Peticiones offline se encolan (botón de mutación con servidor apagado / modo avión)
 - [ ] `runtime.flush()` / **Sync now** entrega las peticiones con servidor encendido
 - [ ] **Head chip** — el primer chip y el subtítulo bajo "Pending" reflejan `getHeadState()` (`Awaiting replay`, `finishing local removal`, `blocked`)
 - [ ] Dead-letter visible cuando el chaos server devuelve 400
 
-**Referencia:** `sync-sample/iosApp/README.md`, `sync-sample/README.md`
+**Referencia:** `retry-sample/iosApp/README.md`, `retry-sample/README.md`
 
 ---
 
@@ -97,14 +97,14 @@ Kover mide **solo `commonMain` + `jvmMain`** durante `jvmTest`. Los source sets 
 Comandos (repetir en Mac por si acaso):
 
 ```bash
-./gradlew :ghost-sync:jvmTest
+./gradlew :retry-journal:jvmTest
 ./gradlew ciCoverage
-./gradlew :ghost-sync:koverHtmlReport   # ghost-sync/build/reports/kover/html/index.html
+./gradlew :retry-journal:koverHtmlReport   # retry-journal/build/reports/kover/html/index.html
 ```
 
 ### Android (deuda)
 
-No hay `androidUnitTest` hoy. Cuando exista, añadir `:ghost-sync:testDebugUnitTest` a CI y revisar si el gate Kover debe incluir `androidMain`.
+No hay `androidUnitTest` hoy. Cuando exista, añadir `:retry-journal:testDebugUnitTest` a CI y revisar si el gate Kover debe incluir `androidMain`.
 
 ---
 
@@ -116,12 +116,12 @@ Hoy **no hay tests nativos iOS**. Opciones:
 Añadir job `ios` en `.github/workflows/ci.yml` con `macos-latest` que ejecute solo la compilación del paso 1.
 
 ### Opción B — ideal
-Crear `ghost-sync/src/iosTest/` con al menos:
+Crear `retry-journal/src/iosTest/` con al menos:
 - `DiskQueue` enqueue/peek/remove con `FileSystem.SYSTEM` en directorio temporal
-- `GhostSyncEngine.flush()` con `ktor-client-darwin` + mock server local
+- `RetryJournalEngine.flush()` con `ktor-client-darwin` + mock server local
 
 ```bash
-./gradlew :ghost-sync:iosSimulatorArm64Test --no-daemon
+./gradlew :retry-journal:iosSimulatorArm64Test --no-daemon
 ```
 
 ---
@@ -131,7 +131,7 @@ Crear `ghost-sync/src/iosTest/` con al menos:
 Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS aparecen en el staging:
 
 ```bash
-./gradlew :ghost-sync:publishAllPublicationsToSonatypeRepository --no-daemon
+./gradlew :retry-journal:publishAllPublicationsToSonatypeRepository --no-daemon
 # Revisar en Sonatype UI: iosArm64, iosSimulatorArm64, jvm, android
 ```
 
@@ -154,7 +154,7 @@ Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS a
 | 2 | Sample corre en simulador | ⬜ |
 | 3 | Offline queue + flush E2E | ⬜ |
 | 4 | `getHeadState()` visible en UI (chip + subtítulo Pending) | ⬜ |
-| 5 | kmpworkmanager worker en background | ⬜ |
+| 5 | `:retry-worker` background task | ⬜ |
 | 6 | (Opcional) `iosSimulatorArm64Test` | ✅ |
 | 7 | (Opcional) CI job macOS en GitHub | ⬜ |
 | 8 | (Release) klibs iOS en Sonatype staging + tag `v1.0.0` | ⬜ |
@@ -169,14 +169,14 @@ Cuando los ítems **0–4** estén marcados, **iOS queda validado para publicar 
 # Ver targets iOS disponibles
 ./gradlew tasks --group="ios" | head -30
 
-# Limpiar y recompilar solo ghost-sync iOS
-./gradlew :ghost-sync:clean :ghost-sync:compileKotlinIosSimulatorArm64 --no-daemon
+# Limpiar y recompilar solo retry-journal iOS
+./gradlew :retry-journal:clean :retry-journal:compileKotlinIosSimulatorArm64 --no-daemon
 
 # Logs detallados si falla cinterop
-./gradlew :ghost-sync:compileKotlinIosArm64 --info --no-daemon 2>&1 | tail -100
+./gradlew :retry-journal:compileKotlinIosArm64 --info --no-daemon 2>&1 | tail -100
 
 # Embed framework para Xcode (desde Gradle task del template KMP)
-./gradlew :sync-sample:composeApp:embedAndSignAppleFrameworkForXcode
+./gradlew :retry-sample:composeApp:embedAndSignAppleFrameworkForXcode
 ```
 
 ---
