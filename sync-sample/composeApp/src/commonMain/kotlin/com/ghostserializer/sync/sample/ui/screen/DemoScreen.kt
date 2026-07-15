@@ -15,6 +15,7 @@ import com.ghostserializer.sync.sample.ui.components.actions.FilePickerUnsupport
 import com.ghostserializer.sync.sample.ui.components.header.DemoHeader
 import com.ghostserializer.sync.sample.ui.components.log.ActivityLogCard
 import com.ghostserializer.sync.sample.ui.components.queue.QueueVisualization
+import com.ghostserializer.sync.sample.ui.components.server.ConnectivityToggleRow
 import com.ghostserializer.sync.sample.ui.components.server.ServerStatusRow
 import com.ghostserializer.sync.sample.ui.components.stats.StatsRow
 import com.ghostserializer.sync.sample.ui.effects.DemoScreenEffects
@@ -46,6 +47,14 @@ internal fun DemoScreen() {
             enabled = !state.isBusy,
             onToggle = state::onServerToggleClick,
         )
+
+        if (!MockServerController.isSupported) {
+            ConnectivityToggleRow(
+                isSimulatedOffline = state.isSimulatedOffline,
+                enabled = !state.isBusy,
+                onToggle = state::onConnectivityToggleClick,
+            )
+        }
 
         StatsRow(
             pending = state.queueSize,

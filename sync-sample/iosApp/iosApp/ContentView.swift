@@ -1,4 +1,3 @@
-// Reference only — see README.md in this folder.
 import SwiftUI
 import ComposeApp
 
@@ -12,6 +11,6 @@ struct ComposeView: UIViewControllerRepresentable {
 
 struct ContentView: View {
     var body: some View {
-        ComposeView().ignoresSafeArea(.all)
+        ComposeView().ignoresSafeArea(.keyboard)
     }
 }

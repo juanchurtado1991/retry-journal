@@ -30,6 +30,8 @@ First release.
 
 - Refactored `build.gradle.kts` files to extract publishing, Kover, and warning configurations into separate files under `gradle/` (`publishing.gradle`, `kover.gradle`, and `warnings.gradle.kts`).
 - Renamed `fd` to `fileDescriptor` in `PlatformQueueFileLock` and added `INVALID_FILE_DESCRIPTOR` constant.
+- Created `KmpWorkManagerHelper` and `SampleIosWorkerFactory` to bridge iOS background tasks and DI initialization cleanly to Swift.
+- Resolved and configured the iOS sample application build settings and static `Info.plist` to support Background Modes (fetch, processing) and registered `ghost_sync_task` and `kmp_chain_executor_task`.
 
 [1.0.0]: https://github.com/juanchurtado1991/ghost-sync-kmp/releases/tag/v1.0.0
 

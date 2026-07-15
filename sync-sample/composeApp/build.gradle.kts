@@ -19,6 +19,7 @@ kotlin {
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+            export(libs.kmpworkmanager)
         }
     }
 
@@ -60,7 +61,7 @@ kotlin {
             dependsOn(commonMain.get())
         }
         mobileMain.dependencies {
-            implementation(libs.kmpworkmanager)
+            api(libs.kmpworkmanager)
             implementation(libs.kmpworkmanager.annotations)
         }
 
@@ -78,6 +79,13 @@ kotlin {
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+        }
+
+        val iosArm64Main by getting {
+            kotlin.srcDir("build/generated/ksp/iosArm64/iosArm64Main/kotlin")
+        }
+        val iosSimulatorArm64Main by getting {
+            kotlin.srcDir("build/generated/ksp/iosSimulatorArm64/iosSimulatorArm64Main/kotlin")
         }
 
         val desktopMain by getting

@@ -52,7 +52,7 @@ internal object SyncSetup {
     }
 
     val liveClient: HttpClient by lazy {
-        HttpClient(platformHttpClientEngine()) {
+        HttpClient(SimulatedOfflineEngine(platformHttpClientEngine())) {
             install(ContentNegotiation) { ghost() }
             install(GhostOfflineQueuePlugin) { diskQueue = this@SyncSetup.diskQueue }
         }

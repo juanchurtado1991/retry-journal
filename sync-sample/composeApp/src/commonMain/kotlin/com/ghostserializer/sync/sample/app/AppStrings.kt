@@ -13,6 +13,13 @@ internal object AppStrings {
     const val SERVER_EXTERNAL_HINT: String =
         "This platform can't control the server — run sync-sample:server yourself."
 
+    const val CONNECTIVITY_ONLINE_LABEL: String = "Connectivity: Online"
+    const val CONNECTIVITY_OFFLINE_LABEL: String = "Connectivity: Simulated Offline"
+    const val CONNECTIVITY_TOGGLE_HINT: String =
+        "Simulates losing connectivity inside the app — queued requests replay automatically when you go back online."
+    const val CONNECTIVITY_TURNED_ONLINE_LOG: String = "Connectivity restored — triggering replay…"
+    const val CONNECTIVITY_TURNED_OFFLINE_LOG: String = "Connectivity simulated offline — requests will queue."
+
     const val STAT_PENDING_TITLE: String = "Pending"
     const val STAT_DEAD_LETTERED_TITLE: String = "Dead-lettered"
     const val HEAD_STATE_AWAITING_REPLAY: String = "Head: awaiting replay"

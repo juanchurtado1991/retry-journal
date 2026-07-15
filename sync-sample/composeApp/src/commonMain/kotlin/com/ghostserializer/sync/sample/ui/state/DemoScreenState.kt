@@ -9,6 +9,7 @@ import com.ghostserializer.sync.sample.app.AppConstants
 import com.ghostserializer.sync.sample.app.AppStrings
 import com.ghostserializer.sync.sample.app.FilePicker
 import com.ghostserializer.sync.sample.app.MockServerController
+import com.ghostserializer.sync.sample.app.SimulatedConnectivityController
 import com.ghostserializer.sync.sample.app.SyncSetup
 import com.ghostserializer.sync.sample.ui.action.animateChipOnFlushProgress
 import com.ghostserializer.sync.sample.ui.action.deadLetterCount
@@ -40,6 +41,9 @@ internal class DemoScreenState(
         private set
 
     var serverStatus by mutableStateOf(ServerHealthStatus.Checking)
+        private set
+
+    var isSimulatedOffline by mutableStateOf(false)
         private set
 
     var queueChips by mutableStateOf<List<QueueChipUiState>>(emptyList())
@@ -95,6 +99,10 @@ internal class DemoScreenState(
         scope.launch { runServerToggleFlow() }
     }
 
+    fun onConnectivityToggleClick() {
+        scope.launch { runConnectivityToggleFlow() }
+    }
+
     private suspend fun runUploadFlow() {
         isBusy = true
         val picked = FilePicker.pickFile()
@@ -118,6 +126,10 @@ internal class DemoScreenState(
             AppStrings.LOG_SENT_PREFIX + AppConstants.SIMPLE_SEND_COUNT + AppStrings.LOG_SENT_SUFFIX,
             LogKind.Success,
         )
+        // Refresh again after a short delay so the GhostOfflineQueuePlugin's async disk-write
+        // has settled and the queue visualization reflects the true state.
+        delay(AppConstants.SERVER_TOGGLE_SETTLE_MS.milliseconds)
+        refreshCounts()
         isBusy = false
     }
 
@@ -143,6 +155,20 @@ internal class DemoScreenState(
         }
         delay(AppConstants.SERVER_TOGGLE_SETTLE_MS.milliseconds)
         checkServerStatus()
+        isBusy = false
+    }
+
+    private suspend fun runConnectivityToggleFlow() {
+        isBusy = true
+        if (isSimulatedOffline) {
+            SimulatedConnectivityController.setOnline()
+            isSimulatedOffline = false
+            log(AppStrings.CONNECTIVITY_TURNED_ONLINE_LOG, LogKind.Success)
+        } else {
+            SimulatedConnectivityController.setOffline()
+            isSimulatedOffline = true
+            log(AppStrings.CONNECTIVITY_TURNED_OFFLINE_LOG, LogKind.Error)
+        }
         isBusy = false
     }
 

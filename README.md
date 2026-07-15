@@ -1,10 +1,11 @@
 # 👻 ghost-sync
 
-**Never lose an HTTP request because the network dropped.**
+**Never lose an HTTP request because the network dropped — Offline-first HTTP Request Replay for Kotlin Multiplatform.**
 
-Offline-first HTTP sync for **Kotlin Multiplatform** — Android, iOS, and JVM. Your user taps “Send” on a mountain with no signal? The request is **saved to disk**. When Wi‑Fi comes back and your app runs sync, it **goes out exactly as they sent it** — JSON, photos, multipart uploads, all of it.
+`ghost-sync` is a lightweight, durable **HTTP Request Replay Queue** for Android, iOS, and JVM. It intercepts and captures outgoing Ktor requests on network failures, saves them to disk, and replays them exactly as originally configured when connectivity returns.
 
-No general-purpose database required for the sync pipeline — ghost-sync is a dedicated append-only queue. Works with **Ghost**, **kotlinx.serialization**, or any Ktor body you already use.
+> [!NOTE]
+> This is a dedicated **HTTP outbox queue**, not a general-purpose database synchronizer (like Room/SQLDelight state sync). It focuses purely on guaranteeing HTTP delivery.
 
 ---
 

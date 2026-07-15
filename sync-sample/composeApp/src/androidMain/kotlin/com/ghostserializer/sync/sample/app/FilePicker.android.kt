@@ -1,6 +1,18 @@
 package com.ghostserializer.sync.sample.app
 
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
 internal actual object FilePicker {
-    actual val isSupported: Boolean = false
-    actual suspend fun pickFile(): PickedFile? = null
+    actual val isSupported: Boolean = true
+
+    actual suspend fun pickFile(): PickedFile? {
+        val activity = GhostSyncSampleApplication.currentActivity as? MainActivity
+            ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            MainActivity.pickFile(activity) { file ->
+                continuation.resume(file)
+            }
+        }
+    }
 }
