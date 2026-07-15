@@ -51,6 +51,7 @@ class GhostSyncRuntimeTest {
     fun `flush serializes concurrent callers in the same process`() = runBlocking {
         val activeFlushes = AtomicInteger(0)
         val maxConcurrent = AtomicInteger(0)
+        val firstStarted = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
 
         val ghostSync = GhostSync.create(
@@ -61,6 +62,7 @@ class GhostSyncRuntimeTest {
                 addHandler {
                     val concurrent = activeFlushes.incrementAndGet()
                     maxConcurrent.updateAndGet { current -> maxOf(current, concurrent) }
+                    firstStarted.complete(Unit)
                     release.await()
                     activeFlushes.decrementAndGet()
                     respond("ok", HttpStatusCode.OK, headersOf())
@@ -73,7 +75,7 @@ class GhostSyncRuntimeTest {
         val runtime = GhostSync.createRuntime(ghostSync, this)
 
         val first = async { runtime.flush() }
-        delay(50)
+        firstStarted.await()
         val second = async { runtime.flush() }
         delay(50)
         assertEquals(1, maxConcurrent.get())
@@ -171,6 +173,7 @@ class GhostSyncRuntimeTest {
     fun `direct ghostSync flush and runtime flush serialize through the same mutex`() = runBlocking {
         val activeFlushes = AtomicInteger(0)
         val maxConcurrent = AtomicInteger(0)
+        val firstStarted = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
 
         val ghostSync = GhostSync.create(
@@ -181,6 +184,7 @@ class GhostSyncRuntimeTest {
                 addHandler {
                     val concurrent = activeFlushes.incrementAndGet()
                     maxConcurrent.updateAndGet { current -> maxOf(current, concurrent) }
+                    firstStarted.complete(Unit)
                     release.await()
                     activeFlushes.decrementAndGet()
                     respond("ok", HttpStatusCode.OK, headersOf())
@@ -193,7 +197,7 @@ class GhostSyncRuntimeTest {
         val runtime = GhostSync.createRuntime(ghostSync, this)
 
         val first = async { ghostSync.flush() }
-        delay(50)
+        firstStarted.await()
         val second = async { runtime.flush() }
         delay(50)
         assertEquals(1, maxConcurrent.get())
