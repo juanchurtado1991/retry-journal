@@ -126,26 +126,7 @@ Crear `retry-journal/src/iosTest/` con al menos:
 
 ---
 
-## 6. Publicación Maven 1.0.0 — artefactos iOS
-
-Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS aparecen en el staging:
-
-```bash
-./gradlew :retry-journal:publishAllPublicationsToSonatypeRepository --no-daemon
-# Revisar en Sonatype UI: iosArm64, iosSimulatorArm64, jvm, android
-```
-
-**Versión:** `1.0.0` (`gradle/libs.versions.toml` → `publish-version`)
-
-**Requisitos locales (una sola vez en Mac o Linux con GPG):**
-- `sonatypeUsername` / `sonatypePassword` en `gradle.properties` o `~/.gradle/gradle.properties`
-- GPG signing configurado (`signing.keyId`, `signing.password`, `signing.secretKeyRingFile`)
-
-**Orden sugerido:** ítems 1–3 de este doc → tag `v1.0.0` → publish → Sonatype promote.
-
----
-
-## 7. Checklist final en Mac
+## 6. Checklist final en Mac
 
 | # | Tarea | Estado |
 |---|-------|--------|
@@ -157,9 +138,8 @@ Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS a
 | 5 | `:retry-worker` background task | ⬜ |
 | 6 | (Opcional) `iosSimulatorArm64Test` | ✅ |
 | 7 | (Opcional) CI job macOS en GitHub | ⬜ |
-| 8 | (Release) klibs iOS en Sonatype staging + tag `v1.0.0` | ⬜ |
 
-Cuando los ítems **0–4** estén marcados, **iOS queda validado para publicar `1.0.0`**.
+Cuando los ítems **0–4** estén marcados, **iOS queda validado**. La publicación a Maven Central queda a discreción del usuario — ver [docs/development.md](docs/development.md) cuando decida hacerla.
 
 ---
 

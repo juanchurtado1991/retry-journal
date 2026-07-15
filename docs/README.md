@@ -17,7 +17,6 @@ These aren't required to get started — read them when you need them.
 - **[File & image uploads](uploads.md)** — multipart uploads captured and replayed offline
 - **[Dead letters](dead-letters.md)** — what happens when the server says no
 - **[Guarantees & honest limits](guarantees.md)** — what's strong, what to watch out for
-- **[vs. Tape / Room](comparison.md)** — how this differs from a plain disk queue
 - **[Building, testing & publishing](development.md)** — contributing to retry-journal itself
 
 ## Also see

@@ -22,7 +22,6 @@ Sonatype + GPG in `~/.gradle/gradle.properties`, then:
 
 ## More
 
-- Code conventions: [CONVENTIONS.md](../CONVENTIONS.md)
 - iOS verification handoff: [ios_techdebt.md](../ios_techdebt.md)
 - Change history: [CHANGELOG.md](../CHANGELOG.md)
 

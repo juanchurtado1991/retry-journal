@@ -63,7 +63,6 @@ Full walkthrough: [docs/quick-start.md](docs/quick-start.md).
 | **[File & image uploads](docs/uploads.md)** | Multipart uploads captured and replayed offline |
 | **[Dead letters](docs/dead-letters.md)** | What happens when the server says no |
 | **[Guarantees & honest limits](docs/guarantees.md)** | What's strong, what to watch out for |
-| **[vs. Tape / Room](docs/comparison.md)** | How this differs from a plain disk queue |
 | **[Build, test & publish](docs/development.md)** | Contributing to retry-journal itself |
 
 Full index: [docs/README.md](docs/README.md).
