@@ -29,17 +29,11 @@ The shared Kotlin code (`:retry-sample:composeApp`) is already iOS-ready; this f
 
 ---
 
-## Create the Xcode project (one-time)
+## Open the Xcode project
 
-This repo ships **Swift reference files**, not a checked-in `.xbxproj` (can't be validated without Xcode).
+A working `iosApp.xcodeproj` is checked into this folder — open it directly in Xcode, select a Simulator or device, and build & run. It already links the Kotlin framework via the standard KMP **Embed & Sign** (`embedAndSignAppleFrameworkForXcode`) build phase, targets `:retry-sample:composeApp:iosArm64` / `iosSimulatorArm64`, and has `Info.plist`'s `BGTaskSchedulerPermittedIdentifiers` set from `Info.plist.snippet.xml`.
 
-1. In Xcode, create a **Multiplatform App** / **iOS App** named `iosApp` under `retry-sample/`, **or** use the Compose Multiplatform template's `iosApp/` output.
-2. Copy from this folder:
-   - `AppDelegate.swift`
-   - `ContentView.swift`
-   - Merge `Info.plist.snippet.xml` into your `Info.plist` (`BGTaskSchedulerPermittedIdentifiers`)
-3. Link the Kotlin framework from `:retry-sample:composeApp:iosArm64` / `iosSimulatorArm64` (standard KMP **Embed & Sign** / `embedAndSignAppleFrameworkForXcode` Gradle task).
-4. Build & run on Simulator or device.
+Starting a new project from scratch instead (e.g. embedding this sample in your own app)? Copy `AppDelegate.swift`, `ContentView.swift`, and merge `Info.plist.snippet.xml` into your own `Info.plist`, then repeat the framework-linking steps above by hand.
 
 Files here:
 
