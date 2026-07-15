@@ -11,7 +11,8 @@ internal object AppStrings {
     const val SERVER_TURNED_ON_LOG: String = "Server turned on."
     const val SERVER_TURNED_OFF_LOG: String = "Server turned off."
     const val SERVER_EXTERNAL_HINT: String =
-        "This platform can't control the server — run retry-sample:server yourself."
+        "This platform can't control the server — run retry-sample:server yourself. Normal " +
+            "mode (default) always succeeds; add --args=\"chaos\" to rotate failures."
 
     const val CONNECTIVITY_ONLINE_LABEL: String = "Connectivity: Online"
     const val CONNECTIVITY_OFFLINE_LABEL: String = "Connectivity: Simulated Offline"

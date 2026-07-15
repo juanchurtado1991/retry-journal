@@ -2,7 +2,7 @@
 
 **See offline-first sync in 60 seconds.** No phone required for the desktop build — server included.
 
-This sample is a **Compose Multiplatform** app that shows exactly what your users get: requests that fail when the network is down are **saved to disk**, then **delivered when sync runs** after the network is back. Same library (`:retry-journal`), same `flush()` contract — just with buttons and a chaos server so you can stress-test edge cases.
+This sample is a **Compose Multiplatform** app that shows exactly what your users get: requests that fail when the network is down are **saved to disk**, then **delivered when sync runs** after the network is back. Same library (`:retry-journal`), same `flush()` contract — with an optional chaos server so you can also stress-test edge cases on demand.
 
 ---
 
@@ -13,6 +13,17 @@ This sample is a **Compose Multiplatform** app that shows exactly what your user
 ```
 
 A window opens with the HTTP server **already running**. You’re ready to break the network on purpose.
+
+### Two server modes
+
+`retry-sample:server` (and desktop's embedded server) can run in two modes:
+
+| Mode | How | Behavior |
+|---|---|---|
+| **Normal** (default) | `./gradlew :retry-sample:server:run` | Every request succeeds — good for watching a large batch (100+ queued requests) replay in one `flush()` without an artificial failure interrupting it. Desktop's embedded server toggle always uses this mode. |
+| **Chaos** | `./gradlew :retry-sample:server:run --args="chaos"` | Rotates failure modes (see below) so you can see `stoppedEarly`, dead letters, and retry behavior on demand. |
+
+Desktop's in-app server toggle only starts the **normal** mode. To see chaos behavior on desktop, stop the embedded server, run the standalone chaos server yourself (`--args="chaos"`), and leave the toggle off — the app talks to `localhost:8080` either way.
 
 ---
 
@@ -46,7 +57,7 @@ That’s the product: **nothing lost**, sync when you’re back online. In produ
 
 ## “Sync now” didn’t empty everything in one tap?”
 
-**That’s intentional.** The bundled server is a **chaos server** — it rotates failure modes so you can see real engine behavior:
+**That’s intentional — if you're running the server in chaos mode** (`--args="chaos"`, see [Two server modes](#two-server-modes) above). In normal mode every request just succeeds. Chaos mode rotates failure modes so you can see real engine behavior:
 
 | Every Nth request | Behavior |
 |---|---|
@@ -103,7 +114,7 @@ Library docs: [../README.md](../README.md).
 The server runs on your machine — not inside the APK.
 
 ```bash
-# Terminal 1 — chaos server
+# Terminal 1 — server (add --args="chaos" for chaos mode, see Two server modes above)
 ./gradlew :retry-sample:server:run
 
 # Terminal 2 — install app

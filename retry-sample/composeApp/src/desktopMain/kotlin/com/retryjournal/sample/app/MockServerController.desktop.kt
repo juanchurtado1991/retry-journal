@@ -1,6 +1,6 @@
 package com.retryjournal.sample.app
 
-import com.retryjournal.sample.server.chaosModule
+import com.retryjournal.sample.server.normalModule
 import com.retryjournal.sample.shared.SampleApiConstants
 import io.ktor.server.application.Application
 import io.ktor.server.cio.CIO
@@ -20,7 +20,7 @@ internal actual object MockServerController {
         if (server != null) {
             return
         }
-        server = embeddedServer(CIO, port = SampleApiConstants.DEFAULT_PORT, module = Application::chaosModule)
+        server = embeddedServer(CIO, port = SampleApiConstants.DEFAULT_PORT, module = Application::normalModule)
             .start(wait = false)
     }
 
