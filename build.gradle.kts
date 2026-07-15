@@ -71,7 +71,13 @@ nexusPublishing {
 tasks.register("ciTestJvm") {
     group = "verification"
     description = "JVM test modules (no emulador / sin macOS requerido)"
-    dependsOn(":retry-journal:jvmTest")
+    dependsOn(
+        ":retry-journal:jvmTest",
+        ":retry-worker:jvmTest",
+        // Android unit tests (testDebugUnitTest) run on the JVM, no emulator needed — this is
+        // where :retry-worker's WorkManager request-building and backoff logic is covered.
+        ":retry-worker:testDebugUnitTest",
+    )
 }
 
 tasks.register("ciCoverage") {
