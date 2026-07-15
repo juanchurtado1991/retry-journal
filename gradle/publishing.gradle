@@ -1,14 +1,18 @@
 apply plugin: 'com.vanniktech.maven.publish'
 
+def pomDescription = project.hasProperty('pomDescription')
+    ? project.property('pomDescription')
+    : "Offline-first HTTP sync engine for Kotlin Multiplatform"
+
 mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
-    coordinates(project.group.toString(), "ghost-sync", project.version.toString())
+    coordinates(project.group.toString(), project.name, project.version.toString())
 
     pom {
-        name = "ghost-sync"
-        description = "Offline-first HTTP sync engine for Kotlin Multiplatform"
-        url = "https://github.com/ghostserializer/ghost-sync-kmp"
+        name = project.name
+        description = pomDescription
+        url = "https://github.com/juanchurtado1991/retry-journal"
         licenses {
             license {
                 name = "Apache License 2.0"
@@ -22,9 +26,9 @@ mavenPublishing {
             }
         }
         scm {
-            url = "https://github.com/ghostserializer/ghost-sync-kmp"
-            connection = "scm:git:git://github.com/ghostserializer/ghost-sync-kmp.git"
-            developerConnection = "scm:git:ssh://git@github.com/ghostserializer/ghost-sync-kmp.git"
+            url = "https://github.com/juanchurtado1991/retry-journal"
+            connection = "scm:git:git://github.com/juanchurtado1991/retry-journal.git"
+            developerConnection = "scm:git:ssh://git@github.com/juanchurtado1991/retry-journal.git"
         }
     }
 }

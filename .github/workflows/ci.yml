@@ -54,7 +54,7 @@ jobs:
   #     - run: chmod +x gradlew
   #     - run: >
   #         ./gradlew
-  #         :ghost-sync:compileKotlinIosArm64
-  #         :ghost-sync:compileKotlinIosSimulatorArm64
-  #         :sync-sample:composeApp:compileKotlinIosSimulatorArm64
+  #         :retry-journal:compileKotlinIosArm64
+  #         :retry-journal:compileKotlinIosSimulatorArm64
+  #         :retry-sample:composeApp:compileKotlinIosSimulatorArm64
   #         --no-daemon --stacktrace

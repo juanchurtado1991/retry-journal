@@ -1,6 +1,6 @@
 import re
 
-file_path = "/Users/juan/ghost-sync-kmp/sync-sample/iosApp/iosApp.xcodeproj/project.pbxproj"
+file_path = "/Users/juan/ghost-sync-kmp/retry-sample/iosApp/iosApp.xcodeproj/project.pbxproj"
 with open(file_path, "r") as f:
     content = f.read()
 
@@ -53,7 +53,7 @@ run_script_section = """
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cd /Users/juan/ghost-sync-kmp\\n./gradlew :sync-sample:composeApp:embedAndSignAppleFrameworkForXcode\\n";
+			shellScript = "cd /Users/juan/ghost-sync-kmp\\n./gradlew :retry-sample:composeApp:embedAndSignAppleFrameworkForXcode\\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 """
