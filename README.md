@@ -94,7 +94,7 @@ Tape is a fine brick if you want to build all of the above from scratch. retry-j
 ```kotlin
 // libs.versions.toml
 [libraries]
-retry-journal = { module = "com.retryjournal:retry-journal", version = "1.0.0" }
+retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.0.0" }
 ```
 
 ```kotlin
@@ -106,7 +106,7 @@ dependencies {
 
 **Targets:** `android`, `iosArm64`, `iosSimulatorArm64`, `jvm`.
 
-Optional out-of-the-box background scheduling — `com.retryjournal:retry-worker` (WorkManager on Android, `BGTaskScheduler` on iOS, no-op on JVM). See [Background scheduling out of the box](#background-scheduling-out-of-the-box-retry-worker).
+Optional out-of-the-box background scheduling — `com.ghostserializer:retry-worker` (WorkManager on Android, `BGTaskScheduler` on iOS, no-op on JVM). See [Background scheduling out of the box](#background-scheduling-out-of-the-box-retry-worker).
 
 > **iOS:** Kotlin/Native targets build on macOS. Handoff checklist: [`ios_techdebt.md`](ios_techdebt.md) (1.0.0 — compilar, sample E2E, publicar).
 
@@ -243,7 +243,7 @@ data class RetryJournalSchedulerConfig(
 ```kotlin
 // libs.versions.toml
 [libraries]
-retry-worker = { module = "com.retryjournal:retry-worker", version = "1.0.0" }
+retry-worker = { module = "com.ghostserializer:retry-worker", version = "1.0.0" }
 ```
 
 ```kotlin
