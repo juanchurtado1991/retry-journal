@@ -18,9 +18,10 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GhostSync"
+rootProject.name = "RetryJournal"
 
-include(":ghost-sync")
-include(":sync-sample:shared")
-include(":sync-sample:server")
-include(":sync-sample:composeApp")
+include(":retry-journal")
+include(":retry-worker")
+include(":retry-sample:shared")
+include(":retry-sample:server")
+include(":retry-sample:composeApp")

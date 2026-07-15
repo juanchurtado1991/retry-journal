@@ -13,8 +13,8 @@ kover {
             excludes {
                 // KSP/Ghost-generated serializers — exercised indirectly via Ghost.encode/decode, not authored here.
                 packages("com.ghost.serialization.generated")
-                classes("com.ghostserializer.sync.*\$\$Ghost*")
-                classes("com.ghostserializer.sync.queue.*Serializer")
+                classes("com.retryjournal.*\$\$Ghost*")
+                classes("com.retryjournal.queue.*Serializer")
             }
         }
 

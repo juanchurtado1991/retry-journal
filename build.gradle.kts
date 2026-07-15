@@ -71,22 +71,24 @@ nexusPublishing {
 tasks.register("ciTestJvm") {
     group = "verification"
     description = "JVM test modules (no emulador / sin macOS requerido)"
-    dependsOn(":ghost-sync:jvmTest")
+    dependsOn(":retry-journal:jvmTest")
 }
 
 tasks.register("ciCoverage") {
     group = "verification"
-    description = "JVM line coverage gate for :ghost-sync (Kover, min 90%)"
-    dependsOn(":ghost-sync:koverVerify")
+    description = "JVM line coverage gate for :retry-journal (Kover, min 90%)"
+    dependsOn(":retry-journal:koverVerify")
 }
 
 tasks.register("ciCompile") {
     group = "verification"
     description = "Compile all Linux-verifiable targets (sin iOS / sin emulador)"
     dependsOn(
-        ":ghost-sync:assembleRelease",
-        ":ghost-sync:compileKotlinJvm",
-        ":sync-sample:composeApp:compileDebugKotlinAndroid",
-        ":sync-sample:composeApp:compileKotlinDesktop",
+        ":retry-journal:assembleRelease",
+        ":retry-journal:compileKotlinJvm",
+        ":retry-worker:assembleRelease",
+        ":retry-worker:compileKotlinJvm",
+        ":retry-sample:composeApp:compileDebugKotlinAndroid",
+        ":retry-sample:composeApp:compileKotlinDesktop",
     )
 }
