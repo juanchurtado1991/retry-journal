@@ -34,7 +34,7 @@ internal actual class PlatformQueueFileLock actual constructor(
     private val lockPath: Path,
     private val fileSystem: FileSystem,
 ) {
-    private var fd: Int = -1
+    private var fileDescriptor: Int = DiskQueueConstants.INVALID_FILE_DESCRIPTOR
 
     actual fun acquire() {
         val parent = lockPath.parent
@@ -42,24 +42,22 @@ internal actual class PlatformQueueFileLock actual constructor(
             fileSystem.createDirectories(parent, mustCreate = false)
         }
         val path = lockPath.toString()
-        fd = memScoped {
-            open(path.cstr.ptr, O_CREAT or O_RDWR, S_IRUSR or S_IWUSR or S_IRGRP or S_IROTH)
-        }
-        if (fd < 0 || flock(fd, LOCK_EX) != 0) {
-            if (fd >= 0) {
-                close(fd)
+        fileDescriptor = open(path, O_CREAT or O_RDWR, S_IRUSR or S_IWUSR or S_IRGRP or S_IROTH)
+        if (fileDescriptor == DiskQueueConstants.INVALID_FILE_DESCRIPTOR || flock(fileDescriptor, LOCK_EX) != 0) {
+            if (fileDescriptor != DiskQueueConstants.INVALID_FILE_DESCRIPTOR) {
+                close(fileDescriptor)
             }
-            fd = -1
+            fileDescriptor = DiskQueueConstants.INVALID_FILE_DESCRIPTOR
             error(DiskQueueConstants.LOCK_ACQUIRE_FAILED_MESSAGE)
         }
     }
 
     actual fun release() {
-        if (fd < 0) {
+        if (fileDescriptor == DiskQueueConstants.INVALID_FILE_DESCRIPTOR) {
             return
         }
-        flock(fd, LOCK_UN)
-        close(fd)
-        fd = -1
+        flock(fileDescriptor, LOCK_UN)
+        close(fileDescriptor)
+        fileDescriptor = DiskQueueConstants.INVALID_FILE_DESCRIPTOR
     }
 }

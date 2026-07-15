@@ -103,4 +103,5 @@ internal object DiskQueueConstants {
     const val RETRY_JOURNAL_SUFFIX: String = ".retry."
     const val RETRY_JOURNAL_TEMP_SUFFIX: String = ".retry.tmp."
     const val CURRENT_DIRECTORY_PATH: String = "."
+    const val INVALID_FILE_DESCRIPTOR: Int = -1
 }
