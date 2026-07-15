@@ -1,5 +1,6 @@
 package com.retryjournal.engine
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.client.RetryJournalOfflineQueuePlugin
 import com.retryjournal.engine.SyncEngineConstants.HEADER_MULTI_VALUE_SEPARATOR
 import com.retryjournal.queue.disk.DiskQueue
@@ -13,7 +14,6 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -29,7 +29,7 @@ class HttpReplayerTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-http-replayer-test").toString().toPath()
+        dir = freshTestDir("retry-journal-http-replayer-test")
         queue = DiskQueue((dir.toString() + "/queue.bin").toPath())
     }
 

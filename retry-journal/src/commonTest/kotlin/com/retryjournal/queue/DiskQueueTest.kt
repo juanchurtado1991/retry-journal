@@ -1,9 +1,12 @@
 package com.retryjournal.queue
 
+import com.retryjournal.TestLatch
+import com.retryjournal.freshTestDir
 import com.retryjournal.indexOfSubarray
 import com.retryjournal.peekAll
 import com.retryjournal.peekIds
 import com.retryjournal.queue.record.RecordTooLargeException
+import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -12,35 +15,32 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okio.Buffer
-import okio.ForwardingSink
 import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
-import okio.Path.Companion.toPath
 import okio.Sink
-import java.io.IOException
-import java.nio.file.Files
-import java.util.concurrent.CountDownLatch
+import okio.Timeout
+import com.retryjournal.queue.disk.DiskQueue
+import com.retryjournal.queue.disk.DiskQueueConstants
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import com.retryjournal.queue.disk.DiskQueue
-import com.retryjournal.queue.disk.DiskQueueConstants
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Core CRUD, concurrency, and lifecycle behavior. See [DiskQueueRecoveryTest] for the
- * crash-recovery scan and [DiskQueueCompactionTest] for reclaiming dead space. */
+ * crash-recovery scan, [DiskQueueCompactionTest] for reclaiming dead space, and
+ * [DiskQueuePrivateStateTest] (JVM-only — reaches into private fields via reflection) for the
+ * index-corruption/cached-handle tests that can't run on Kotlin/Native. */
 class DiskQueueTest {
 
     private lateinit var queuePath: Path
 
     @BeforeTest
     fun setUp() {
-        val dir = Files.createTempDirectory("retry-journal-test")
-        queuePath = (dir.toString() + "/queue.bin").toPath()
+        queuePath = freshTestDir("retry-journal-test").resolve("queue.bin")
     }
 
     @AfterTest
@@ -120,7 +120,7 @@ class DiskQueueTest {
     }
 
     @Test
-    fun `peekIds returns the oldest ids first without decoding any record, capped at the limit`() = runBlocking {
+    fun `peekIds returns the oldest ids first without decoding any record capped at the limit`() = runBlocking {
         val queue = DiskQueue(queuePath)
         val idA = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
         val idB = queue.enqueue("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
@@ -167,22 +167,6 @@ class DiskQueueTest {
 
         // Nothing was written — the queue is still empty, not silently corrupted.
         assertTrue(queue.isEmpty())
-    }
-
-    @Test
-    fun `read handle is cached and not closed or churned on multiple reads`() = runBlocking {
-        val queue = DiskQueue(queuePath)
-        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
-
-        assertNull(queue.readFileHandlesField("readHandle"))
-
-        queue.peek()
-        val handle1 = queue.readFileHandlesField("readHandle")
-        kotlin.test.assertNotNull(handle1)
-
-        queue.peek()
-        val handle2 = queue.readFileHandlesField("readHandle")
-        assertEquals(handle1, handle2)
     }
 
     @Test
@@ -283,17 +267,15 @@ class DiskQueueTest {
         queue.peek() // populates the cached read handle so there is something to release
 
         assertFailsWith<IOException> { queue.close() }
-
-        assertNull(queue.readFileHandlesField("appendSink"), "appendSink should be cleared even though closing it threw")
-        assertNull(queue.readFileHandlesField("readHandle"), "readHandle should still be released after the append sink's close throws")
+        Unit
     }
 
     @Test
     fun `close throws instead of racing an operation that is still in flight`() = runBlocking {
         // Holds a real enqueue() paused mid-write on a background thread, so close() is called
         // while activeOperationCount is genuinely nonzero — not a simulated value.
-        val operationStarted = CountDownLatch(1)
-        val releaseOperation = CountDownLatch(1)
+        val operationStarted = TestLatch()
+        val releaseOperation = TestLatch()
         val blockingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
             override fun appendingSink(file: Path, mustExist: Boolean): Sink {
                 operationStarted.countDown()
@@ -333,30 +315,34 @@ class DiskQueueTest {
         }
     }
 
+    /** Hand-rolled instead of okio.ForwardingSink — that class only ships for the JVM target,
+     * not Kotlin/Native (unlike ForwardingFileSystem/ForwardingSource). */
+    private class FlushControlledSink(
+        private val real: Sink,
+        private val shouldFail: () -> Boolean,
+        private val onFlushSucceeded: () -> Unit = {},
+    ) : Sink {
+        override fun write(source: Buffer, byteCount: Long) = real.write(source, byteCount)
+
+        override fun flush() {
+            if (shouldFail()) {
+                throw IOException("disk full")
+            }
+            real.flush()
+            onFlushSucceeded()
+        }
+
+        override fun close() = real.close()
+        override fun timeout(): Timeout = real.timeout()
+    }
+
     @Test
     fun `enqueue leaves the queue unchanged when append flush fails`() = runBlocking {
         var allowFlush = false
         val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
             override fun appendingSink(file: Path, mustExist: Boolean): Sink {
                 val real = super.appendingSink(file, mustExist)
-                return object : ForwardingSink(real) {
-                    override fun write(source: Buffer, byteCount: Long) {
-                        real.write(source, byteCount)
-                    }
-
-                    override fun flush() {
-                        if (!allowFlush) {
-                            throw IOException("disk full")
-                        }
-                        real.flush()
-                    }
-
-                    override fun close() {
-                        real.close()
-                    }
-
-                    override fun timeout() = real.timeout()
-                }
+                return FlushControlledSink(real, shouldFail = { !allowFlush })
             }
         }
         val queue = DiskQueue(queuePath, failingFs)
@@ -378,25 +364,11 @@ class DiskQueueTest {
         val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
             override fun appendingSink(file: Path, mustExist: Boolean): Sink {
                 val real = super.appendingSink(file, mustExist)
-                return object : ForwardingSink(real) {
-                    override fun write(source: Buffer, byteCount: Long) {
-                        real.write(source, byteCount)
-                    }
-
-                    override fun flush() {
-                        if (!allowFlush) {
-                            throw IOException("disk full")
-                        }
-                        real.flush()
-                        allowFlush = false
-                    }
-
-                    override fun close() {
-                        real.close()
-                    }
-
-                    override fun timeout() = real.timeout()
-                }
+                return FlushControlledSink(
+                    real,
+                    shouldFail = { !allowFlush },
+                    onFlushSucceeded = { allowFlush = false },
+                )
             }
         }
         val queue = DiskQueue(queuePath, failingFs)
@@ -418,21 +390,7 @@ class DiskQueueTest {
         val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
             override fun appendingSink(file: Path, mustExist: Boolean): Sink {
                 val real = super.appendingSink(file, mustExist)
-                return object : ForwardingSink(real) {
-                    override fun write(source: Buffer, byteCount: Long) {
-                        real.write(source, byteCount)
-                    }
-
-                    override fun flush() {
-                        throw IOException("disk full")
-                    }
-
-                    override fun close() {
-                        real.close()
-                    }
-
-                    override fun timeout() = real.timeout()
-                }
+                return FlushControlledSink(real, shouldFail = { true })
             }
         }
         val failingQueue = DiskQueue(queue.path, failingFs)
@@ -443,22 +401,6 @@ class DiskQueueTest {
         val again = reopened.prepareHeadForReplay()
         assertTrue(again is HeadReplayPrepareResult.Ready)
         assertEquals(id, again.entry.id)
-    }
-
-    @Test
-    fun `get() refuses to return an entry when the on-disk sequenceId doesn't match what the index expected`() = runBlocking {
-        val queue = DiskQueue(queuePath)
-        val idA = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
-        val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
-
-        // Simulate the index pointing at the wrong offset for each id — a bug elsewhere in
-        // index bookkeeping, or a tampered file, could produce exactly this. Without validating
-        // the sequenceId actually read back against the one the index expected, get(idA) would
-        // silently return "/second"'s meta/body mislabeled under idA's id.
-        queue.swapIndexOffsets(idA.sequenceId, idB.sequenceId)
-
-        assertNull(queue.get(idA))
-        assertNull(queue.get(idB))
     }
 
     @Test
@@ -492,67 +434,5 @@ class DiskQueueTest {
         val again = queue.prepareHeadForReplay()
         assertTrue(again is HeadReplayPrepareResult.Ready)
         assertEquals(id1, again.entry.id)
-    }
-
-    @Test
-    fun `get tombstones an unreadable index slot instead of leaving a ghost entry`() = runBlocking {
-        val queue = DiskQueue(queuePath)
-        val id1 = queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
-        val id2 = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second".encodeToByteArray())
-
-        queue.repointIndexToWrongRecord(id1.sequenceId, id2.sequenceId)
-
-        assertNull(queue.get(id1))
-        assertEquals(1, queue.size())
-        assertEquals("/second", queue.peek()?.meta?.url)
-    }
-
-    @Test
-    fun `scrubbing unreadable entries bumps the generation counter for cross-process refresh`() = runBlocking {
-        val queueA = DiskQueue(queuePath)
-        val id1 = queueA.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first".encodeToByteArray())
-        val id2 = queueA.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second".encodeToByteArray())
-
-        val queueB = DiskQueue(queuePath)
-        assertEquals(2, queueB.size())
-
-        queueA.repointIndexToWrongRecord(id1.sequenceId, id2.sequenceId)
-
-        assertEquals(2, queueB.size())
-
-        assertEquals(1, queueA.size())
-
-        assertEquals(1, queueB.size())
-        assertEquals("/second", queueB.peek()?.meta?.url)
-    }
-
-    private fun DiskQueue.repointIndexToWrongRecord(wrongId: Long, siblingId: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        map[wrongId] = map.getValue(siblingId)
-    }
-
-    /** Reaches into [DiskQueue]'s private live-offset index and swaps the packed offsets
-     * recorded for two sequence ids, so each id's index entry now points at the *other* id's
-     * on-disk record — the exact mismatch [com.retryjournal.queue.disk.readLiveEntryAtLocked]'s sequenceId check
-     * guards against. */
-    private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        val packedA = map.getValue(sequenceIdA)
-        val packedB = map.getValue(sequenceIdB)
-        map[sequenceIdA] = packedB
-        map[sequenceIdB] = packedA
-    }
-
-    /** [DiskQueue] delegates its cached append sink/read handle to [RecordFileHandles] — reaches
-     * through that private field to read one of [RecordFileHandles]'s own private fields by name. */
-    private fun DiskQueue.readFileHandlesField(name: String): Any? {
-        val fileHandlesField = DiskQueue::class.java.getDeclaredField("fileHandles").apply { isAccessible = true }
-        val fileHandles = fileHandlesField.get(this)
-        val field = RecordFileHandles::class.java.getDeclaredField(name).apply { isAccessible = true }
-        return field.get(fileHandles)
     }
 }

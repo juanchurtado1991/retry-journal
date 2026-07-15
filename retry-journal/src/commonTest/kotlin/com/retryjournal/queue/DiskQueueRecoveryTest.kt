@@ -1,6 +1,7 @@
 package com.retryjournal.queue
 
 import com.ghost.serialization.Ghost
+import com.retryjournal.freshTestDir
 import com.retryjournal.indexOfSubarray
 import com.retryjournal.peekAll
 import com.retryjournal.queue.disk.DiskQueue
@@ -9,9 +10,8 @@ import com.retryjournal.queue.record.RecordCodec
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
-import okio.Path.Companion.toPath
 import okio.buffer
-import java.nio.file.Files
+import okio.use
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -26,8 +26,7 @@ class DiskQueueRecoveryTest {
 
     @BeforeTest
     fun setUp() {
-        val dir = Files.createTempDirectory("retry-journal-recovery-test")
-        queuePath = (dir.toString() + "/queue.bin").toPath()
+        queuePath = freshTestDir("retry-journal-recovery-test").resolve("queue.bin")
     }
 
     @AfterTest
@@ -65,7 +64,7 @@ class DiskQueueRecoveryTest {
     }
 
     @Test
-    fun `the fast recovery scan still detects a corrupted body, not just a truncated one`() = runBlocking {
+    fun `the fast recovery scan still detects a corrupted body not just a truncated one`() = runBlocking {
         val queue = DiskQueue(queuePath)
         queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
         val idB = queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, "second-body".encodeToByteArray())
@@ -113,7 +112,7 @@ class DiskQueueRecoveryTest {
     }
 
     @Test
-    fun `corrupted tombstone is skipped by its own size, not a stale length from the record before it`() = runBlocking {
+    fun `corrupted tombstone is skipped by its own size not a stale length from the record before it`() = runBlocking {
         // Hand-crafted directly with RecordCodec, bypassing DiskQueue.remove()'s own compaction
         // entirely (a big-bodied record's tombstone alone can cross the dead-ratio threshold and
         // rewrite the file), so the byte layout below is exactly what ends up on disk.
@@ -161,7 +160,7 @@ class DiskQueueRecoveryTest {
     }
 
     @Test
-    fun `corrupted metaLen on a live record is skipped by byte-by-byte resync, not a stale length from the record before it`() = runBlocking {
+    fun `corrupted metaLen on a live record is skipped by byte-by-byte resync not a stale length from the record before it`() = runBlocking {
         // Same failure class as the corrupted-tombstone test above, but for the gap the reporter
         // pointed out that test doesn't cover: a *live* record whose own metaLen is corrupted,
         // right after another live record — RecordScanResult's reused recordLength field must not

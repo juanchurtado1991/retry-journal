@@ -1,6 +1,7 @@
 package com.retryjournal
 
 import io.ktor.client.HttpClient
+import com.retryjournal.freshTestDir
 import com.retryjournal.queue.FrozenHttpHeaders
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.HttpClientEngineFactory
@@ -18,7 +19,6 @@ import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -45,7 +45,7 @@ class RetryJournalTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-facade-test").toString().toPath()
+        dir = freshTestDir("retry-journal-facade-test")
     }
 
     @AfterTest
@@ -80,7 +80,7 @@ class RetryJournalTest {
     }
 
     @Test
-    fun `close() refuses to proceed while flush() is still replaying a request`() = runBlocking {
+    fun `close refuses to proceed while flush is still replaying a request`() = runBlocking {
         val requestStarted = CompletableDeferred<Unit>()
         val releaseRequest = CompletableDeferred<Unit>()
 
@@ -116,7 +116,7 @@ class RetryJournalTest {
     }
 
     @Test
-    fun `close() refuses to proceed while a client request is still in flight`() = runBlocking {
+    fun `close refuses to proceed while a client request is still in flight`() = runBlocking {
         val requestStarted = CompletableDeferred<Unit>()
         val releaseRequest = CompletableDeferred<Unit>()
 

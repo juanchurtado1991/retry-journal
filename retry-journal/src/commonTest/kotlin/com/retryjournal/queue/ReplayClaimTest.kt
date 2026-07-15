@@ -1,5 +1,7 @@
 package com.retryjournal.queue
 
+import com.retryjournal.freshTestDir
+import com.retryjournal.TestCounter
 import com.retryjournal.queue.disk.DiskQueue
 import com.retryjournal.queue.disk.DiskQueueConstants
 import com.retryjournal.queue.platform.currentTimeMillis
@@ -9,8 +11,6 @@ import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -25,7 +25,7 @@ class ReplayClaimTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-replay-claim-test").toString().toPath()
+        dir = freshTestDir("retry-journal-replay-claim-test")
         queuePath = (dir.toString() + "/queue.bin").toPath()
     }
 
@@ -109,8 +109,8 @@ class ReplayClaimTest {
         queueA.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
 
         val queueB = DiskQueue(queuePath)
-        val wins = AtomicInteger(0)
-        val blocked = AtomicInteger(0)
+        val wins = TestCounter(0)
+        val blocked = TestCounter(0)
 
         coroutineScope {
             val first = async { queueA.prepareHeadForReplay() }

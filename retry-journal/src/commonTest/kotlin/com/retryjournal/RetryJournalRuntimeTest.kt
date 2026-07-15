@@ -1,5 +1,6 @@
 package com.retryjournal
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.RetryJournal
 import com.retryjournal.engine.FlushResult
 import com.retryjournal.queue.FrozenHttpHeaders
@@ -21,8 +22,6 @@ import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -38,7 +37,7 @@ class RetryJournalRuntimeTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-runtime-test").toString().toPath()
+        dir = freshTestDir("retry-journal-runtime-test")
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 
@@ -49,8 +48,8 @@ class RetryJournalRuntimeTest {
 
     @Test
     fun `flush serializes concurrent callers in the same process`() = runBlocking {
-        val activeFlushes = AtomicInteger(0)
-        val maxConcurrent = AtomicInteger(0)
+        val activeFlushes = TestCounter(0)
+        val maxConcurrent = TestCounter(0)
         val firstStarted = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
 
@@ -171,8 +170,8 @@ class RetryJournalRuntimeTest {
 
     @Test
     fun `direct retryJournal flush and runtime flush serialize through the same mutex`() = runBlocking {
-        val activeFlushes = AtomicInteger(0)
-        val maxConcurrent = AtomicInteger(0)
+        val activeFlushes = TestCounter(0)
+        val maxConcurrent = TestCounter(0)
         val firstStarted = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
 

@@ -1,5 +1,7 @@
 package com.retryjournal.engine
 
+import com.retryjournal.freshTestDir
+import com.retryjournal.TestCounter
 import com.retryjournal.RetryJournal
 import com.retryjournal.RetryJournalRuntime
 import com.retryjournal.deadletter.DeadLetterQueue
@@ -15,8 +17,6 @@ import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -34,7 +34,7 @@ class BugHunt18Test {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("bug-hunt-18").toString().toPath()
+        dir = freshTestDir("bug-hunt-18")
         queue = DiskQueue((dir.toString() + "/main.bin").toPath())
         deadLetterQueue = DeadLetterQueue(queue, DiskQueue((dir.toString() + "/dlq.bin").toPath()))
         engine = RetryJournalEngine(queue, deadLetterQueue)
@@ -56,7 +56,7 @@ class BugHunt18Test {
             id.sequenceId,
             DeliveryJournal.OUTCOME_DEAD_LETTERED,
         )
-        val httpCalls = AtomicInteger(0)
+        val httpCalls = TestCounter(0)
         val client = HttpClient(MockEngine {
             httpCalls.incrementAndGet()
             respond("ok", HttpStatusCode.OK, headersOf())

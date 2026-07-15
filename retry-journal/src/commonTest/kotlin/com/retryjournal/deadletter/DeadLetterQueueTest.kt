@@ -1,5 +1,6 @@
 package com.retryjournal.deadletter
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.peekAll
 import com.retryjournal.queue.disk.DiskQueue
 import com.retryjournal.queue.FrozenHttpHeaders
@@ -19,7 +20,6 @@ import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.Source
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -36,7 +36,7 @@ class DeadLetterQueueTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-dlq-test").toString().toPath()
+        dir = freshTestDir("retry-journal-dlq-test")
         mainQueue = DiskQueue((dir.toString() + "/main.bin").toPath())
         deadLetterQueue = DeadLetterQueue(mainQueue, DiskQueue((dir.toString() + "/dead-letter.bin").toPath()))
     }
@@ -143,7 +143,7 @@ class DeadLetterQueueTest {
     }
 
     @Test
-    fun `same method, url, and body but different headers are not treated as a duplicate`() = runBlocking {
+    fun `same method url and body but different headers are not treated as a duplicate`() = runBlocking {
         // A shared Authorization/tenant header is exactly the kind of difference that makes two
         // otherwise-identical-looking requests genuinely distinct — collapsing them would hide
         // one of them from the dead-letter UI entirely.
@@ -437,7 +437,7 @@ class DeadLetterQueueTest {
     }
 
     @Test
-    fun `read treats an OutOfMemoryError from the file system as an unreadable journal, not a crash`() {
+    fun `read treats an OutOfMemoryError from the file system as an unreadable journal not a crash`() {
         val journalFile = (dir.toString() + "/dead-letter.bin.retry.9").toPath()
         FileSystem.SYSTEM.write(journalFile) { writeUtf8("never read — the throwing file system below fails first") }
 

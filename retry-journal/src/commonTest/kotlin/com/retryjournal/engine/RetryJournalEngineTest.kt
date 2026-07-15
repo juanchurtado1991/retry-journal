@@ -1,5 +1,7 @@
 package com.retryjournal.engine
 
+import com.retryjournal.freshTestDir
+import com.retryjournal.TestCounter
 import com.retryjournal.peekAll
 import com.retryjournal.deadletter.DeadLetterQueue
 import com.retryjournal.queue.disk.DiskQueue
@@ -21,14 +23,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okio.Buffer
 import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import okio.ForwardingSink
 import okio.Sink
-import java.nio.file.Files
-import java.util.concurrent.atomic.AtomicInteger
+import okio.Timeout
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -45,7 +46,7 @@ class RetryJournalEngineTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-engine-test").toString().toPath()
+        dir = freshTestDir("retry-journal-engine-test")
         queue = DiskQueue(("$dir/main.bin").toPath())
         deadLetterQueue = DeadLetterQueue(queue, DiskQueue((dir.toString() + "/dead-letter.bin").toPath()))
         engine = RetryJournalEngine(queue, deadLetterQueue)
@@ -66,7 +67,7 @@ class RetryJournalEngineTest {
                 "payload-$index".encodeToByteArray(),
             )
         }
-        val replayCount = AtomicInteger(0)
+        val replayCount = TestCounter(0)
         val client = HttpClient(
             MockEngine {
                 replayCount.incrementAndGet()
@@ -138,7 +139,7 @@ class RetryJournalEngineTest {
     }
 
     @Test
-    fun `onProgress fires once per entry, in order, as each one actually resolves`() = runBlocking {
+    fun `onProgress fires once per entry in order as each one actually resolves`() = runBlocking {
         val idBad = queue.enqueue("POST", "https://example.com/bad", FrozenHttpHeaders.EMPTY, "bad".encodeToByteArray())
         val idGood = queue.enqueue("POST", "https://example.com/good", FrozenHttpHeaders.EMPTY, "good".encodeToByteArray())
         val client = HttpClient(
@@ -276,7 +277,7 @@ class RetryJournalEngineTest {
                 "payload-$index".encodeToByteArray(),
             )
         }
-        val replayCount = AtomicInteger(0)
+        val replayCount = TestCounter(0)
         val client = HttpClient(
             MockEngine {
                 replayCount.incrementAndGet()
@@ -408,7 +409,7 @@ class RetryJournalEngineTest {
             id.sequenceId,
             DeliveryJournal.OUTCOME_DELIVERED,
         )
-        val httpCalls = AtomicInteger(0)
+        val httpCalls = TestCounter(0)
         val client = HttpClient(MockEngine {
             httpCalls.incrementAndGet()
             respond("ok", HttpStatusCode.OK, headersOf())
@@ -427,16 +428,24 @@ class RetryJournalEngineTest {
         val failingFs = object : ForwardingFileSystem(FileSystem.SYSTEM) {
             override fun appendingSink(file: Path, mustExist: Boolean): Sink {
                 val delegate = super.appendingSink(file, mustExist)
-                return object : ForwardingSink(delegate) {
+                // Hand-rolled instead of okio.ForwardingSink — that class only ships for the
+                // JVM target, not Kotlin/Native (unlike ForwardingFileSystem/ForwardingSource).
+                return object : Sink {
                     private var flushCount = 0
+
+                    override fun write(source: Buffer, byteCount: Long) = delegate.write(source, byteCount)
 
                     override fun flush() {
                         flushCount++
                         if (file == mainPath && flushCount > 1) {
                             throw IOException("tombstone flush failed")
                         }
-                        super.flush()
+                        delegate.flush()
                     }
+
+                    override fun timeout(): Timeout = delegate.timeout()
+
+                    override fun close() = delegate.close()
                 }
             }
         }
@@ -534,7 +543,7 @@ class RetryJournalEngineTest {
             idB.sequenceId,
             DeliveryJournal.OUTCOME_DELIVERED,
         )
-        val httpCalls = AtomicInteger(0)
+        val httpCalls = TestCounter(0)
         val client = HttpClient(MockEngine {
             httpCalls.incrementAndGet()
             respond("ok", HttpStatusCode.OK, headersOf())

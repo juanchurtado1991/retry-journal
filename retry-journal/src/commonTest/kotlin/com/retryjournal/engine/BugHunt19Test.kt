@@ -1,5 +1,6 @@
 package com.retryjournal.engine
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.deadletter.DeadLetterQueue
 import com.retryjournal.queue.FrozenHttpHeaders
 import com.retryjournal.queue.HeadReplayPrepareResult
@@ -17,7 +18,6 @@ import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -33,7 +33,7 @@ class BugHunt19Test {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("bug-hunt-19").toString().toPath()
+        dir = freshTestDir("bug-hunt-19")
         queue = DiskQueue((dir.toString() + "/main.bin").toPath())
         deadLetterQueue = DeadLetterQueue(queue, DiskQueue((dir.toString() + "/dlq.bin").toPath()))
         engine = RetryJournalEngine(queue, deadLetterQueue)

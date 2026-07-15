@@ -1,5 +1,6 @@
 package com.retryjournal.client
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.peekAll
 import com.retryjournal.queue.disk.DiskQueue
 import io.ktor.client.HttpClient
@@ -25,7 +26,6 @@ import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
 import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -41,7 +41,7 @@ class RetryJournalOfflineQueuePluginTest {
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("retry-journal-client-test").toString().toPath()
+        dir = freshTestDir("retry-journal-client-test")
         diskQueue = DiskQueue(("$dir/queue.bin").toPath())
     }
 
@@ -67,7 +67,7 @@ class RetryJournalOfflineQueuePluginTest {
     }
 
     @Test
-    fun `queued Content-Type reflects the body actually sent, not a stale caller-declared one`() = runBlocking {
+    fun `queued Content-Type reflects the body actually sent not a stale caller-declared one`() = runBlocking {
         // Mirrors what ContentNegotiation does in practice: the caller can declare a Content-Type
         // via contentType(...) that ends up different from what the negotiated OutgoingContent
         // actually carries (e.g. a client with only a Ghost converter registered, called with an
@@ -89,7 +89,7 @@ class RetryJournalOfflineQueuePluginTest {
     }
 
     @Test
-    fun `a multipart file upload's real bytes are queued, not dropped`() = runBlocking {
+    fun `a multipart file upload's real bytes are queued not dropped`() = runBlocking {
         // MultiPartFormDataContent (and any streamed file body) is an
         // OutgoingContent.WriteChannelContent, not a ByteArrayContent — a caller building a
         // typed DTO never hits this path, but a real file/image upload always does.

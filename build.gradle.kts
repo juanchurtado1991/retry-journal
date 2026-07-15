@@ -75,7 +75,10 @@ tasks.register("ciTestJvm") {
         ":retry-journal:jvmTest",
         ":retry-worker:jvmTest",
         // Android unit tests (testDebugUnitTest) run on the JVM, no emulator needed — this is
-        // where :retry-worker's WorkManager request-building and backoff logic is covered.
+        // where :retry-worker's WorkManager request-building and backoff logic is covered, and
+        // where :retry-journal's commonTest suite (DiskQueue, RetryJournalEngine, dead letters,
+        // etc.) gets a second real execution on top of jvmTest's.
+        ":retry-journal:testDebugUnitTest",
         ":retry-worker:testDebugUnitTest",
     )
 }

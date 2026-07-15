@@ -1,13 +1,12 @@
 package com.retryjournal.queue
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.peekAll
 import com.retryjournal.queue.disk.DiskQueue
 import com.retryjournal.queue.disk.DiskQueueIndexSync
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path
-import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -19,8 +18,7 @@ class DiskQueueIndexSyncTest {
 
     @BeforeTest
     fun setUp() {
-        val dir = Files.createTempDirectory("retry-journal-index-sync-test")
-        queuePath = (dir.toString() + "/queue.bin").toPath()
+        queuePath = freshTestDir("retry-journal-index-sync-test").resolve("queue.bin")
     }
 
     @AfterTest

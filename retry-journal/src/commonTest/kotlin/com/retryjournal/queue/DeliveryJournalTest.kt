@@ -1,11 +1,11 @@
 package com.retryjournal.queue
 
+import com.retryjournal.freshTestDir
 import com.retryjournal.queue.disk.DiskQueue
 import com.retryjournal.queue.disk.DiskQueueConstants
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
 import okio.Path.Companion.toPath
-import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -18,10 +18,7 @@ class DeliveryJournalTest {
 
     @BeforeTest
     fun setUp() {
-        queuePath = Files.createTempDirectory("delivery-journal-test")
-            .resolve("queue.bin")
-            .toString()
-            .toPath()
+        queuePath = freshTestDir("delivery-journal-test").resolve("queue.bin")
     }
 
     @AfterTest

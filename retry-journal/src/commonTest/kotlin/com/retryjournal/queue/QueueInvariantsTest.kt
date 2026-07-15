@@ -2,15 +2,17 @@ package com.retryjournal.queue
 
 import com.retryjournal.deadletter.DeadLetterQueue
 import com.retryjournal.engine.RetryJournalEngine
+import com.retryjournal.freshTestDir
 import com.retryjournal.queue.disk.DiskQueue
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.runBlocking
-import okio.Path.Companion.toPath
-import java.nio.file.Files
+import okio.FileSystem
+import okio.Path
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -18,20 +20,20 @@ import kotlin.test.Test
 
 class QueueInvariantsTest {
 
-    private lateinit var dir: java.nio.file.Path
+    private lateinit var dir: Path
     private lateinit var queue: DiskQueue
     private lateinit var engine: RetryJournalEngine
 
     @BeforeTest
     fun setUp() {
-        dir = Files.createTempDirectory("queue-invariants-test")
-        queue = DiskQueue((dir.toString() + "/main.bin").toPath())
-        engine = RetryJournalEngine(queue, DeadLetterQueue(queue, DiskQueue((dir.toString() + "/dlq.bin").toPath())))
+        dir = freshTestDir("queue-invariants-test")
+        queue = DiskQueue(dir.resolve("main.bin"))
+        engine = RetryJournalEngine(queue, DeadLetterQueue(queue, DiskQueue(dir.resolve("dlq.bin"))))
     }
 
     @AfterTest
     fun tearDown() {
-        Files.walk(dir).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+        FileSystem.SYSTEM.deleteRecursively(dir, mustExist = false)
     }
 
     @Test
@@ -58,7 +60,7 @@ class QueueInvariantsTest {
             val path = call.url.encodedPath
             when {
                 path.endsWith("/bad") -> respond("", HttpStatusCode.BadRequest, headersOf())
-                path.endsWith("/offline") -> throw java.io.IOException("offline")
+                path.endsWith("/offline") -> throw IOException("offline")
                 else -> respond("ok", HttpStatusCode.OK, headersOf())
             }
         })
