@@ -52,8 +52,13 @@ internal object SyncSetup {
     }
 
     val liveClient: HttpClient by lazy {
-        HttpClient(SimulatedOfflineEngine(platformHttpClientEngine())) {
+        HttpClient(platformHttpClientEngine()) {
             install(ContentNegotiation) { ghost() }
+            // SimulatedOfflinePlugin MUST be installed before GhostOfflineQueuePlugin.
+            // HttpSend intercepts run last-registered-first, so this becomes the innermost
+            // interceptor. GhostOfflineQueuePlugin (outermost) catches the IOException it
+            // throws and persists the request to the disk queue.
+            install(SimulatedOfflinePlugin)
             install(GhostOfflineQueuePlugin) { diskQueue = this@SyncSetup.diskQueue }
         }
     }

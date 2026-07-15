@@ -1,30 +1,37 @@
 package com.ghostserializer.sync.sample.app
 
-import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.request.HttpRequestData
-import io.ktor.client.request.HttpResponseData
-import io.ktor.util.InternalAPI
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpClientPlugin
+import io.ktor.client.plugins.HttpSend
+import io.ktor.client.plugins.plugin
+import io.ktor.util.AttributeKey
 import io.ktor.utils.io.errors.IOException
 
 /**
- * Engine wrapper that throws [IOException] for every request when
+ * A Ktor client plugin that throws [IOException] for every request when
  * [SimulatedConnectivityController.isSimulatedOffline] is true.
  *
- * Because this wraps the real engine (i.e. sits *inside* the Ktor plugin pipeline),
- * [GhostOfflineQueuePlugin] — which intercepts *around* the engine call — catches the
- * exception and persists the request to the disk queue exactly as it would for a real
- * network outage.
+ * **Installation order matters.** This plugin must be installed *before*
+ * [com.ghostserializer.sync.client.GhostOfflineQueuePlugin] in the [HttpClient] block.
+ * Ktor's [HttpSend] chain runs last-registered-first, so installing this first makes it the
+ * *innermost* interceptor — the one that actually throws. [GhostOfflineQueuePlugin], installed
+ * second (outermost), wraps the call in a try/catch, sees the [IOException], and persists the
+ * request to the disk queue exactly as it would for a real network outage.
  */
-@OptIn(InternalAPI::class)
-internal class SimulatedOfflineEngine(
-    private val delegate: HttpClientEngine,
-) : HttpClientEngine by delegate {
+internal object SimulatedOfflinePlugin :
+    HttpClientPlugin<Unit, SimulatedOfflinePlugin> {
 
-    @InternalAPI
-    override suspend fun execute(data: HttpRequestData): HttpResponseData {
-        if (SimulatedConnectivityController.isSimulatedOffline) {
-            throw IOException("Simulated connectivity is offline — request queued to disk.")
+    override val key: AttributeKey<SimulatedOfflinePlugin> =
+        AttributeKey("SimulatedOfflinePlugin")
+
+    override fun prepare(block: Unit.() -> Unit): SimulatedOfflinePlugin = this
+
+    override fun install(plugin: SimulatedOfflinePlugin, scope: HttpClient) {
+        scope.plugin(HttpSend).intercept { request ->
+            if (SimulatedConnectivityController.isSimulatedOffline) {
+                throw IOException("Simulated connectivity is offline — request queued to disk.")
+            }
+            execute(request)
         }
-        return delegate.execute(data)
     }
 }

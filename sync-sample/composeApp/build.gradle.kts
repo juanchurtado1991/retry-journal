@@ -155,3 +155,12 @@ compose.desktop {
         mainClass = "com.ghostserializer.sync.sample.app.MainKt"
     }
 }
+
+// Workaround: KSP incremental build sometimes marks kspDebugKotlinAndroid as UP-TO-DATE
+// after a commonMain change, causing an "Unresolved reference: AndroidWorkerFactoryGenerated"
+// compile error on the next build. Forcing the Android KSP task to run after the commonMain
+// metadata KSP task ensures it always re-evaluates when any source in the module changes.
+tasks.matching { it.name == "kspDebugKotlinAndroid" }.configureEach {
+    mustRunAfter("kspCommonMainKotlinMetadata")
+    outputs.upToDateWhen { false }
+}
