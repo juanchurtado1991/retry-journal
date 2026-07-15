@@ -149,13 +149,13 @@ Al publicar con `./gradlew publishToMavenCentral`, verificar que los klibs iOS a
 
 | # | Tarea | Estado |
 |---|-------|--------|
-| 0 | `git pull` + `ciTestJvm ciCoverage` en Mac | ⬜ |
-| 1 | Compilación iOS (6 targets) | ⬜ |
+| 0 | `git pull` + `ciTestJvm ciCoverage` en Mac | ✅ |
+| 1 | Compilación iOS (6 targets) | ✅ |
 | 2 | Sample corre en simulador | ⬜ |
 | 3 | Offline queue + flush E2E | ⬜ |
 | 4 | `getHeadState()` visible en UI (chip + subtítulo Pending) | ⬜ |
 | 5 | kmpworkmanager worker en background | ⬜ |
-| 6 | (Opcional) `iosSimulatorArm64Test` | ⬜ |
+| 6 | (Opcional) `iosSimulatorArm64Test` | ✅ |
 | 7 | (Opcional) CI job macOS en GitHub | ⬜ |
 | 8 | (Release) klibs iOS en Sonatype staging + tag `v1.0.0` | ⬜ |
 
