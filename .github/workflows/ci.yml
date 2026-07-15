@@ -37,24 +37,39 @@ jobs:
       - name: Compile (Android + JVM desktop, sin iOS)
         run: ./gradlew ciCompile --no-daemon --stacktrace
 
-  # iOS verification requires macOS — see docs/development.md for build commands.
-  # Uncomment when a macOS runner is available:
-  #
-  # ios-compile:
-  #   name: Compile iOS targets (macOS)
-  #   runs-on: macos-latest
-  #   timeout-minutes: 45
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-java@v4
-  #       with:
-  #         distribution: temurin
-  #         java-version: 17
-  #         cache: gradle
-  #     - run: chmod +x gradlew
-  #     - run: >
-  #         ./gradlew
-  #         :retry-journal:compileKotlinIosArm64
-  #         :retry-journal:compileKotlinIosSimulatorArm64
-  #         :retry-sample:composeApp:compileKotlinIosSimulatorArm64
-  #         --no-daemon --stacktrace
+  ios:
+    name: Compile & test iOS targets (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Compile iOS targets
+        run: >
+          ./gradlew
+          :retry-journal:compileKotlinIosArm64
+          :retry-journal:compileKotlinIosSimulatorArm64
+          :retry-worker:compileKotlinIosArm64
+          :retry-worker:compileKotlinIosSimulatorArm64
+          :retry-sample:shared:compileKotlinIosArm64
+          :retry-sample:shared:compileKotlinIosSimulatorArm64
+          :retry-sample:composeApp:compileKotlinIosArm64
+          :retry-sample:composeApp:compileKotlinIosSimulatorArm64
+          --no-daemon --stacktrace
+
+      - name: iOS Simulator unit tests
+        run: >
+          ./gradlew
+          :retry-journal:iosSimulatorArm64Test
+          :retry-worker:iosSimulatorArm64Test
+          --no-daemon --stacktrace
