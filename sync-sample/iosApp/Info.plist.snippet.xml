@@ -1,5 +1,0 @@
-<!-- Merge this key into the real Info.plist that Xcode generates — see README.md. -->
-<key>BGTaskSchedulerPermittedIdentifiers</key>
-<array>
-    <string>ghost_sync_task</string>
-</array>

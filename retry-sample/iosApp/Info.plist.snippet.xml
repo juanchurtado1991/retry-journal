@@ -1,0 +1,5 @@
+<!-- Merge this key into the real Info.plist that Xcode generates — see README.md. -->
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+    <string>retry_journal_task</string>
+</array>
