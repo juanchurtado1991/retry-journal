@@ -62,4 +62,3 @@ Background sync: `AppDelegate` registers `BGTaskScheduler`; production apps rely
 
 - Full sample walkthrough: [../README.md](../README.md)
 - Library integration (mountain / offline UX, `flush()` scheduling): [../../README.md](../../README.md)
-- iOS library verification debt (publish, CI): [../../ios_techdebt.md](../../ios_techdebt.md) — **1.0.0**, handoff desde Linux

@@ -37,7 +37,7 @@ jobs:
       - name: Compile (Android + JVM desktop, sin iOS)
         run: ./gradlew ciCompile --no-daemon --stacktrace
 
-  # iOS verification requires macOS — see ios_techdebt.md for manual steps.
+  # iOS verification requires macOS — see docs/development.md for build commands.
   # Uncomment when a macOS runner is available:
   #
   # ios-compile:
