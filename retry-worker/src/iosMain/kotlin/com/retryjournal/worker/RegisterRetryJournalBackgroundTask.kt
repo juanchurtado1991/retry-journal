@@ -45,22 +45,27 @@ private fun handleBackgroundTask(
     scheduler: IosRetryJournalWorkerScheduler,
     taskScope: CoroutineScope,
 ) {
-    // BGTaskScheduler never repeats a request — the next run must be re-submitted as this one starts.
-    scheduler.schedule(scheduler.lastConfig)
+    // BGTaskScheduler never repeats a request — a future run must be re-armed as this one starts,
+    // as a backstop in case this run gets expired before rescheduleAfterRun() below can replace it.
+    scheduler.rearmBackstop()
 
     val job = taskScope.launch {
         try {
             val flushResult = runtime.flushWhenOnline()
-            task.setTaskCompletedWithSuccess(isRetryJournalFlushSuccessful(flushResult))
+            val success = isRetryJournalFlushSuccessful(flushResult)
+            scheduler.rescheduleAfterRun(success)
+            task.setTaskCompletedWithSuccess(success)
         } catch (_: CancellationException) {
-            // expirationHandler below already completed the task.
+            // expirationHandler below already rescheduled and completed the task.
         } catch (_: Throwable) {
+            scheduler.rescheduleAfterRun(false)
             task.setTaskCompletedWithSuccess(false)
         }
     }
 
     task.expirationHandler = {
         job.cancel()
+        scheduler.rescheduleAfterRun(false)
         task.setTaskCompletedWithSuccess(false)
     }
 }

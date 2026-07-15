@@ -105,7 +105,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 </array>
 ```
 
-`registerRetryJournalBackgroundTask` registers the `BGAppRefreshTask` launch handler, submits the first request, and re-submits the next one every time the task runs — `BGTaskScheduler` never repeats a request on its own, so you don't have to think about it once this is wired.
+`registerRetryJournalBackgroundTask` registers the `BGAppRefreshTask` launch handler, submits the first request, and re-arms the next one every time the task runs — `BGTaskScheduler` never repeats a request on its own, so you don't have to think about it once this is wired.
+
+### Retry-on-failure backoff (both platforms)
+
+If a run doesn't fully drain the queue (`flush()` returns `stoppedEarly`, throws, or the OS expires the task before it finishes), both platforms reschedule sooner — at `retryDelayMs` instead of the full `intervalMs` — for up to `maxRetryAttempts` consecutive failed runs in a row, then fall back to the normal interval. A successful run resets the streak.
+
+> **iOS caveat:** the *logic* is the same as Android, but the *guarantee* isn't. `earliestBeginDate` is only a hint — iOS still decides the actual fire time based on battery and usage patterns, and can run it later than requested regardless of what this library asks for. The failure streak also lives only in memory: if iOS fully terminates the app between background launches (common), the count resets and the next run just uses the normal `intervalMs`. WorkManager on Android has neither limitation — its backoff timing and attempt count are both reliable and persisted by the OS.
 
 ## `RetryJournalSchedulerConfig` fields
 
@@ -113,8 +119,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 |---|---|---|---|
 | `intervalMs` | 15 min | Target period; WorkManager floors it to 15 min regardless. | `earliestBeginDate` offset for the next `BGAppRefreshTaskRequest` — a target, not a guarantee; iOS decides the actual run time. |
 | `requiresNetwork` | `true` | `NetworkType.NOT_REQUIRED` if `false`. | Not used — `BGAppRefreshTask` has no network constraint to set. |
-| `retryDelayMs` | 60 s | Backoff delay (`BackoffPolicy.LINEAR`) between retries; WorkManager floors it to 10 s. | Not used. |
-| `maxRetryAttempts` | 5 | After this many attempts, the worker reports failure instead of retrying again. | Not used — every scheduled run is independent; there's no attempt cap. |
+| `retryDelayMs` | 60 s | Backoff delay (`BackoffPolicy.LINEAR`) between retries; WorkManager floors it to 10 s. | Interval used to re-arm the next run after a failed/incomplete one, while under `maxRetryAttempts` — see above. Same hint-not-guarantee caveat as `intervalMs`. |
+| `maxRetryAttempts` | 5 | After this many attempts, the worker reports failure instead of retrying again. | After this many consecutive failed runs, falls back to `intervalMs` until the next success. Not persisted across a full app termination. |
 
 Full reference wiring for both platforms: [sample app](../retry-sample/README.md).
 
