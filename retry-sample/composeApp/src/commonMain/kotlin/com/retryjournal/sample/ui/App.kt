@@ -11,6 +11,8 @@ import com.retryjournal.sample.ui.theme.AppTheme
 @Composable
 fun App() {
     AppTheme {
+        // Fills edge-to-edge (status bar / camera cutout tinted correctly) — DemoScreen insets
+        // its own content from unsafe drawing areas via safeDrawingPadding().
         Surface(modifier = Modifier.fillMaxSize()) {
             DemoScreen()
         }
