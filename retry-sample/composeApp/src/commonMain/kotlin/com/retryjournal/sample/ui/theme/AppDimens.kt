@@ -21,4 +21,9 @@ internal object AppDimens {
 
     val DESKTOP_WINDOW_WIDTH: Dp = 900.dp
     val DESKTOP_WINDOW_HEIGHT: Dp = 800.dp
+
+    /** Below this width (Material's compact window size class), [DemoActionBar] stacks the sync
+     * button under Upload/Send instead of pushing it to the right — three buttons in one row
+     * don't fit on a phone-width screen. */
+    val ACTION_BAR_COMPACT_BREAKPOINT: Dp = 600.dp
 }
