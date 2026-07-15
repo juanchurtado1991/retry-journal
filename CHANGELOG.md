@@ -20,8 +20,16 @@ First release.
 - Apache 2.0 LICENSE, Maven Central publish wiring, GitHub Actions CI
 - 180+ JVM unit tests, Kover coverage gate ≥90%
 
-### Known limitations
+### Fixed
 
-- iOS targets compile but are **not yet verified on macOS** — see [`ios_techdebt.md`](ios_techdebt.md)
+- Race conditions in `GhostSyncRuntimeTest` concurrent flush tests using `CompletableDeferred` instead of timing-dependent delays.
+- Target-specific compilation errors on iOS targets (resolved `timeoutInterval` assignment in Darwin engine, POSIX `open` argument mapping, and `Dispatchers.IO` visibility).
+- KSP code generation `@OptionalExpectation` errors on native/iOS targets via a `suppressGhostKspWarnings` post-processing Gradle task.
+
+### Changed
+
+- Refactored `build.gradle.kts` files to extract publishing, Kover, and warning configurations into separate files under `gradle/` (`publishing.gradle`, `kover.gradle`, and `warnings.gradle.kts`).
+- Renamed `fd` to `fileDescriptor` in `PlatformQueueFileLock` and added `INVALID_FILE_DESCRIPTOR` constant.
 
 [1.0.0]: https://github.com/juanchurtado1991/ghost-sync-kmp/releases/tag/v1.0.0
+
