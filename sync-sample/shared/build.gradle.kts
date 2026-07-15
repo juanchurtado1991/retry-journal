@@ -42,3 +42,5 @@ android {
         minSdk = 26
     }
 }
+
+apply(from = "../../gradle/warnings.gradle.kts")

@@ -1,0 +1,30 @@
+apply plugin: 'com.vanniktech.maven.publish'
+
+mavenPublishing {
+    publishToMavenCentral()
+    signAllPublications()
+    coordinates(project.group.toString(), "ghost-sync", project.version.toString())
+
+    pom {
+        name = "ghost-sync"
+        description = "Offline-first HTTP sync engine for Kotlin Multiplatform"
+        url = "https://github.com/ghostserializer/ghost-sync-kmp"
+        licenses {
+            license {
+                name = "Apache License 2.0"
+                url = "https://www.apache.org/licenses/LICENSE-2.0"
+            }
+        }
+        developers {
+            developer {
+                id = "ghostserializer"
+                name = "ghostserializer"
+            }
+        }
+        scm {
+            url = "https://github.com/ghostserializer/ghost-sync-kmp"
+            connection = "scm:git:git://github.com/ghostserializer/ghost-sync-kmp.git"
+            developerConnection = "scm:git:ssh://git@github.com/ghostserializer/ghost-sync-kmp.git"
+        }
+    }
+}

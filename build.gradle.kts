@@ -1,6 +1,16 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    val properties = java.util.Properties().apply {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+    properties.forEach { key, value ->
+        extra.set(key as String, value)
+    }
+}
+
 val syncGroup = libs.versions.publish.group.get()
 val syncVersion = libs.versions.publish.version.get()
 
