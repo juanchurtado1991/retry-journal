@@ -39,6 +39,8 @@ nexus-publish                    = "2.0.0"
 kotlin-compile-testing           = "0.7.0"
 junit-jupiter                    = "5.10.2"
 kover                            = "0.9.8"
+androidx-test                    = "1.6.1"
+androidx-test-ext-junit          = "1.2.1"
 
 [libraries]
 kotlin-test                      = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin-sdk" }
@@ -67,6 +69,10 @@ kotlinx-coroutines-test           = { group = "org.jetbrains.kotlinx", name = "k
 kotlinx-serialization-json        = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 
 androidx-work-runtime-ktx          = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "androidx-work" }
+
+androidx-test-runner               = { group = "androidx.test", name = "runner", version.ref = "androidx-test" }
+androidx-test-core                 = { group = "androidx.test", name = "core", version.ref = "androidx-test" }
+androidx-test-ext-junit            = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext-junit" }
 
 ktorfit-lib-light                 = { group = "de.jensklingenberg.ktorfit", name = "ktorfit-lib-light", version.ref = "ktorfit" }
 # Pinned to the exact published KSP-processor variant closest to this project's KSP (1.0.31) —

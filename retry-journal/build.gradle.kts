@@ -68,6 +68,17 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.ktor.serialization.kotlinx.json)
         }
+
+        val androidInstrumentedTest by getting {
+            dependencies {
+                // androidInstrumentedTest does NOT inherit commonTest's dependencies by default
+                // (unlike androidUnitTest) — kotlin.test needs to be declared again here.
+                implementation(libs.kotlin.test)
+                implementation(libs.androidx.test.runner)
+                implementation(libs.androidx.test.core)
+                implementation(libs.androidx.test.ext.junit)
+            }
+        }
     }
 }
 
@@ -85,6 +96,7 @@ android {
     defaultConfig {
         minSdk = 21
         consumerProguardFiles("consumer-rules.pro")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 }
 
