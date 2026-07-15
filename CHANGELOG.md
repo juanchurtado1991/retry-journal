@@ -4,22 +4,7 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
-### Added
-
-- `:retry-worker` — new Maven module with an out-of-the-box background scheduler: `androidx.work` (WorkManager) on Android, `BGTaskScheduler` on iOS, a no-op on JVM/desktop.
-- `RetryJournalScheduler` / `RetryJournalSchedulerConfig` (`:retry-journal`, package `scheduler/`) — the scheduler-agnostic contract `:retry-worker` implements; any app can implement it directly instead.
-
-### Removed
-
-- The `kmpworkmanager` dependency, dropped entirely from the project and from `retry-sample`, in favor of `:retry-worker`.
-
-### Changed
-
-- `retry-sample/composeApp` now wires background sync through `:retry-worker`'s `setupBackgroundSync()` (Android) and `registerRetryJournalBackgroundTask()` (iOS) instead of `kmpworkmanager`'s `@Worker`/Koin setup.
-
-## [1.0.0] - 2026-07-14
-
-First release.
+Nothing has been published yet — everything below is still pre-1.0.0 work in progress.
 
 ### Added
 
@@ -32,21 +17,31 @@ First release.
 - `ReplayClaim` — cross-process head claim so two processes cannot duplicate a non-idempotent POST
 - `DiskQueue` — append-only on-disk queue with crash recovery, compaction, and advisory file locking
 - `FrozenHttpHeaders` — flat header storage for faithful replay
+- `RetryJournalScheduler` / `RetryJournalSchedulerConfig` (`:retry-journal`, package `scheduler/`) — the scheduler-agnostic contract that `:retry-worker` implements; any app can implement it directly instead.
+- `:retry-worker` — new Maven module with an out-of-the-box background scheduler: `androidx.work` (WorkManager) on Android, `BGTaskScheduler` on iOS, a no-op on JVM/desktop. On both platforms, a failed/incomplete run reschedules sooner (`retryDelayMs`) for up to `maxRetryAttempts` in a row before falling back to the normal interval.
+- `retry-sample:server` normal mode (default — every request succeeds) alongside the existing chaos mode (`--args="chaos"`), so a large batch can replay in one `flush()` without an artificial failure interrupting it partway through.
 - Apache 2.0 LICENSE, Maven Central publish wiring, GitHub Actions CI
-- 180+ JVM unit tests, Kover coverage gate ≥90%
+- 190+ JVM unit tests (across `:retry-journal` and `:retry-worker`), Kover coverage gate ≥90%, plus real iOS-simulator tests for `:retry-worker`'s schedulers.
+
+### Changed
+
+- **Renamed the whole project from GhostSync to RetryJournal.** Modules `:ghost-sync` / `:ghost-sync-worker` are now `:retry-journal` / `:retry-worker`; packages `com.ghostserializer.sync.*` are now `com.retryjournal.*`; every `GhostSync*`-prefixed class is now `RetryJournal*` (facade `RetryJournal`, `RetryJournalEngine`, `RetryJournalRuntime`, `RetryJournalOfflineQueuePlugin`, etc). The sample tree `sync-sample` is now `retry-sample`. Maven coordinates stay under the already-verified `com.ghostserializer` publishing namespace (`com.ghostserializer:retry-journal` / `com.ghostserializer:retry-worker`) — only the artifact names changed, not the group.
+- `retry-sample/composeApp` now wires background sync through `:retry-worker`'s `setupBackgroundSync()` (Android) and `registerRetryJournalBackgroundTask()` (iOS) instead of `kmpworkmanager`'s `@Worker`/Koin setup.
+- `retry-sample`'s desktop embedded server toggle always starts in normal (non-chaotic) mode now; chaos mode is opt-in via the standalone server's `--args="chaos"`.
+- Split the long root `README.md` into a short landing page plus a `docs/` wiki with one focused page per topic (installation, quick start, scheduling, background worker, runtime, uploads, dead letters, guarantees, development).
+- Refactored `build.gradle.kts` files to extract publishing, Kover, and warning configurations into separate files under `gradle/` (`publishing.gradle`, `kover.gradle`, and `warnings.gradle.kts`).
+- Renamed `fd` to `fileDescriptor` in `PlatformQueueFileLock` and added `INVALID_FILE_DESCRIPTOR` constant.
 
 ### Fixed
 
 - Race conditions in `RetryJournalRuntimeTest` concurrent flush tests using `CompletableDeferred` instead of timing-dependent delays.
 - Target-specific compilation errors on iOS targets (resolved `timeoutInterval` assignment in Darwin engine, POSIX `open` argument mapping, and `Dispatchers.IO` visibility).
 - KSP code generation `@OptionalExpectation` errors on native/iOS targets via a `suppressGhostKspWarnings` post-processing Gradle task.
+- `retry-sample` on Android: cleartext HTTP to the local chaos/normal server was silently blocked (`targetSdk 28+` blocks it by default) — the app could never detect the server was up. Added `android:usesCleartextTraffic="true"` (this sample is never published, so app-wide is fine here).
+- `retry-sample` on Android: `DemoActionBar`'s Sync button rendered off-screen on phone-width windows — it now stacks below Upload/Send under `AppDimens.ACTION_BAR_COMPACT_BREAKPOINT` (600.dp) instead of assuming there's always room for three buttons in one row.
+- `retry-sample` on Android: content drew under the status bar/camera cutout with edge-to-edge enabled by default (`targetSdk 35+`) — added `safeDrawingPadding()`.
 
-### Changed
+### Removed
 
-- Refactored `build.gradle.kts` files to extract publishing, Kover, and warning configurations into separate files under `gradle/` (`publishing.gradle`, `kover.gradle`, and `warnings.gradle.kts`).
-- Renamed `fd` to `fileDescriptor` in `PlatformQueueFileLock` and added `INVALID_FILE_DESCRIPTOR` constant.
-- Created `KmpWorkManagerHelper` and `SampleIosWorkerFactory` to bridge iOS background tasks and DI initialization cleanly to Swift.
-- Resolved and configured the iOS sample application build settings and static `Info.plist` to support Background Modes (fetch, processing) and registered `retry_journal_task` and `kmp_chain_executor_task`.
-
-[1.0.0]: https://github.com/juanchurtado1991/retry-journal/releases/tag/v1.0.0
-
+- The `kmpworkmanager` dependency, dropped entirely from the project and from `retry-sample`, in favor of `:retry-worker`.
+- `docs/comparison.md` (Tape/Room positioning) and `CONVENTIONS.md` — narrow audience / internal-only content, not meant for the public repo.
