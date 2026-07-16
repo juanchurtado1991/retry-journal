@@ -25,7 +25,7 @@ The shared Kotlin code (`:retry-sample:composeApp`) is already iOS-ready; this f
 
 2. **Network host**
    - **Simulator:** `localhost` / Mac LAN IP works — simulator shares the Mac network.
-   - **Physical iPhone:** set your Mac's LAN IP in `AppConstants.SERVER_HOST` (`retry-sample/composeApp/src/commonMain/.../AppConstants.kt`). Do **not** use `10.0.2.2` (Android emulator only).
+   - **Physical iPhone:** set your Mac's LAN IP in `platformServerHost` (`retry-sample/composeApp/src/iosMain/.../PlatformServerHost.ios.kt`, currently hardcoded to `"localhost"`). Do **not** use `10.0.2.2` (Android emulator only).
 
 ---
 

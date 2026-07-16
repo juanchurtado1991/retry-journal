@@ -154,8 +154,8 @@ macOS + Xcode required for the final link step. Step-by-step: [`iosApp/README.md
 | `server` | ✅ Chaos rotation verified |
 | `composeApp` Desktop | ✅ `./gradlew :retry-sample:composeApp:run` |
 | `composeApp` Android | ✅ Debug APK |
-| `composeApp` iOS | ⏭️ Needs macOS |
-| `iosApp/` | Swift scaffold — see iosApp README |
+| `composeApp` iOS | ✅ Compiles + tested every push (macOS-only CI job); building the actual app needs macOS + Xcode |
+| `iosApp/` | ✅ Builds & runs on Simulator (`xcodebuild`) — see iosApp README |
 
 ---
 
