@@ -73,3 +73,10 @@ jobs:
           :retry-journal:iosSimulatorArm64Test
           :retry-worker:iosSimulatorArm64Test
           --no-daemon --stacktrace
+
+      - name: Native (iOS) binary compatibility
+        run: >
+          ./gradlew
+          :retry-journal:klibApiCheck
+          :retry-worker:klibApiCheck
+          --no-daemon --stacktrace

@@ -1,0 +1,14 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <com.ghostserializer:retry-worker>
+final class com.retryjournal.worker/IosRetryJournalWorkerScheduler : com.retryjournal.scheduler/RetryJournalScheduler { // com.retryjournal.worker/IosRetryJournalWorkerScheduler|null[0]
+    final fun cancel() // com.retryjournal.worker/IosRetryJournalWorkerScheduler.cancel|cancel(){}[0]
+    final fun schedule(com.retryjournal.scheduler/RetryJournalSchedulerConfig) // com.retryjournal.worker/IosRetryJournalWorkerScheduler.schedule|schedule(com.retryjournal.scheduler.RetryJournalSchedulerConfig){}[0]
+}
+
+final fun com.retryjournal.worker/registerRetryJournalBackgroundTask(kotlin/String, com.retryjournal/RetryJournalRuntime, com.retryjournal.scheduler/RetryJournalSchedulerConfig = ...): com.retryjournal.scheduler/RetryJournalScheduler // com.retryjournal.worker/registerRetryJournalBackgroundTask|registerRetryJournalBackgroundTask(kotlin.String;com.retryjournal.RetryJournalRuntime;com.retryjournal.scheduler.RetryJournalSchedulerConfig){}[0]

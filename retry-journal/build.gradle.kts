@@ -15,12 +15,19 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.vanniktech.publish)
     alias(libs.plugins.kover)
+    alias(libs.plugins.binary.compatibility.validator)
 }
 
 apply(from = "../gradle/publishing.gradle")
 
 mavenPublishing {
     configure(KotlinMultiplatform(javadocJar = JavadocJar.Dokka("dokkaHtml")))
+}
+
+apiValidation {
+    klib {
+        enabled = true
+    }
 }
 
 kotlin {

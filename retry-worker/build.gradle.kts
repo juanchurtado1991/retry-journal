@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.publish)
+    alias(libs.plugins.binary.compatibility.validator)
 }
 
 ext.set(
@@ -17,6 +18,12 @@ apply(from = "../gradle/publishing.gradle")
 
 mavenPublishing {
     configure(KotlinMultiplatform(javadocJar = JavadocJar.Dokka("dokkaHtml")))
+}
+
+apiValidation {
+    klib {
+        enabled = true
+    }
 }
 
 kotlin {

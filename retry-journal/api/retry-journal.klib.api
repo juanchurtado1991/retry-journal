@@ -1,0 +1,396 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <com.ghostserializer:retry-journal>
+abstract interface com.retryjournal.scheduler/RetryJournalScheduler { // com.retryjournal.scheduler/RetryJournalScheduler|null[0]
+    abstract fun cancel() // com.retryjournal.scheduler/RetryJournalScheduler.cancel|cancel(){}[0]
+    abstract fun schedule(com.retryjournal.scheduler/RetryJournalSchedulerConfig) // com.retryjournal.scheduler/RetryJournalScheduler.schedule|schedule(com.retryjournal.scheduler.RetryJournalSchedulerConfig){}[0]
+}
+
+final class com.ghost.serialization.generated/GhostModuleRegistry_retry_journal : com.ghost.serialization.contract/GhostRegistry { // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal|null[0]
+    constructor <init>() // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.<init>|<init>(){}[0]
+
+    final fun <#A1: kotlin/Any> getSerializer(kotlin.reflect/KClass<#A1>): com.ghost.serialization.contract/GhostSerializer<#A1>? // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.getSerializer|getSerializer(kotlin.reflect.KClass<0:0>){0§<kotlin.Any>}[0]
+    final fun getAllSerializers(): kotlin.collections/Map<kotlin.reflect/KClass<*>, com.ghost.serialization.contract/GhostSerializer<*>> // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.getAllSerializers|getAllSerializers(){}[0]
+    final fun prewarm() // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.prewarm|prewarm(){}[0]
+    final fun registeredCount(): kotlin/Int // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.registeredCount|registeredCount(){}[0]
+
+    final object Companion { // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.Companion|null[0]
+        final val INSTANCE // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.Companion.INSTANCE|{}INSTANCE[0]
+            final fun <get-INSTANCE>(): com.ghost.serialization.generated/GhostModuleRegistry_retry_journal // com.ghost.serialization.generated/GhostModuleRegistry_retry_journal.Companion.INSTANCE.<get-INSTANCE>|<get-INSTANCE>(){}[0]
+    }
+}
+
+final class com.retryjournal.client/BodyCaptureException : kotlin/Exception { // com.retryjournal.client/BodyCaptureException|null[0]
+    constructor <init>(kotlin/String, kotlin/Throwable? = ...) // com.retryjournal.client/BodyCaptureException.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
+}
+
+final class com.retryjournal.client/OfflineQueuedException : kotlin/Exception { // com.retryjournal.client/OfflineQueuedException|null[0]
+    constructor <init>(kotlin/String) // com.retryjournal.client/OfflineQueuedException.<init>|<init>(kotlin.String){}[0]
+}
+
+final class com.retryjournal.client/RetryJournalOfflineQueueConfig { // com.retryjournal.client/RetryJournalOfflineQueueConfig|null[0]
+    constructor <init>() // com.retryjournal.client/RetryJournalOfflineQueueConfig.<init>|<init>(){}[0]
+
+    final var diskQueue // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue|{}diskQueue[0]
+        final fun <get-diskQueue>(): com.retryjournal.queue.disk/DiskQueue // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue.<get-diskQueue>|<get-diskQueue>(){}[0]
+        final fun <set-diskQueue>(com.retryjournal.queue.disk/DiskQueue) // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue.<set-diskQueue>|<set-diskQueue>(com.retryjournal.queue.disk.DiskQueue){}[0]
+}
+
+final class com.retryjournal.client/RetryJournalOfflineQueuePlugin { // com.retryjournal.client/RetryJournalOfflineQueuePlugin|null[0]
+    final object Plugin : io.ktor.client.plugins/HttpClientPlugin<com.retryjournal.client/RetryJournalOfflineQueueConfig, com.retryjournal.client/RetryJournalOfflineQueuePlugin> { // com.retryjournal.client/RetryJournalOfflineQueuePlugin.Plugin|null[0]
+        final val key // com.retryjournal.client/RetryJournalOfflineQueuePlugin.Plugin.key|{}key[0]
+            final fun <get-key>(): io.ktor.util/AttributeKey<com.retryjournal.client/RetryJournalOfflineQueuePlugin> // com.retryjournal.client/RetryJournalOfflineQueuePlugin.Plugin.key.<get-key>|<get-key>(){}[0]
+
+        final fun install(com.retryjournal.client/RetryJournalOfflineQueuePlugin, io.ktor.client/HttpClient) // com.retryjournal.client/RetryJournalOfflineQueuePlugin.Plugin.install|install(com.retryjournal.client.RetryJournalOfflineQueuePlugin;io.ktor.client.HttpClient){}[0]
+        final fun prepare(kotlin/Function1<com.retryjournal.client/RetryJournalOfflineQueueConfig, kotlin/Unit>): com.retryjournal.client/RetryJournalOfflineQueuePlugin // com.retryjournal.client/RetryJournalOfflineQueuePlugin.Plugin.prepare|prepare(kotlin.Function1<com.retryjournal.client.RetryJournalOfflineQueueConfig,kotlin.Unit>){}[0]
+    }
+}
+
+final class com.retryjournal.deadletter/DeadLetterEntry { // com.retryjournal.deadletter/DeadLetterEntry|null[0]
+    constructor <init>(com.retryjournal.deadletter/DeadLetterEntryId, com.retryjournal.queue/FrozenHttpRequestMeta, kotlin/ByteArray) // com.retryjournal.deadletter/DeadLetterEntry.<init>|<init>(com.retryjournal.deadletter.DeadLetterEntryId;com.retryjournal.queue.FrozenHttpRequestMeta;kotlin.ByteArray){}[0]
+
+    final val body // com.retryjournal.deadletter/DeadLetterEntry.body|{}body[0]
+        final fun <get-body>(): kotlin/ByteArray // com.retryjournal.deadletter/DeadLetterEntry.body.<get-body>|<get-body>(){}[0]
+    final val id // com.retryjournal.deadletter/DeadLetterEntry.id|{}id[0]
+        final fun <get-id>(): com.retryjournal.deadletter/DeadLetterEntryId // com.retryjournal.deadletter/DeadLetterEntry.id.<get-id>|<get-id>(){}[0]
+    final val meta // com.retryjournal.deadletter/DeadLetterEntry.meta|{}meta[0]
+        final fun <get-meta>(): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.deadletter/DeadLetterEntry.meta.<get-meta>|<get-meta>(){}[0]
+
+    final fun component1(): com.retryjournal.deadletter/DeadLetterEntryId // com.retryjournal.deadletter/DeadLetterEntry.component1|component1(){}[0]
+    final fun component2(): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.deadletter/DeadLetterEntry.component2|component2(){}[0]
+    final fun component3(): kotlin/ByteArray // com.retryjournal.deadletter/DeadLetterEntry.component3|component3(){}[0]
+    final fun copy(com.retryjournal.deadletter/DeadLetterEntryId = ..., com.retryjournal.queue/FrozenHttpRequestMeta = ..., kotlin/ByteArray = ...): com.retryjournal.deadletter/DeadLetterEntry // com.retryjournal.deadletter/DeadLetterEntry.copy|copy(com.retryjournal.deadletter.DeadLetterEntryId;com.retryjournal.queue.FrozenHttpRequestMeta;kotlin.ByteArray){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.deadletter/DeadLetterEntry.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.deadletter/DeadLetterEntry.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.deadletter/DeadLetterEntry.toString|toString(){}[0]
+}
+
+final class com.retryjournal.deadletter/DeadLetterQueue { // com.retryjournal.deadletter/DeadLetterQueue|null[0]
+    constructor <init>(com.retryjournal.queue.disk/DiskQueue, com.retryjournal.queue.disk/DiskQueue) // com.retryjournal.deadletter/DeadLetterQueue.<init>|<init>(com.retryjournal.queue.disk.DiskQueue;com.retryjournal.queue.disk.DiskQueue){}[0]
+
+    final fun close() // com.retryjournal.deadletter/DeadLetterQueue.close|close(){}[0]
+    final suspend fun discard(com.retryjournal.deadletter/DeadLetterEntryId) // com.retryjournal.deadletter/DeadLetterQueue.discard|discard(com.retryjournal.deadletter.DeadLetterEntryId){}[0]
+    final suspend fun peekAll(kotlin.collections/MutableCollection<com.retryjournal.deadletter/DeadLetterEntry>): kotlin/Int // com.retryjournal.deadletter/DeadLetterQueue.peekAll|peekAll(kotlin.collections.MutableCollection<com.retryjournal.deadletter.DeadLetterEntry>){}[0]
+    final suspend fun retry(com.retryjournal.deadletter/DeadLetterEntryId) // com.retryjournal.deadletter/DeadLetterQueue.retry|retry(com.retryjournal.deadletter.DeadLetterEntryId){}[0]
+    final suspend fun size(): kotlin/Int // com.retryjournal.deadletter/DeadLetterQueue.size|size(){}[0]
+}
+
+final class com.retryjournal.engine/FlushResult { // com.retryjournal.engine/FlushResult|null[0]
+    constructor <init>(kotlin/Int, kotlin/Int, kotlin/Boolean, kotlin/Boolean = ...) // com.retryjournal.engine/FlushResult.<init>|<init>(kotlin.Int;kotlin.Int;kotlin.Boolean;kotlin.Boolean){}[0]
+
+    final val deadLettered // com.retryjournal.engine/FlushResult.deadLettered|{}deadLettered[0]
+        final fun <get-deadLettered>(): kotlin/Int // com.retryjournal.engine/FlushResult.deadLettered.<get-deadLettered>|<get-deadLettered>(){}[0]
+    final val delivered // com.retryjournal.engine/FlushResult.delivered|{}delivered[0]
+        final fun <get-delivered>(): kotlin/Int // com.retryjournal.engine/FlushResult.delivered.<get-delivered>|<get-delivered>(){}[0]
+    final val persistenceFailed // com.retryjournal.engine/FlushResult.persistenceFailed|{}persistenceFailed[0]
+        final fun <get-persistenceFailed>(): kotlin/Boolean // com.retryjournal.engine/FlushResult.persistenceFailed.<get-persistenceFailed>|<get-persistenceFailed>(){}[0]
+    final val stoppedEarly // com.retryjournal.engine/FlushResult.stoppedEarly|{}stoppedEarly[0]
+        final fun <get-stoppedEarly>(): kotlin/Boolean // com.retryjournal.engine/FlushResult.stoppedEarly.<get-stoppedEarly>|<get-stoppedEarly>(){}[0]
+
+    final fun component1(): kotlin/Int // com.retryjournal.engine/FlushResult.component1|component1(){}[0]
+    final fun component2(): kotlin/Int // com.retryjournal.engine/FlushResult.component2|component2(){}[0]
+    final fun component3(): kotlin/Boolean // com.retryjournal.engine/FlushResult.component3|component3(){}[0]
+    final fun component4(): kotlin/Boolean // com.retryjournal.engine/FlushResult.component4|component4(){}[0]
+    final fun copy(kotlin/Int = ..., kotlin/Int = ..., kotlin/Boolean = ..., kotlin/Boolean = ...): com.retryjournal.engine/FlushResult // com.retryjournal.engine/FlushResult.copy|copy(kotlin.Int;kotlin.Int;kotlin.Boolean;kotlin.Boolean){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/FlushResult.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.engine/FlushResult.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.engine/FlushResult.toString|toString(){}[0]
+}
+
+final class com.retryjournal.engine/RetryJournalEngine { // com.retryjournal.engine/RetryJournalEngine|null[0]
+    constructor <init>(com.retryjournal.queue.disk/DiskQueue, com.retryjournal.deadletter/DeadLetterQueue) // com.retryjournal.engine/RetryJournalEngine.<init>|<init>(com.retryjournal.queue.disk.DiskQueue;com.retryjournal.deadletter.DeadLetterQueue){}[0]
+
+    final suspend fun flush(io.ktor.client/HttpClient, kotlin.coroutines/SuspendFunction1<com.retryjournal.engine/FlushProgress, kotlin/Unit> = ...): com.retryjournal.engine/FlushResult // com.retryjournal.engine/RetryJournalEngine.flush|flush(io.ktor.client.HttpClient;kotlin.coroutines.SuspendFunction1<com.retryjournal.engine.FlushProgress,kotlin.Unit>){}[0]
+    final suspend fun getHeadState(): com.retryjournal.engine/QueueHeadState // com.retryjournal.engine/RetryJournalEngine.getHeadState|getHeadState(){}[0]
+}
+
+final class com.retryjournal.queue.disk/DiskQueue { // com.retryjournal.queue.disk/DiskQueue|null[0]
+    constructor <init>(okio/Path, kotlin/Int = ...) // com.retryjournal.queue.disk/DiskQueue.<init>|<init>(okio.Path;kotlin.Int){}[0]
+    constructor <init>(okio/Path, okio/FileSystem, kotlin/Int = ...) // com.retryjournal.queue.disk/DiskQueue.<init>|<init>(okio.Path;okio.FileSystem;kotlin.Int){}[0]
+
+    final fun close() // com.retryjournal.queue.disk/DiskQueue.close|close(){}[0]
+    final suspend fun enqueue(kotlin/String, kotlin/String, com.retryjournal.queue/FrozenHttpHeaders, kotlin/ByteArray): com.retryjournal.queue/QueueEntryId // com.retryjournal.queue.disk/DiskQueue.enqueue|enqueue(kotlin.String;kotlin.String;com.retryjournal.queue.FrozenHttpHeaders;kotlin.ByteArray){}[0]
+    final suspend fun get(com.retryjournal.queue/QueueEntryId): com.retryjournal.queue/QueueEntry? // com.retryjournal.queue.disk/DiskQueue.get|get(com.retryjournal.queue.QueueEntryId){}[0]
+    final suspend fun isEmpty(): kotlin/Boolean // com.retryjournal.queue.disk/DiskQueue.isEmpty|isEmpty(){}[0]
+    final suspend fun peek(): com.retryjournal.queue/QueueEntry? // com.retryjournal.queue.disk/DiskQueue.peek|peek(){}[0]
+    final suspend fun peekAll(kotlin.collections/MutableCollection<com.retryjournal.queue/QueueEntry>): kotlin/Int // com.retryjournal.queue.disk/DiskQueue.peekAll|peekAll(kotlin.collections.MutableCollection<com.retryjournal.queue.QueueEntry>){}[0]
+    final suspend fun peekIds(kotlin/Int, kotlin.collections/MutableCollection<com.retryjournal.queue/QueueEntryId>): kotlin/Int // com.retryjournal.queue.disk/DiskQueue.peekIds|peekIds(kotlin.Int;kotlin.collections.MutableCollection<com.retryjournal.queue.QueueEntryId>){}[0]
+    final suspend fun remove(com.retryjournal.queue/QueueEntryId) // com.retryjournal.queue.disk/DiskQueue.remove|remove(com.retryjournal.queue.QueueEntryId){}[0]
+    final suspend fun size(): kotlin/Int // com.retryjournal.queue.disk/DiskQueue.size|size(){}[0]
+}
+
+final class com.retryjournal.queue.record/RecordTooLargeException : kotlin/IllegalArgumentException { // com.retryjournal.queue.record/RecordTooLargeException|null[0]
+    constructor <init>(kotlin/String, kotlin/Int, kotlin/Int) // com.retryjournal.queue.record/RecordTooLargeException.<init>|<init>(kotlin.String;kotlin.Int;kotlin.Int){}[0]
+}
+
+final class com.retryjournal.queue/FrozenHttpHeaders { // com.retryjournal.queue/FrozenHttpHeaders|null[0]
+    constructor <init>(kotlin.collections/List<kotlin/String>, kotlin.collections/List<kotlin/String>) // com.retryjournal.queue/FrozenHttpHeaders.<init>|<init>(kotlin.collections.List<kotlin.String>;kotlin.collections.List<kotlin.String>){}[0]
+
+    final val names // com.retryjournal.queue/FrozenHttpHeaders.names|{}names[0]
+        final fun <get-names>(): kotlin.collections/List<kotlin/String> // com.retryjournal.queue/FrozenHttpHeaders.names.<get-names>|<get-names>(){}[0]
+    final val size // com.retryjournal.queue/FrozenHttpHeaders.size|{}size[0]
+        final fun <get-size>(): kotlin/Int // com.retryjournal.queue/FrozenHttpHeaders.size.<get-size>|<get-size>(){}[0]
+    final val values // com.retryjournal.queue/FrozenHttpHeaders.values|{}values[0]
+        final fun <get-values>(): kotlin.collections/List<kotlin/String> // com.retryjournal.queue/FrozenHttpHeaders.values.<get-values>|<get-values>(){}[0]
+
+    final fun component1(): kotlin.collections/List<kotlin/String> // com.retryjournal.queue/FrozenHttpHeaders.component1|component1(){}[0]
+    final fun component2(): kotlin.collections/List<kotlin/String> // com.retryjournal.queue/FrozenHttpHeaders.component2|component2(){}[0]
+    final fun copy(kotlin.collections/List<kotlin/String> = ..., kotlin.collections/List<kotlin/String> = ...): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeaders.copy|copy(kotlin.collections.List<kotlin.String>;kotlin.collections.List<kotlin.String>){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/FrozenHttpHeaders.equals|equals(kotlin.Any?){}[0]
+    final fun findValue(kotlin/String): kotlin/String? // com.retryjournal.queue/FrozenHttpHeaders.findValue|findValue(kotlin.String){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.queue/FrozenHttpHeaders.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.queue/FrozenHttpHeaders.toString|toString(){}[0]
+    final inline fun forEach(kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>) // com.retryjournal.queue/FrozenHttpHeaders.forEach|forEach(kotlin.Function2<kotlin.String,kotlin.String,kotlin.Unit>){}[0]
+
+    final object Companion { // com.retryjournal.queue/FrozenHttpHeaders.Companion|null[0]
+        final val EMPTY // com.retryjournal.queue/FrozenHttpHeaders.Companion.EMPTY|{}EMPTY[0]
+            final fun <get-EMPTY>(): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeaders.Companion.EMPTY.<get-EMPTY>|<get-EMPTY>(){}[0]
+
+        final fun fromScratch(kotlin/Array<kotlin/String>, kotlin/Array<kotlin/String>, kotlin/Int): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeaders.Companion.fromScratch|fromScratch(kotlin.Array<kotlin.String>;kotlin.Array<kotlin.String>;kotlin.Int){}[0]
+        final fun of(kotlin/Array<out kotlin/Pair<kotlin/String, kotlin/String>>...): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeaders.Companion.of|of(kotlin.Array<out|kotlin.Pair<kotlin.String,kotlin.String>>...){}[0]
+    }
+}
+
+final class com.retryjournal.queue/FrozenHttpRequestMeta { // com.retryjournal.queue/FrozenHttpRequestMeta|null[0]
+    constructor <init>(kotlin/String, kotlin/String, com.retryjournal.queue/FrozenHttpHeaders, kotlin/Long) // com.retryjournal.queue/FrozenHttpRequestMeta.<init>|<init>(kotlin.String;kotlin.String;com.retryjournal.queue.FrozenHttpHeaders;kotlin.Long){}[0]
+
+    final val enqueuedAtMillis // com.retryjournal.queue/FrozenHttpRequestMeta.enqueuedAtMillis|{}enqueuedAtMillis[0]
+        final fun <get-enqueuedAtMillis>(): kotlin/Long // com.retryjournal.queue/FrozenHttpRequestMeta.enqueuedAtMillis.<get-enqueuedAtMillis>|<get-enqueuedAtMillis>(){}[0]
+    final val headers // com.retryjournal.queue/FrozenHttpRequestMeta.headers|{}headers[0]
+        final fun <get-headers>(): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpRequestMeta.headers.<get-headers>|<get-headers>(){}[0]
+    final val method // com.retryjournal.queue/FrozenHttpRequestMeta.method|{}method[0]
+        final fun <get-method>(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMeta.method.<get-method>|<get-method>(){}[0]
+    final val url // com.retryjournal.queue/FrozenHttpRequestMeta.url|{}url[0]
+        final fun <get-url>(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMeta.url.<get-url>|<get-url>(){}[0]
+
+    final fun component1(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMeta.component1|component1(){}[0]
+    final fun component2(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMeta.component2|component2(){}[0]
+    final fun component3(): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpRequestMeta.component3|component3(){}[0]
+    final fun component4(): kotlin/Long // com.retryjournal.queue/FrozenHttpRequestMeta.component4|component4(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., com.retryjournal.queue/FrozenHttpHeaders = ..., kotlin/Long = ...): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.queue/FrozenHttpRequestMeta.copy|copy(kotlin.String;kotlin.String;com.retryjournal.queue.FrozenHttpHeaders;kotlin.Long){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/FrozenHttpRequestMeta.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.queue/FrozenHttpRequestMeta.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMeta.toString|toString(){}[0]
+}
+
+final class com.retryjournal.queue/QueueEntry { // com.retryjournal.queue/QueueEntry|null[0]
+    constructor <init>(com.retryjournal.queue/QueueEntryId, com.retryjournal.queue/FrozenHttpRequestMeta, kotlin/ByteArray) // com.retryjournal.queue/QueueEntry.<init>|<init>(com.retryjournal.queue.QueueEntryId;com.retryjournal.queue.FrozenHttpRequestMeta;kotlin.ByteArray){}[0]
+
+    final val body // com.retryjournal.queue/QueueEntry.body|{}body[0]
+        final fun <get-body>(): kotlin/ByteArray // com.retryjournal.queue/QueueEntry.body.<get-body>|<get-body>(){}[0]
+    final val id // com.retryjournal.queue/QueueEntry.id|{}id[0]
+        final fun <get-id>(): com.retryjournal.queue/QueueEntryId // com.retryjournal.queue/QueueEntry.id.<get-id>|<get-id>(){}[0]
+    final val meta // com.retryjournal.queue/QueueEntry.meta|{}meta[0]
+        final fun <get-meta>(): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.queue/QueueEntry.meta.<get-meta>|<get-meta>(){}[0]
+
+    final fun component1(): com.retryjournal.queue/QueueEntryId // com.retryjournal.queue/QueueEntry.component1|component1(){}[0]
+    final fun component2(): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.queue/QueueEntry.component2|component2(){}[0]
+    final fun component3(): kotlin/ByteArray // com.retryjournal.queue/QueueEntry.component3|component3(){}[0]
+    final fun copy(com.retryjournal.queue/QueueEntryId = ..., com.retryjournal.queue/FrozenHttpRequestMeta = ..., kotlin/ByteArray = ...): com.retryjournal.queue/QueueEntry // com.retryjournal.queue/QueueEntry.copy|copy(com.retryjournal.queue.QueueEntryId;com.retryjournal.queue.FrozenHttpRequestMeta;kotlin.ByteArray){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/QueueEntry.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.queue/QueueEntry.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.queue/QueueEntry.toString|toString(){}[0]
+}
+
+final class com.retryjournal.scheduler/RetryJournalSchedulerConfig { // com.retryjournal.scheduler/RetryJournalSchedulerConfig|null[0]
+    constructor <init>(kotlin/Long = ..., kotlin/Boolean = ..., kotlin/Long = ..., kotlin/Int = ...) // com.retryjournal.scheduler/RetryJournalSchedulerConfig.<init>|<init>(kotlin.Long;kotlin.Boolean;kotlin.Long;kotlin.Int){}[0]
+
+    final val intervalMs // com.retryjournal.scheduler/RetryJournalSchedulerConfig.intervalMs|{}intervalMs[0]
+        final fun <get-intervalMs>(): kotlin/Long // com.retryjournal.scheduler/RetryJournalSchedulerConfig.intervalMs.<get-intervalMs>|<get-intervalMs>(){}[0]
+    final val maxRetryAttempts // com.retryjournal.scheduler/RetryJournalSchedulerConfig.maxRetryAttempts|{}maxRetryAttempts[0]
+        final fun <get-maxRetryAttempts>(): kotlin/Int // com.retryjournal.scheduler/RetryJournalSchedulerConfig.maxRetryAttempts.<get-maxRetryAttempts>|<get-maxRetryAttempts>(){}[0]
+    final val requiresNetwork // com.retryjournal.scheduler/RetryJournalSchedulerConfig.requiresNetwork|{}requiresNetwork[0]
+        final fun <get-requiresNetwork>(): kotlin/Boolean // com.retryjournal.scheduler/RetryJournalSchedulerConfig.requiresNetwork.<get-requiresNetwork>|<get-requiresNetwork>(){}[0]
+    final val retryDelayMs // com.retryjournal.scheduler/RetryJournalSchedulerConfig.retryDelayMs|{}retryDelayMs[0]
+        final fun <get-retryDelayMs>(): kotlin/Long // com.retryjournal.scheduler/RetryJournalSchedulerConfig.retryDelayMs.<get-retryDelayMs>|<get-retryDelayMs>(){}[0]
+
+    final fun component1(): kotlin/Long // com.retryjournal.scheduler/RetryJournalSchedulerConfig.component1|component1(){}[0]
+    final fun component2(): kotlin/Boolean // com.retryjournal.scheduler/RetryJournalSchedulerConfig.component2|component2(){}[0]
+    final fun component3(): kotlin/Long // com.retryjournal.scheduler/RetryJournalSchedulerConfig.component3|component3(){}[0]
+    final fun component4(): kotlin/Int // com.retryjournal.scheduler/RetryJournalSchedulerConfig.component4|component4(){}[0]
+    final fun copy(kotlin/Long = ..., kotlin/Boolean = ..., kotlin/Long = ..., kotlin/Int = ...): com.retryjournal.scheduler/RetryJournalSchedulerConfig // com.retryjournal.scheduler/RetryJournalSchedulerConfig.copy|copy(kotlin.Long;kotlin.Boolean;kotlin.Long;kotlin.Int){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.scheduler/RetryJournalSchedulerConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.scheduler/RetryJournalSchedulerConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.scheduler/RetryJournalSchedulerConfig.toString|toString(){}[0]
+}
+
+final class com.retryjournal/RetryJournal : io.ktor.utils.io.core/Closeable { // com.retryjournal/RetryJournal|null[0]
+    final val client // com.retryjournal/RetryJournal.client|{}client[0]
+        final fun <get-client>(): io.ktor.client/HttpClient // com.retryjournal/RetryJournal.client.<get-client>|<get-client>(){}[0]
+    final val deadLetterQueue // com.retryjournal/RetryJournal.deadLetterQueue|{}deadLetterQueue[0]
+        final fun <get-deadLetterQueue>(): com.retryjournal.deadletter/DeadLetterQueue // com.retryjournal/RetryJournal.deadLetterQueue.<get-deadLetterQueue>|<get-deadLetterQueue>(){}[0]
+    final val diskQueue // com.retryjournal/RetryJournal.diskQueue|{}diskQueue[0]
+        final fun <get-diskQueue>(): com.retryjournal.queue.disk/DiskQueue // com.retryjournal/RetryJournal.diskQueue.<get-diskQueue>|<get-diskQueue>(){}[0]
+    final val engine // com.retryjournal/RetryJournal.engine|{}engine[0]
+        final fun <get-engine>(): com.retryjournal.engine/RetryJournalEngine // com.retryjournal/RetryJournal.engine.<get-engine>|<get-engine>(){}[0]
+
+    final fun close() // com.retryjournal/RetryJournal.close|close(){}[0]
+    final suspend fun flush(kotlin.coroutines/SuspendFunction1<com.retryjournal.engine/FlushProgress, kotlin/Unit> = ...): com.retryjournal.engine/FlushResult // com.retryjournal/RetryJournal.flush|flush(kotlin.coroutines.SuspendFunction1<com.retryjournal.engine.FlushProgress,kotlin.Unit>){}[0]
+
+    final object Companion { // com.retryjournal/RetryJournal.Companion|null[0]
+        final fun <#A2: io.ktor.client.engine/HttpClientEngineConfig> create(io.ktor.client.engine/HttpClientEngineFactory<#A2>, okio/Path, okio/Path = ..., okio/FileSystem? = ..., kotlin/Int = ..., kotlin/Function1<io.ktor.client/HttpClientConfig<#A2>, kotlin/Unit> = ...): com.retryjournal/RetryJournal // com.retryjournal/RetryJournal.Companion.create|create(io.ktor.client.engine.HttpClientEngineFactory<0:0>;okio.Path;okio.Path;okio.FileSystem?;kotlin.Int;kotlin.Function1<io.ktor.client.HttpClientConfig<0:0>,kotlin.Unit>){0§<io.ktor.client.engine.HttpClientEngineConfig>}[0]
+        final fun createRuntime(com.retryjournal/RetryJournal, kotlinx.coroutines/CoroutineScope, kotlinx.coroutines.flow/Flow<kotlin/Boolean>? = ...): com.retryjournal/RetryJournalRuntime // com.retryjournal/RetryJournal.Companion.createRuntime|createRuntime(com.retryjournal.RetryJournal;kotlinx.coroutines.CoroutineScope;kotlinx.coroutines.flow.Flow<kotlin.Boolean>?){}[0]
+    }
+}
+
+final class com.retryjournal/RetryJournalRuntime { // com.retryjournal/RetryJournalRuntime|null[0]
+    final val isOnline // com.retryjournal/RetryJournalRuntime.isOnline|{}isOnline[0]
+        final fun <get-isOnline>(): kotlin/Boolean // com.retryjournal/RetryJournalRuntime.isOnline.<get-isOnline>|<get-isOnline>(){}[0]
+    final val isShutdown // com.retryjournal/RetryJournalRuntime.isShutdown|{}isShutdown[0]
+        final fun <get-isShutdown>(): kotlin/Boolean // com.retryjournal/RetryJournalRuntime.isShutdown.<get-isShutdown>|<get-isShutdown>(){}[0]
+
+    final fun start(kotlin/Boolean = ...) // com.retryjournal/RetryJournalRuntime.start|start(kotlin.Boolean){}[0]
+    final fun stop() // com.retryjournal/RetryJournalRuntime.stop|stop(){}[0]
+    final suspend fun flush(kotlin.coroutines/SuspendFunction1<com.retryjournal.engine/FlushProgress, kotlin/Unit> = ...): com.retryjournal.engine/FlushResult // com.retryjournal/RetryJournalRuntime.flush|flush(kotlin.coroutines.SuspendFunction1<com.retryjournal.engine.FlushProgress,kotlin.Unit>){}[0]
+    final suspend fun flushWhenOnline(kotlin.coroutines/SuspendFunction1<com.retryjournal.engine/FlushProgress, kotlin/Unit> = ...): com.retryjournal.engine/FlushResult? // com.retryjournal/RetryJournalRuntime.flushWhenOnline|flushWhenOnline(kotlin.coroutines.SuspendFunction1<com.retryjournal.engine.FlushProgress,kotlin.Unit>){}[0]
+    final suspend fun getHeadState(): com.retryjournal.engine/QueueHeadState // com.retryjournal/RetryJournalRuntime.getHeadState|getHeadState(){}[0]
+    final suspend fun shutdown() // com.retryjournal/RetryJournalRuntime.shutdown|shutdown(){}[0]
+
+    final object Companion { // com.retryjournal/RetryJournalRuntime.Companion|null[0]
+        final fun createForEngine(com.retryjournal.engine/RetryJournalEngine, io.ktor.client/HttpClient, kotlinx.coroutines/CoroutineScope, kotlinx.coroutines.flow/Flow<kotlin/Boolean>? = ..., kotlin.coroutines/SuspendFunction0<kotlin/Unit>? = ...): com.retryjournal/RetryJournalRuntime // com.retryjournal/RetryJournalRuntime.Companion.createForEngine|createForEngine(com.retryjournal.engine.RetryJournalEngine;io.ktor.client.HttpClient;kotlinx.coroutines.CoroutineScope;kotlinx.coroutines.flow.Flow<kotlin.Boolean>?;kotlin.coroutines.SuspendFunction0<kotlin.Unit>?){}[0]
+    }
+}
+
+final value class com.retryjournal.deadletter/DeadLetterEntryId { // com.retryjournal.deadletter/DeadLetterEntryId|null[0]
+    constructor <init>(kotlin/Long) // com.retryjournal.deadletter/DeadLetterEntryId.<init>|<init>(kotlin.Long){}[0]
+
+    final val value // com.retryjournal.deadletter/DeadLetterEntryId.value|{}value[0]
+        final fun <get-value>(): kotlin/Long // com.retryjournal.deadletter/DeadLetterEntryId.value.<get-value>|<get-value>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.deadletter/DeadLetterEntryId.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.deadletter/DeadLetterEntryId.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.deadletter/DeadLetterEntryId.toString|toString(){}[0]
+}
+
+final value class com.retryjournal.queue/QueueEntryId { // com.retryjournal.queue/QueueEntryId|null[0]
+    constructor <init>(kotlin/Long) // com.retryjournal.queue/QueueEntryId.<init>|<init>(kotlin.Long){}[0]
+
+    final val sequenceId // com.retryjournal.queue/QueueEntryId.sequenceId|{}sequenceId[0]
+        final fun <get-sequenceId>(): kotlin/Long // com.retryjournal.queue/QueueEntryId.sequenceId.<get-sequenceId>|<get-sequenceId>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/QueueEntryId.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // com.retryjournal.queue/QueueEntryId.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // com.retryjournal.queue/QueueEntryId.toString|toString(){}[0]
+}
+
+sealed class com.retryjournal.engine/FlushProgress { // com.retryjournal.engine/FlushProgress|null[0]
+    final class DeadLettered : com.retryjournal.engine/FlushProgress { // com.retryjournal.engine/FlushProgress.DeadLettered|null[0]
+        constructor <init>(com.retryjournal.queue/QueueEntryId) // com.retryjournal.engine/FlushProgress.DeadLettered.<init>|<init>(com.retryjournal.queue.QueueEntryId){}[0]
+
+        final val id // com.retryjournal.engine/FlushProgress.DeadLettered.id|{}id[0]
+            final fun <get-id>(): com.retryjournal.queue/QueueEntryId // com.retryjournal.engine/FlushProgress.DeadLettered.id.<get-id>|<get-id>(){}[0]
+
+        final fun component1(): com.retryjournal.queue/QueueEntryId // com.retryjournal.engine/FlushProgress.DeadLettered.component1|component1(){}[0]
+        final fun copy(com.retryjournal.queue/QueueEntryId = ...): com.retryjournal.engine/FlushProgress.DeadLettered // com.retryjournal.engine/FlushProgress.DeadLettered.copy|copy(com.retryjournal.queue.QueueEntryId){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/FlushProgress.DeadLettered.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/FlushProgress.DeadLettered.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/FlushProgress.DeadLettered.toString|toString(){}[0]
+    }
+
+    final class Delivered : com.retryjournal.engine/FlushProgress { // com.retryjournal.engine/FlushProgress.Delivered|null[0]
+        constructor <init>(com.retryjournal.queue/QueueEntryId) // com.retryjournal.engine/FlushProgress.Delivered.<init>|<init>(com.retryjournal.queue.QueueEntryId){}[0]
+
+        final val id // com.retryjournal.engine/FlushProgress.Delivered.id|{}id[0]
+            final fun <get-id>(): com.retryjournal.queue/QueueEntryId // com.retryjournal.engine/FlushProgress.Delivered.id.<get-id>|<get-id>(){}[0]
+
+        final fun component1(): com.retryjournal.queue/QueueEntryId // com.retryjournal.engine/FlushProgress.Delivered.component1|component1(){}[0]
+        final fun copy(com.retryjournal.queue/QueueEntryId = ...): com.retryjournal.engine/FlushProgress.Delivered // com.retryjournal.engine/FlushProgress.Delivered.copy|copy(com.retryjournal.queue.QueueEntryId){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/FlushProgress.Delivered.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/FlushProgress.Delivered.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/FlushProgress.Delivered.toString|toString(){}[0]
+    }
+}
+
+sealed class com.retryjournal.engine/QueueHeadState { // com.retryjournal.engine/QueueHeadState|null[0]
+    final class AwaitingLocalRemoval : com.retryjournal.engine/QueueHeadState { // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval|null[0]
+        constructor <init>(com.retryjournal.queue/QueueEntry) // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.<init>|<init>(com.retryjournal.queue.QueueEntry){}[0]
+
+        final val entry // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.entry|{}entry[0]
+            final fun <get-entry>(): com.retryjournal.queue/QueueEntry // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.entry.<get-entry>|<get-entry>(){}[0]
+
+        final fun component1(): com.retryjournal.queue/QueueEntry // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.component1|component1(){}[0]
+        final fun copy(com.retryjournal.queue/QueueEntry = ...): com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.copy|copy(com.retryjournal.queue.QueueEntry){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/QueueHeadState.AwaitingLocalRemoval.toString|toString(){}[0]
+    }
+
+    final class AwaitingReplay : com.retryjournal.engine/QueueHeadState { // com.retryjournal.engine/QueueHeadState.AwaitingReplay|null[0]
+        constructor <init>(com.retryjournal.queue/QueueEntry) // com.retryjournal.engine/QueueHeadState.AwaitingReplay.<init>|<init>(com.retryjournal.queue.QueueEntry){}[0]
+
+        final val entry // com.retryjournal.engine/QueueHeadState.AwaitingReplay.entry|{}entry[0]
+            final fun <get-entry>(): com.retryjournal.queue/QueueEntry // com.retryjournal.engine/QueueHeadState.AwaitingReplay.entry.<get-entry>|<get-entry>(){}[0]
+
+        final fun component1(): com.retryjournal.queue/QueueEntry // com.retryjournal.engine/QueueHeadState.AwaitingReplay.component1|component1(){}[0]
+        final fun copy(com.retryjournal.queue/QueueEntry = ...): com.retryjournal.engine/QueueHeadState.AwaitingReplay // com.retryjournal.engine/QueueHeadState.AwaitingReplay.copy|copy(com.retryjournal.queue.QueueEntry){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/QueueHeadState.AwaitingReplay.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/QueueHeadState.AwaitingReplay.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/QueueHeadState.AwaitingReplay.toString|toString(){}[0]
+    }
+
+    final object Blocked : com.retryjournal.engine/QueueHeadState { // com.retryjournal.engine/QueueHeadState.Blocked|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/QueueHeadState.Blocked.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/QueueHeadState.Blocked.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/QueueHeadState.Blocked.toString|toString(){}[0]
+    }
+
+    final object Empty : com.retryjournal.engine/QueueHeadState { // com.retryjournal.engine/QueueHeadState.Empty|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.engine/QueueHeadState.Empty.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.engine/QueueHeadState.Empty.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.engine/QueueHeadState.Empty.toString|toString(){}[0]
+    }
+}
+
+sealed class com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjournal.queue/HeadReplayPrepareResult|null[0]
+    final class Ready : com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjournal.queue/HeadReplayPrepareResult.Ready|null[0]
+        constructor <init>(com.retryjournal.queue/QueueEntry) // com.retryjournal.queue/HeadReplayPrepareResult.Ready.<init>|<init>(com.retryjournal.queue.QueueEntry){}[0]
+
+        final val entry // com.retryjournal.queue/HeadReplayPrepareResult.Ready.entry|{}entry[0]
+            final fun <get-entry>(): com.retryjournal.queue/QueueEntry // com.retryjournal.queue/HeadReplayPrepareResult.Ready.entry.<get-entry>|<get-entry>(){}[0]
+
+        final fun component1(): com.retryjournal.queue/QueueEntry // com.retryjournal.queue/HeadReplayPrepareResult.Ready.component1|component1(){}[0]
+        final fun copy(com.retryjournal.queue/QueueEntry = ...): com.retryjournal.queue/HeadReplayPrepareResult.Ready // com.retryjournal.queue/HeadReplayPrepareResult.Ready.copy|copy(com.retryjournal.queue.QueueEntry){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/HeadReplayPrepareResult.Ready.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.queue/HeadReplayPrepareResult.Ready.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.queue/HeadReplayPrepareResult.Ready.toString|toString(){}[0]
+    }
+
+    final object Empty : com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjournal.queue/HeadReplayPrepareResult.Empty|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/HeadReplayPrepareResult.Empty.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.queue/HeadReplayPrepareResult.Empty.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.queue/HeadReplayPrepareResult.Empty.toString|toString(){}[0]
+    }
+
+    final object HeadBlocked : com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjournal.queue/HeadReplayPrepareResult.HeadBlocked|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // com.retryjournal.queue/HeadReplayPrepareResult.HeadBlocked.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // com.retryjournal.queue/HeadReplayPrepareResult.HeadBlocked.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // com.retryjournal.queue/HeadReplayPrepareResult.HeadBlocked.toString|toString(){}[0]
+    }
+}
+
+final object com.retryjournal.queue/FrozenHttpHeadersSerializer : com.ghost.serialization.contract/GhostSerializer<com.retryjournal.queue/FrozenHttpHeaders> { // com.retryjournal.queue/FrozenHttpHeadersSerializer|null[0]
+    final val typeName // com.retryjournal.queue/FrozenHttpHeadersSerializer.typeName|{}typeName[0]
+        final fun <get-typeName>(): kotlin/String // com.retryjournal.queue/FrozenHttpHeadersSerializer.typeName.<get-typeName>|<get-typeName>(){}[0]
+
+    final fun deserialize(com.ghost.serialization.parser/GhostJsonFlatReader): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeadersSerializer.deserialize|deserialize(com.ghost.serialization.parser.GhostJsonFlatReader){}[0]
+    final fun deserialize(com.ghost.serialization.parser/GhostJsonReader): com.retryjournal.queue/FrozenHttpHeaders // com.retryjournal.queue/FrozenHttpHeadersSerializer.deserialize|deserialize(com.ghost.serialization.parser.GhostJsonReader){}[0]
+    final fun serialize(com.ghost.serialization.writer/GhostJsonFlatWriter, com.retryjournal.queue/FrozenHttpHeaders) // com.retryjournal.queue/FrozenHttpHeadersSerializer.serialize|serialize(com.ghost.serialization.writer.GhostJsonFlatWriter;com.retryjournal.queue.FrozenHttpHeaders){}[0]
+    final fun serialize(com.ghost.serialization.writer/GhostJsonWriter, com.retryjournal.queue/FrozenHttpHeaders) // com.retryjournal.queue/FrozenHttpHeadersSerializer.serialize|serialize(com.ghost.serialization.writer.GhostJsonWriter;com.retryjournal.queue.FrozenHttpHeaders){}[0]
+    final fun warmUp() // com.retryjournal.queue/FrozenHttpHeadersSerializer.warmUp|warmUp(){}[0]
+}
+
+final object com.retryjournal.queue/FrozenHttpRequestMetaSerializer : com.ghost.serialization.contract/GhostSerializer<com.retryjournal.queue/FrozenHttpRequestMeta> { // com.retryjournal.queue/FrozenHttpRequestMetaSerializer|null[0]
+    final val typeName // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.typeName|{}typeName[0]
+        final fun <get-typeName>(): kotlin/String // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.typeName.<get-typeName>|<get-typeName>(){}[0]
+
+    final fun deserialize(com.ghost.serialization.parser/GhostJsonFlatReader): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.deserialize|deserialize(com.ghost.serialization.parser.GhostJsonFlatReader){}[0]
+    final fun deserialize(com.ghost.serialization.parser/GhostJsonReader): com.retryjournal.queue/FrozenHttpRequestMeta // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.deserialize|deserialize(com.ghost.serialization.parser.GhostJsonReader){}[0]
+    final fun serialize(com.ghost.serialization.writer/GhostJsonFlatWriter, com.retryjournal.queue/FrozenHttpRequestMeta) // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.serialize|serialize(com.ghost.serialization.writer.GhostJsonFlatWriter;com.retryjournal.queue.FrozenHttpRequestMeta){}[0]
+    final fun serialize(com.ghost.serialization.writer/GhostJsonWriter, com.retryjournal.queue/FrozenHttpRequestMeta) // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.serialize|serialize(com.ghost.serialization.writer.GhostJsonWriter;com.retryjournal.queue.FrozenHttpRequestMeta){}[0]
+    final fun warmUp() // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.warmUp|warmUp(){}[0]
+}

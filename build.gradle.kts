@@ -99,5 +99,11 @@ tasks.register("ciCompile") {
         ":retry-worker:compileKotlinJvm",
         ":retry-sample:composeApp:compileDebugKotlinAndroid",
         ":retry-sample:composeApp:compileKotlinDesktop",
+        // Binary compatibility (JVM/Android only here — klibApiCheck needs iOS compilation,
+        // which only the macOS-only "ios" CI job can do; see ci.yml).
+        ":retry-journal:jvmApiCheck",
+        ":retry-journal:androidApiCheck",
+        ":retry-worker:jvmApiCheck",
+        ":retry-worker:androidApiCheck",
     )
 }

@@ -34,6 +34,7 @@ androidx-lifecycle               = "2.8.2"
 # Tooling & Publishing
 dokka                            = "2.2.0"
 nexus-publish                    = "2.0.0"
+binary-compatibility-validator   = "0.18.1"
 
 # Testing
 kotlin-compile-testing           = "0.7.0"
@@ -103,3 +104,4 @@ dokka                               = { id = "org.jetbrains.dokka", version.ref 
 nexus-publish                       = { id = "io.github.gradle-nexus.publish-plugin", version.ref = "nexus-publish" }
 vanniktech-publish                  = { id = "com.vanniktech.maven.publish", version = "0.30.0" }
 kover                               = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+binary-compatibility-validator      = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binary-compatibility-validator" }

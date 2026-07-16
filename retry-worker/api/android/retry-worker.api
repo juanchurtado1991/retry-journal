@@ -1,0 +1,16 @@
+public final class com/retryjournal/worker/AndroidRetryJournalWorkerScheduler : com/retryjournal/scheduler/RetryJournalScheduler {
+	public fun <init> (Landroid/content/Context;)V
+	public fun cancel ()V
+	public fun schedule (Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;)V
+}
+
+public final class com/retryjournal/worker/RetryJournalCoroutineWorker : androidx/work/CoroutineWorker {
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/retryjournal/worker/SetupBackgroundSync_androidKt {
+	public static final fun setupBackgroundSync (Lcom/retryjournal/RetryJournalRuntime;Landroid/content/Context;Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;)Lcom/retryjournal/scheduler/RetryJournalScheduler;
+	public static synthetic fun setupBackgroundSync$default (Lcom/retryjournal/RetryJournalRuntime;Landroid/content/Context;Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;ILjava/lang/Object;)Lcom/retryjournal/scheduler/RetryJournalScheduler;
+}
+

@@ -1,0 +1,401 @@
+public final class com/ghost/serialization/generated/GhostModuleRegistry_retry_journal : com/ghost/serialization/contract/GhostRegistry {
+	public static final field Companion Lcom/ghost/serialization/generated/GhostModuleRegistry_retry_journal$Companion;
+	public static final field INSTANCE Lcom/ghost/serialization/generated/GhostModuleRegistry_retry_journal;
+	public fun <init> ()V
+	public fun getAllSerializers ()Ljava/util/Map;
+	public fun getSerializer (Lkotlin/reflect/KClass;)Lcom/ghost/serialization/contract/GhostSerializer;
+	public fun prewarm ()V
+	public fun registeredCount ()I
+}
+
+public final class com/ghost/serialization/generated/GhostModuleRegistry_retry_journal$Companion {
+}
+
+public final class com/retryjournal/RetryJournal : java/io/Closeable {
+	public static final field Companion Lcom/retryjournal/RetryJournal$Companion;
+	public synthetic fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lcom/retryjournal/deadletter/DeadLetterQueue;Lcom/retryjournal/engine/RetryJournalEngine;Lio/ktor/client/HttpClient;Lio/ktor/client/HttpClient;Lcom/retryjournal/client/RetryJournalOfflineQueuePlugin;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun flush (Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun flush$default (Lcom/retryjournal/RetryJournal;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun getClient ()Lio/ktor/client/HttpClient;
+	public final fun getDeadLetterQueue ()Lcom/retryjournal/deadletter/DeadLetterQueue;
+	public final fun getDiskQueue ()Lcom/retryjournal/queue/disk/DiskQueue;
+	public final fun getEngine ()Lcom/retryjournal/engine/RetryJournalEngine;
+}
+
+public final class com/retryjournal/RetryJournal$Companion {
+	public final fun create (Lio/ktor/client/engine/HttpClientEngineFactory;Lokio/Path;Lokio/Path;Lokio/FileSystem;ILkotlin/jvm/functions/Function1;)Lcom/retryjournal/RetryJournal;
+	public static synthetic fun create$default (Lcom/retryjournal/RetryJournal$Companion;Lio/ktor/client/engine/HttpClientEngineFactory;Lokio/Path;Lokio/Path;Lokio/FileSystem;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/retryjournal/RetryJournal;
+	public final fun createRuntime (Lcom/retryjournal/RetryJournal;Lkotlinx/coroutines/CoroutineScope;Lkotlinx/coroutines/flow/Flow;)Lcom/retryjournal/RetryJournalRuntime;
+	public static synthetic fun createRuntime$default (Lcom/retryjournal/RetryJournal$Companion;Lcom/retryjournal/RetryJournal;Lkotlinx/coroutines/CoroutineScope;Lkotlinx/coroutines/flow/Flow;ILjava/lang/Object;)Lcom/retryjournal/RetryJournalRuntime;
+}
+
+public final class com/retryjournal/RetryJournalRuntime {
+	public static final field Companion Lcom/retryjournal/RetryJournalRuntime$Companion;
+	public final fun flush (Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun flush$default (Lcom/retryjournal/RetryJournalRuntime;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun flushWhenOnline (Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun flushWhenOnline$default (Lcom/retryjournal/RetryJournalRuntime;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun getHeadState (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun isOnline ()Z
+	public final fun isShutdown ()Z
+	public final fun shutdown (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun start (Z)V
+	public static synthetic fun start$default (Lcom/retryjournal/RetryJournalRuntime;ZILjava/lang/Object;)V
+	public final fun stop ()V
+}
+
+public final class com/retryjournal/RetryJournalRuntime$Companion {
+	public final fun createForEngine (Lcom/retryjournal/engine/RetryJournalEngine;Lio/ktor/client/HttpClient;Lkotlinx/coroutines/CoroutineScope;Lkotlinx/coroutines/flow/Flow;Lkotlin/jvm/functions/Function1;)Lcom/retryjournal/RetryJournalRuntime;
+	public static synthetic fun createForEngine$default (Lcom/retryjournal/RetryJournalRuntime$Companion;Lcom/retryjournal/engine/RetryJournalEngine;Lio/ktor/client/HttpClient;Lkotlinx/coroutines/CoroutineScope;Lkotlinx/coroutines/flow/Flow;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/retryjournal/RetryJournalRuntime;
+}
+
+public final class com/retryjournal/client/BodyCaptureException : java/lang/Exception {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class com/retryjournal/client/OfflineQueuedException : java/lang/Exception {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class com/retryjournal/client/RetryJournalOfflineQueueConfig {
+	public field diskQueue Lcom/retryjournal/queue/disk/DiskQueue;
+	public fun <init> ()V
+	public final fun getDiskQueue ()Lcom/retryjournal/queue/disk/DiskQueue;
+	public final fun setDiskQueue (Lcom/retryjournal/queue/disk/DiskQueue;)V
+}
+
+public final class com/retryjournal/client/RetryJournalOfflineQueuePlugin {
+	public static final field Plugin Lcom/retryjournal/client/RetryJournalOfflineQueuePlugin$Plugin;
+	public synthetic fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class com/retryjournal/client/RetryJournalOfflineQueuePlugin$Plugin : io/ktor/client/plugins/HttpClientPlugin {
+	public fun getKey ()Lio/ktor/util/AttributeKey;
+	public fun install (Lcom/retryjournal/client/RetryJournalOfflineQueuePlugin;Lio/ktor/client/HttpClient;)V
+	public synthetic fun install (Ljava/lang/Object;Lio/ktor/client/HttpClient;)V
+	public fun prepare (Lkotlin/jvm/functions/Function1;)Lcom/retryjournal/client/RetryJournalOfflineQueuePlugin;
+	public synthetic fun prepare (Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+}
+
+public final class com/retryjournal/deadletter/DeadLetterEntry {
+	public static final field HASH_MULTIPLIER I
+	public synthetic fun <init> (JLcom/retryjournal/queue/FrozenHttpRequestMeta;[BLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-SD1FaUo ()J
+	public final fun component2 ()Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public final fun component3 ()[B
+	public final fun copy-a55Khbw (JLcom/retryjournal/queue/FrozenHttpRequestMeta;[B)Lcom/retryjournal/deadletter/DeadLetterEntry;
+	public static synthetic fun copy-a55Khbw$default (Lcom/retryjournal/deadletter/DeadLetterEntry;JLcom/retryjournal/queue/FrozenHttpRequestMeta;[BILjava/lang/Object;)Lcom/retryjournal/deadletter/DeadLetterEntry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()[B
+	public final fun getId-SD1FaUo ()J
+	public final fun getMeta ()Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/deadletter/DeadLetterEntryId {
+	public static final synthetic fun box-impl (J)Lcom/retryjournal/deadletter/DeadLetterEntryId;
+	public static fun constructor-impl (J)J
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (JLjava/lang/Object;)Z
+	public static final fun equals-impl0 (JJ)Z
+	public final fun getValue ()J
+	public fun hashCode ()I
+	public static fun hashCode-impl (J)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (J)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()J
+}
+
+public final class com/retryjournal/deadletter/DeadLetterQueue {
+	public static final field CLOSED_MESSAGE Ljava/lang/String;
+	public static final field CLOSE_WHILE_OPERATION_IN_FLIGHT_MESSAGE Ljava/lang/String;
+	public fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lcom/retryjournal/queue/disk/DiskQueue;)V
+	public final fun close ()V
+	public final fun discard-sRQ9v7I (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun peekAll (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun retry-sRQ9v7I (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun size (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract class com/retryjournal/engine/FlushProgress {
+}
+
+public final class com/retryjournal/engine/FlushProgress$DeadLettered : com/retryjournal/engine/FlushProgress {
+	public synthetic fun <init> (JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-ILrXwoM ()J
+	public final fun copy-uq8438I (J)Lcom/retryjournal/engine/FlushProgress$DeadLettered;
+	public static synthetic fun copy-uq8438I$default (Lcom/retryjournal/engine/FlushProgress$DeadLettered;JILjava/lang/Object;)Lcom/retryjournal/engine/FlushProgress$DeadLettered;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId-ILrXwoM ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/FlushProgress$Delivered : com/retryjournal/engine/FlushProgress {
+	public synthetic fun <init> (JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-ILrXwoM ()J
+	public final fun copy-uq8438I (J)Lcom/retryjournal/engine/FlushProgress$Delivered;
+	public static synthetic fun copy-uq8438I$default (Lcom/retryjournal/engine/FlushProgress$Delivered;JILjava/lang/Object;)Lcom/retryjournal/engine/FlushProgress$Delivered;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId-ILrXwoM ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/FlushResult {
+	public fun <init> (IIZZ)V
+	public synthetic fun <init> (IIZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun copy (IIZZ)Lcom/retryjournal/engine/FlushResult;
+	public static synthetic fun copy$default (Lcom/retryjournal/engine/FlushResult;IIZZILjava/lang/Object;)Lcom/retryjournal/engine/FlushResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeadLettered ()I
+	public final fun getDelivered ()I
+	public final fun getPersistenceFailed ()Z
+	public final fun getStoppedEarly ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class com/retryjournal/engine/QueueHeadState {
+}
+
+public final class com/retryjournal/engine/QueueHeadState$AwaitingLocalRemoval : com/retryjournal/engine/QueueHeadState {
+	public fun <init> (Lcom/retryjournal/queue/QueueEntry;)V
+	public final fun component1 ()Lcom/retryjournal/queue/QueueEntry;
+	public final fun copy (Lcom/retryjournal/queue/QueueEntry;)Lcom/retryjournal/engine/QueueHeadState$AwaitingLocalRemoval;
+	public static synthetic fun copy$default (Lcom/retryjournal/engine/QueueHeadState$AwaitingLocalRemoval;Lcom/retryjournal/queue/QueueEntry;ILjava/lang/Object;)Lcom/retryjournal/engine/QueueHeadState$AwaitingLocalRemoval;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEntry ()Lcom/retryjournal/queue/QueueEntry;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/QueueHeadState$AwaitingReplay : com/retryjournal/engine/QueueHeadState {
+	public fun <init> (Lcom/retryjournal/queue/QueueEntry;)V
+	public final fun component1 ()Lcom/retryjournal/queue/QueueEntry;
+	public final fun copy (Lcom/retryjournal/queue/QueueEntry;)Lcom/retryjournal/engine/QueueHeadState$AwaitingReplay;
+	public static synthetic fun copy$default (Lcom/retryjournal/engine/QueueHeadState$AwaitingReplay;Lcom/retryjournal/queue/QueueEntry;ILjava/lang/Object;)Lcom/retryjournal/engine/QueueHeadState$AwaitingReplay;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEntry ()Lcom/retryjournal/queue/QueueEntry;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/QueueHeadState$Blocked : com/retryjournal/engine/QueueHeadState {
+	public static final field INSTANCE Lcom/retryjournal/engine/QueueHeadState$Blocked;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/QueueHeadState$Empty : com/retryjournal/engine/QueueHeadState {
+	public static final field INSTANCE Lcom/retryjournal/engine/QueueHeadState$Empty;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/engine/RetryJournalEngine {
+	public fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lcom/retryjournal/deadletter/DeadLetterQueue;)V
+	public final fun flush (Lio/ktor/client/HttpClient;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun flush$default (Lcom/retryjournal/engine/RetryJournalEngine;Lio/ktor/client/HttpClient;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun getHeadState (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/retryjournal/queue/FrozenHttpHeaders {
+	public static final field Companion Lcom/retryjournal/queue/FrozenHttpHeaders$Companion;
+	public fun <init> (Ljava/util/List;Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Ljava/util/List;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public static synthetic fun copy$default (Lcom/retryjournal/queue/FrozenHttpHeaders;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun findValue (Ljava/lang/String;)Ljava/lang/String;
+	public final fun forEach (Lkotlin/jvm/functions/Function2;)V
+	public final fun getNames ()Ljava/util/List;
+	public final fun getSize ()I
+	public final fun getValues ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/FrozenHttpHeaders$Companion {
+	public final fun fromScratch ([Ljava/lang/String;[Ljava/lang/String;I)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public final fun getEMPTY ()Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public final fun of ([Lkotlin/Pair;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+}
+
+public final class com/retryjournal/queue/FrozenHttpHeadersSerializer : com/ghost/serialization/contract/GhostSerializer {
+	public static final field INSTANCE Lcom/retryjournal/queue/FrozenHttpHeadersSerializer;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonFlatReader;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonFlatReader;)Ljava/lang/Object;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonReader;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonReader;)Ljava/lang/Object;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonStringReader;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonStringReader;)Ljava/lang/Object;
+	public fun deserialize (Lokio/BufferedSource;)Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public synthetic fun deserialize (Lokio/BufferedSource;)Ljava/lang/Object;
+	public fun getTypeName ()Ljava/lang/String;
+	public fun isProto ()Z
+	public fun isResilient ()Z
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonFlatWriter;Lcom/retryjournal/queue/FrozenHttpHeaders;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonFlatWriter;Ljava/lang/Object;)V
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonStringWriter;Lcom/retryjournal/queue/FrozenHttpHeaders;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonStringWriter;Ljava/lang/Object;)V
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonWriter;Lcom/retryjournal/queue/FrozenHttpHeaders;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonWriter;Ljava/lang/Object;)V
+	public fun serialize (Lokio/BufferedSink;Lcom/retryjournal/queue/FrozenHttpHeaders;)V
+	public synthetic fun serialize (Lokio/BufferedSink;Ljava/lang/Object;)V
+	public fun warmUp ()V
+}
+
+public final class com/retryjournal/queue/FrozenHttpRequestMeta {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/retryjournal/queue/FrozenHttpHeaders;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public final fun component4 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lcom/retryjournal/queue/FrozenHttpHeaders;J)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public static synthetic fun copy$default (Lcom/retryjournal/queue/FrozenHttpRequestMeta;Ljava/lang/String;Ljava/lang/String;Lcom/retryjournal/queue/FrozenHttpHeaders;JILjava/lang/Object;)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnqueuedAtMillis ()J
+	public final fun getHeaders ()Lcom/retryjournal/queue/FrozenHttpHeaders;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/FrozenHttpRequestMetaSerializer : com/ghost/serialization/contract/GhostSerializer {
+	public static final field INSTANCE Lcom/retryjournal/queue/FrozenHttpRequestMetaSerializer;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonFlatReader;)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonFlatReader;)Ljava/lang/Object;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonReader;)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonReader;)Ljava/lang/Object;
+	public fun deserialize (Lcom/ghost/serialization/parser/GhostJsonStringReader;)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public synthetic fun deserialize (Lcom/ghost/serialization/parser/GhostJsonStringReader;)Ljava/lang/Object;
+	public fun deserialize (Lokio/BufferedSource;)Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public synthetic fun deserialize (Lokio/BufferedSource;)Ljava/lang/Object;
+	public fun getTypeName ()Ljava/lang/String;
+	public fun isProto ()Z
+	public fun isResilient ()Z
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonFlatWriter;Lcom/retryjournal/queue/FrozenHttpRequestMeta;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonFlatWriter;Ljava/lang/Object;)V
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonStringWriter;Lcom/retryjournal/queue/FrozenHttpRequestMeta;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonStringWriter;Ljava/lang/Object;)V
+	public fun serialize (Lcom/ghost/serialization/writer/GhostJsonWriter;Lcom/retryjournal/queue/FrozenHttpRequestMeta;)V
+	public synthetic fun serialize (Lcom/ghost/serialization/writer/GhostJsonWriter;Ljava/lang/Object;)V
+	public fun serialize (Lokio/BufferedSink;Lcom/retryjournal/queue/FrozenHttpRequestMeta;)V
+	public synthetic fun serialize (Lokio/BufferedSink;Ljava/lang/Object;)V
+	public fun warmUp ()V
+}
+
+public abstract class com/retryjournal/queue/HeadReplayPrepareResult {
+}
+
+public final class com/retryjournal/queue/HeadReplayPrepareResult$Empty : com/retryjournal/queue/HeadReplayPrepareResult {
+	public static final field INSTANCE Lcom/retryjournal/queue/HeadReplayPrepareResult$Empty;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/HeadReplayPrepareResult$HeadBlocked : com/retryjournal/queue/HeadReplayPrepareResult {
+	public static final field INSTANCE Lcom/retryjournal/queue/HeadReplayPrepareResult$HeadBlocked;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/HeadReplayPrepareResult$Ready : com/retryjournal/queue/HeadReplayPrepareResult {
+	public fun <init> (Lcom/retryjournal/queue/QueueEntry;)V
+	public final fun component1 ()Lcom/retryjournal/queue/QueueEntry;
+	public final fun copy (Lcom/retryjournal/queue/QueueEntry;)Lcom/retryjournal/queue/HeadReplayPrepareResult$Ready;
+	public static synthetic fun copy$default (Lcom/retryjournal/queue/HeadReplayPrepareResult$Ready;Lcom/retryjournal/queue/QueueEntry;ILjava/lang/Object;)Lcom/retryjournal/queue/HeadReplayPrepareResult$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEntry ()Lcom/retryjournal/queue/QueueEntry;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/QueueEntry {
+	public static final field HASH_MULTIPLIER I
+	public synthetic fun <init> (JLcom/retryjournal/queue/FrozenHttpRequestMeta;[BLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-ILrXwoM ()J
+	public final fun component2 ()Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public final fun component3 ()[B
+	public final fun copy-X-WE3fE (JLcom/retryjournal/queue/FrozenHttpRequestMeta;[B)Lcom/retryjournal/queue/QueueEntry;
+	public static synthetic fun copy-X-WE3fE$default (Lcom/retryjournal/queue/QueueEntry;JLcom/retryjournal/queue/FrozenHttpRequestMeta;[BILjava/lang/Object;)Lcom/retryjournal/queue/QueueEntry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()[B
+	public final fun getId-ILrXwoM ()J
+	public final fun getMeta ()Lcom/retryjournal/queue/FrozenHttpRequestMeta;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/retryjournal/queue/QueueEntryId {
+	public static final synthetic fun box-impl (J)Lcom/retryjournal/queue/QueueEntryId;
+	public static fun constructor-impl (J)J
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (JLjava/lang/Object;)Z
+	public static final fun equals-impl0 (JJ)Z
+	public final fun getSequenceId ()J
+	public fun hashCode ()I
+	public static fun hashCode-impl (J)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (J)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()J
+}
+
+public final class com/retryjournal/queue/disk/DiskQueue {
+	public fun <init> (Lokio/Path;I)V
+	public synthetic fun <init> (Lokio/Path;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lokio/Path;Lokio/FileSystem;I)V
+	public synthetic fun <init> (Lokio/Path;Lokio/FileSystem;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun close ()V
+	public final fun enqueue-2JYz2Xc (Ljava/lang/String;Ljava/lang/String;Lcom/retryjournal/queue/FrozenHttpHeaders;[BLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun get-5I8jQHg (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun isEmpty (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun peek (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun peekAll (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun peekIds (ILjava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun remove-5I8jQHg (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun size (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/retryjournal/queue/record/RecordTooLargeException : java/lang/IllegalArgumentException {
+	public fun <init> (Ljava/lang/String;II)V
+}
+
+public abstract interface class com/retryjournal/scheduler/RetryJournalScheduler {
+	public abstract fun cancel ()V
+	public abstract fun schedule (Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;)V
+}
+
+public final class com/retryjournal/scheduler/RetryJournalSchedulerConfig {
+	public fun <init> ()V
+	public fun <init> (JZJI)V
+	public synthetic fun <init> (JZJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()Z
+	public final fun component3 ()J
+	public final fun component4 ()I
+	public final fun copy (JZJI)Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;
+	public static synthetic fun copy$default (Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;JZJIILjava/lang/Object;)Lcom/retryjournal/scheduler/RetryJournalSchedulerConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getIntervalMs ()J
+	public final fun getMaxRetryAttempts ()I
+	public final fun getRequiresNetwork ()Z
+	public final fun getRetryDelayMs ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
