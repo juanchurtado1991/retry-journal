@@ -22,9 +22,6 @@ Every pending request costs exactly one `Long` (8 bytes) in memory, with O(1) lo
 
 ## Install
 
-> [!NOTE]
-> Not yet published to Maven Central — see [CHANGELOG.md](CHANGELOG.md). The coordinates below are what installation will look like once the first release ships.
-
 ```kotlin
 // libs.versions.toml
 retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.0.0" }

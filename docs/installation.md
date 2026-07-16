@@ -1,8 +1,5 @@
 # Installation
 
-> [!NOTE]
-> Not yet published to Maven Central — see [CHANGELOG.md](../CHANGELOG.md). The coordinates below are what installation will look like once the first release ships.
-
 ```kotlin
 // libs.versions.toml
 [libraries]

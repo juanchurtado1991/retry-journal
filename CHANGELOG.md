@@ -4,7 +4,9 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
-Nothing has been published yet — everything below is still pre-1.0.0 work in progress.
+## [1.0.0] - 2026-07-15
+
+First public release.
 
 ### Added
 
@@ -16,12 +18,15 @@ Nothing has been published yet — everything below is still pre-1.0.0 work in p
 - `DeadLetterQueue` — persistent dead-letter storage with retry and cross-process serialization
 - `ReplayClaim` — cross-process head claim so two processes cannot duplicate a non-idempotent POST
 - `DiskQueue` — append-only on-disk queue with crash recovery, compaction, and advisory file locking
+- `LiveEntryIndex` — dense `LongArray`-backed in-memory index for `DiskQueue`'s live entries, ~90% smaller than the `LinkedHashMap<Long, Long>` it replaced (~8 bytes/entry vs. ~98 bytes/entry); see the [Performance report](docs/development.md#performance-report) for real JOL-measured numbers.
 - `FrozenHttpHeaders` — flat header storage for faithful replay
 - `RetryJournalScheduler` / `RetryJournalSchedulerConfig` (`:retry-journal`, package `scheduler/`) — the scheduler-agnostic contract that `:retry-worker` implements; any app can implement it directly instead.
 - `:retry-worker` — new Maven module with an out-of-the-box background scheduler: `androidx.work` (WorkManager) on Android, `BGTaskScheduler` on iOS, a no-op on JVM/desktop. On both platforms, a failed/incomplete run reschedules sooner (`retryDelayMs`) for up to `maxRetryAttempts` in a row before falling back to the normal interval.
 - `retry-sample:server` normal mode (default — every request succeeds) alongside the existing chaos mode (`--args="chaos"`), so a large batch can replay in one `flush()` without an artificial failure interrupting it partway through.
 - Apache 2.0 LICENSE, Maven Central publish wiring, GitHub Actions CI
-- 190+ JVM unit tests (across `:retry-journal` and `:retry-worker`), Kover coverage gate ≥90%, plus real iOS-simulator tests for `:retry-worker`'s schedulers.
+- 240+ JVM unit tests (across `:retry-journal` and `:retry-worker`), Kover coverage gate ≥90%, mutation testing (`pitestCore`), a real cross-process file-lock test, differential fuzz tests (record codec, `LiveEntryIndex`), load tests, and Android instrumented tests (`connectedDebugAndroidTest`) against a real `Context`/ART runtime.
+- `performanceReport` Gradle task — real, JIT-warmed/JOL-measured speed and memory numbers for `DiskQueue`, documented in [docs/development.md](docs/development.md#performance-report).
+- Demo GIF on the root README.
 
 ### Changed
 
@@ -31,14 +36,18 @@ Nothing has been published yet — everything below is still pre-1.0.0 work in p
 - Split the long root `README.md` into a short landing page plus a `docs/` wiki with one focused page per topic (installation, quick start, scheduling, background worker, runtime, uploads, dead letters, guarantees, development).
 - Refactored `build.gradle.kts` files to extract publishing, Kover, and warning configurations into separate files under `gradle/` (`publishing.gradle`, `kover.gradle`, and `warnings.gradle.kts`).
 - Renamed `fd` to `fileDescriptor` in `PlatformQueueFileLock` and added `INVALID_FILE_DESCRIPTOR` constant.
+- `DiskQueue`'s scrub/count/peek-ids paths now use the existing CRC-only scan codec instead of fully materializing and Ghost-deserializing each entry just to check whether it's readable.
 
 ### Fixed
 
 - Race conditions in `RetryJournalRuntimeTest` concurrent flush tests using `CompletableDeferred` instead of timing-dependent delays.
 - Target-specific compilation errors on iOS targets (resolved `timeoutInterval` assignment in Darwin engine, POSIX `open` argument mapping, and `Dispatchers.IO` visibility).
 - KSP code generation `@OptionalExpectation` errors on native/iOS targets via a `suppressGhostKspWarnings` post-processing Gradle task.
+- `RequestCapture.ensureHeaderScratch()` could silently drop captured headers under certain growth patterns.
+- `retry-sample`'s iOS Xcode project wouldn't reliably build on a fresh clone: a hardcoded absolute path, a scheme visible only to the original author's machine (not `xcshareddata`), and a stale framework search path — all three fixed and verified with real `xcodebuild` runs.
 - `retry-sample` on Android: cleartext HTTP to the local chaos/normal server was silently blocked (`targetSdk 28+` blocks it by default) — the app could never detect the server was up. Added `android:usesCleartextTraffic="true"` (this sample is never published, so app-wide is fine here).
 - `retry-sample` on Android: `DemoActionBar`'s Sync button rendered off-screen on phone-width windows — it now stacks below Upload/Send under `AppDimens.ACTION_BAR_COMPACT_BREAKPOINT` (600.dp) instead of assuming there's always room for three buttons in one row.
 - `retry-sample` on Android: content drew under the status bar/camera cutout with edge-to-edge enabled by default (`targetSdk 35+`) — added `safeDrawingPadding()`.
+- Root README's demo GIF/comparison table used raw HTML for pixel-exact width, which Android Studio's Markdown previewer doesn't render — switched to plain Markdown for universal compatibility.
 
 ---
