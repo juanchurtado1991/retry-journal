@@ -2,6 +2,8 @@
 
 **Never lose an HTTP request because the network dropped — offline-first HTTP request replay for Kotlin Multiplatform.**
 
+Every pending request costs exactly one `Long` (8 bytes) in memory, with O(1) lookup no matter how deep the backlog gets — real numbers in the [benchmarks](docs/development.md#performance-report).
+
 `retry-journal` is a lightweight, durable **HTTP Request Replay Queue** for Android, iOS, and JVM. It intercepts outgoing Ktor requests on network failures, saves them to disk, and replays them exactly as sent when connectivity returns.
 
 > [!NOTE]
