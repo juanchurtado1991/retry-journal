@@ -85,11 +85,16 @@ internal class RequestCapture(
     }
 
     private fun ensureHeaderScratch(capacity: Int) {
-        if (headerNameScratch.size >= capacity) {
+        val oldNames = headerNameScratch
+        if (oldNames.size >= capacity) {
             return
         }
-        headerNameScratch = Array(capacity) { "" }
-        headerValueScratch = Array(capacity) { "" }
+        // Doubling (not an exact-fit grow to `capacity`) keeps growth amortized O(1) instead of
+        // reallocating on every single header past the initial capacity.
+        val newCapacity = maxOf(capacity, oldNames.size * 2)
+        val oldValues = headerValueScratch
+        headerNameScratch = Array(newCapacity) { index -> if (index < oldNames.size) oldNames[index] else "" }
+        headerValueScratch = Array(newCapacity) { index -> if (index < oldValues.size) oldValues[index] else "" }
     }
 
     private fun encodeHeaderValues(

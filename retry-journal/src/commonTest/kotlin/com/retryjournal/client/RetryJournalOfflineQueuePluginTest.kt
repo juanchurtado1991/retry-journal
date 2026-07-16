@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -65,6 +66,39 @@ class RetryJournalOfflineQueuePluginTest {
         assertEquals("https://example.com/mutations", queued?.meta?.url)
         assertEquals("hello-ghost", queued?.body?.decodeToString())
     }
+
+    @Test
+    fun `all headers survive capture when a request has more than the scratch array's initial capacity`() =
+        runBlocking {
+            // Regression: RequestCapture's header scratch arrays grow by replacing themselves
+            // with a blank array instead of copying the old one forward, silently wiping every
+            // header captured before the growth point. HEADER_SCRATCH_INITIAL_CAPACITY is 8, so
+            // this needs strictly more than 8 custom headers (plus Content-Type/Host, etc. Ktor
+            // adds its own) to actually cross that boundary.
+            val client = HttpClient(MockEngine { throw IOException("no network") }) {
+                install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+            }
+            val headerCount = 20
+
+            assertFailsWith<OfflineQueuedException> {
+                client.post("https://example.com/mutations") {
+                    for (index in 0 until headerCount) {
+                        header("X-Custom-$index", "value-$index")
+                    }
+                    setBody("body")
+                }
+            }
+
+            val queued = diskQueue.peek()
+            assertTrue(queued != null)
+            for (index in 0 until headerCount) {
+                assertEquals(
+                    "value-$index",
+                    queued.meta.headers.findValue("X-Custom-$index"),
+                    "header X-Custom-$index was lost or corrupted during capture",
+                )
+            }
+        }
 
     @Test
     fun `queued Content-Type reflects the body actually sent not a stale caller-declared one`() = runBlocking {
