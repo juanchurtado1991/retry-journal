@@ -74,6 +74,9 @@ kotlin {
             implementation(libs.ktor.client.cio)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.ktor.serialization.kotlinx.json)
+            // Only used by tools/MemoryProbe.kt (a manual diagnostic, not a test) to measure
+            // actual retained memory instead of guessing from nominal per-object sizes.
+            implementation(libs.jol.core)
         }
 
         val androidInstrumentedTest by getting {
@@ -124,3 +127,4 @@ kover {
 
 apply(from = "../gradle/warnings.gradle.kts")
 apply(from = "../gradle/mutation-testing.gradle.kts")
+apply(from = "../gradle/memory-probe.gradle.kts")
