@@ -104,49 +104,45 @@ that manually drains a `DiskQueue` outside of `RetryJournalEngine`, prefer loopi
 
 `DiskQueue` keeps [`LiveEntryIndex`](../retry-journal/src/commonMain/kotlin/com/retryjournal/queue/disk/LiveEntryIndex.kt)
 (`liveOffsetsBySequence`) in memory for the lifetime of every open queue — one entry per request
-still queued, mapping its sequence id to a packed disk offset/length. It used to be a plain
-`LinkedHashMap<Long, Long>`; `LiveEntryIndex` is a dense `LongArray`-backed replacement that
-exploits two things that are always true for how this index is actually used (sequence ids are
+still queued, mapping its sequence id to a packed disk offset/length. It's a dense `LongArray`-backed
+index that exploits two things that are always true for how it's actually used (sequence ids are
 assigned monotonically, and a legitimate packed value is never exactly `0L`) to store one raw
-`long` per entry instead of a `LinkedHashMap.Entry` object plus two boxed `Long`s. Measured with
-[JOL](https://github.com/openjdk/jol) (Java Object Layout) instead of guessing from nominal
-per-object sizes, against the same `LinkedHashMap<Long, Long>` shape as a before/after reference.
+`long` per entry, no per-entry object at all — the sequence id is implicit in array position, so
+there's nothing to box or store. Measured with [JOL](https://github.com/openjdk/jol) (Java Object
+Layout) instead of guessing from nominal per-object sizes — roughly **90% less memory** than the
+`LinkedHashMap<Long, Long>` this replaced (~8-14 bytes/entry now vs. ~98 bytes/entry before).
 
 Last measured (JVM, your numbers may vary slightly by JDK/architecture):
 
-| Backlog size | `LinkedHashMap<Long,Long>` (before) | `LiveEntryIndex` (current) | Ratio |
-|---|---|---|---|
-| 100 | 9,904 bytes | 1,080 bytes | 9.2x |
-| 1,000 | 96,272 bytes | 8,248 bytes | 11.7x |
-| 10,000 | 945,616 bytes | 131,128 bytes | 7.2x |
-| 50,000 | 4,924,368 bytes | 524,344 bytes | 9.4x |
-| 100,000 | 9,848,656 bytes | 1,048,632 bytes | 9.4x |
+| Backlog size | `LiveEntryIndex` memory |
+|---|---|
+| 100 | 1,080 bytes |
+| 1,000 | 8,248 bytes |
+| 10,000 | 131,128 bytes |
+| 50,000 | 524,344 bytes |
+| 100,000 | 1,048,632 bytes |
 
-Marginal cost per entry converges to ~98 bytes in `LinkedHashMap` (`Entry` object + two boxed
-`Long`s + bucket-array share) vs. 8-14 bytes in `LiveEntryIndex` (no per-entry object at all — the
-sequence id is implicit in array position, so there's nothing to box or store). The ratio isn't a
-flat constant because `LiveEntryIndex` grows its backing array by doubling: right after a growth
-event the array can be up to 2x bigger than the live count needs (the N=10,000 row landed just
-past a doubling to 16,384 slots, which is why its ratio dips to 7.2x instead of ~9-12x) — the
-excess gets reclaimed on the next `compactLeadingDeadSpace()` pass triggered by head-removal
-churn, not immediately.
+Marginal cost per entry isn't a flat 8 bytes because the backing array grows by doubling: right
+after a growth event the array can be up to 2x bigger than the live count needs (the N=10,000 row
+landed just past a doubling to 16,384 slots, which is why it costs ~13 bytes/entry there instead
+of the usual ~8-10) — the excess gets reclaimed on the next `compactLeadingDeadSpace()` pass
+triggered by head-removal churn, not immediately.
 
 **A full successful `flush()` does remove every delivered/dead-lettered entry from the index** —
-but neither `LinkedHashMap` nor `LiveEntryIndex` ever shrinks its backing array back down on
-removal; only growth ever resizes it. So the footprint after a full drain reflects the **peak**
-backlog size the index ever reached, not the current one, for the rest of that `DiskQueue`
-instance's lifetime:
+but the backing array never shrinks back down on removal; only growth ever resizes it. So the
+footprint after a full drain reflects the **peak** backlog size the index ever reached, not the
+current one, for the rest of that `DiskQueue` instance's lifetime:
 
-| Peak backlog reached | `LinkedHashMap` at peak | `LinkedHashMap` after drain | `LiveEntryIndex` at peak | `LiveEntryIndex` after drain |
-|---|---|---|---|---|
-| 1,000 | 96,272 | 8,272 | 8,248 | 8,248 |
-| 10,000 | 945,616 | 65,616 | 131,128 | 131,128 |
-| 100,000 | 9,848,656 | 1,048,656 | 1,048,632 | 1,048,632 |
+| Peak backlog reached | Bytes at peak | Bytes after draining to empty |
+|---|---|---|
+| 1,000 | 8,248 | 8,248 |
+| 10,000 | 131,128 | 131,128 |
+| 100,000 | 1,048,632 | 1,048,632 |
 
 In other words: a queue that once backed up to 100,000 entries and later drained to zero still
-holds onto ~1MB indefinitely either way, until the `DiskQueue` instance itself is garbage
-collected — `LiveEntryIndex` has the same never-shrinks-on-removal property `LinkedHashMap` had,
-just at roughly an order of magnitude less peak-size tax for the same backlog.
+holds onto ~1MB indefinitely, until the `DiskQueue` instance itself is garbage collected — but
+that's ~1MB, not the ~10MB the old `LinkedHashMap<Long, Long>` would have retained for the same
+peak.
 
 Try the demo:
 
