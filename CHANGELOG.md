@@ -41,7 +41,4 @@ Nothing has been published yet — everything below is still pre-1.0.0 work in p
 - `retry-sample` on Android: `DemoActionBar`'s Sync button rendered off-screen on phone-width windows — it now stacks below Upload/Send under `AppDimens.ACTION_BAR_COMPACT_BREAKPOINT` (600.dp) instead of assuming there's always room for three buttons in one row.
 - `retry-sample` on Android: content drew under the status bar/camera cutout with edge-to-edge enabled by default (`targetSdk 35+`) — added `safeDrawingPadding()`.
 
-### Removed
-
-- The `kmpworkmanager` dependency, dropped entirely from the project and from `retry-sample`, in favor of `:retry-worker`.
-- `docs/comparison.md` (Tape/Room positioning) and `CONVENTIONS.md` — narrow audience / internal-only content, not meant for the public repo.
+---

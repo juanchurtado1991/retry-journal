@@ -76,7 +76,7 @@ internal class HeadReplayExecutor(
 
                 is HeadReplayPrepareResult.Ready -> {
                     val entry = prepared.entry
-                    val status = replayEntryOrStop(client, entry)
+                    val attempt = replayEntryOrStop(client, entry)
                         ?: return FlushResult(
                             delivered,
                             deadLettered,
@@ -84,7 +84,8 @@ internal class HeadReplayExecutor(
                         )
 
                     when (val outcome = applyReplayOutcome(
-                        status,
+                        attempt.status,
+                        attempt.pending,
                         entry,
                         onProgress,
                         delivered,
@@ -109,22 +110,33 @@ internal class HeadReplayExecutor(
         }
     }
 
+    /** The status this attempt resolved to, and the [DeliveryOutcome] journal entry (if any) that
+     * was already on disk when it started — computed once here and threaded into
+     * [applyReplayOutcome] instead of re-reading [DeliveryJournal] a second time for the same
+     * sequence id. */
+    private data class ReplayAttempt(val status: HttpStatusCode, val pending: DeliveryOutcome?)
+
     private suspend fun replayEntryOrStop(
         client: HttpClient,
         entry: QueueEntry,
-    ): HttpStatusCode? {
-        resolvePendingDeliveryStatus(entry)?.let { return it }
-        return try {
+    ): ReplayAttempt? {
+        val pending = resolvePendingOutcome(entry)
+        mapPendingOutcomeToStatus(pending)?.let { return ReplayAttempt(it, pending) }
+
+        val status = try {
             withReplayClaimRenewal(entry.id) {
                 trySend(client, entry)
             }
         } catch (e: CancellationException) {
             abortHeadReplayClaimNonCancellable()
             throw e
-        } ?: run {
-            queue.abortHeadReplayClaim()
-            null
         }
+
+        if (status == null) {
+            queue.abortHeadReplayClaim()
+            return null
+        }
+        return ReplayAttempt(status, pending)
     }
 
     private fun resolvePendingOutcome(entry: QueueEntry): DeliveryOutcome? {
@@ -139,21 +151,20 @@ internal class HeadReplayExecutor(
         else -> null
     }
 
-    private fun resolvePendingDeliveryStatus(entry: QueueEntry): HttpStatusCode? =
-        when (resolvePendingOutcome(entry)) {
-            DeliveryOutcome.Delivered -> HttpStatusCode.OK
-            DeliveryOutcome.DeadLettered -> HttpStatusCode.BadRequest
-            null -> null
-        }
+    private fun mapPendingOutcomeToStatus(pending: DeliveryOutcome?): HttpStatusCode? = when (pending) {
+        DeliveryOutcome.Delivered -> HttpStatusCode.OK
+        DeliveryOutcome.DeadLettered -> HttpStatusCode.BadRequest
+        null -> null
+    }
 
     private suspend fun applyReplayOutcome(
         status: HttpStatusCode,
+        pending: DeliveryOutcome?,
         entry: QueueEntry,
         onProgress: suspend (FlushProgress) -> Unit,
         delivered: Int,
         deadLettered: Int,
     ): ReplayOutcome {
-        val pending = resolvePendingOutcome(entry)
         return when {
             status.isSuccess() && pending == DeliveryOutcome.Delivered -> {
                 finishDeliveredFromJournal(entry, onProgress, delivered, deadLettered)
