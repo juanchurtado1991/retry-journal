@@ -34,14 +34,10 @@ class RetryJournalOfflineQueuePlugin private constructor(
 
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
-            println("[RetryJournalOfflineQueuePlugin] intercept START url=${request.url}")
             lifecycleGate.enter()
             try {
-                val result = execute(request)
-                println("[RetryJournalOfflineQueuePlugin] execute SUCCEEDED url=${request.url} status=${result.response.status}")
-                result
+                execute(request)
             } catch (cause: Throwable) {
-                println("[RetryJournalOfflineQueuePlugin] execute THREW ${cause::class.simpleName}: ${cause.message}")
                 handleSendFailure(request, cause)
             } finally {
                 lifecycleGate.leave()
@@ -53,27 +49,14 @@ class RetryJournalOfflineQueuePlugin private constructor(
         request: HttpRequestBuilder,
         cause: Throwable
     ): Nothing {
-        println("[RetryJournalOfflineQueuePlugin] caught: ${cause::class.simpleName}: ${cause.message}")
         if (cause is BodyCaptureException) {
-            println("[RetryJournalOfflineQueuePlugin] re-throwing BodyCaptureException")
             throw cause
         }
         if (!causesOrIsIOException(cause)) {
-            println("[RetryJournalOfflineQueuePlugin] NOT IOException — re-throwing, not queuing")
             throw cause
         }
         val url = request.url.buildString()
-        println("[RetryJournalOfflineQueuePlugin] IS IOException — enqueueing $url")
-        try {
-            enqueueLocked(request, url)
-            println("[RetryJournalOfflineQueuePlugin] enqueue succeeded for $url")
-        } catch (capture: BodyCaptureException) {
-            println("[RetryJournalOfflineQueuePlugin] BodyCaptureException during enqueue: ${capture.message}")
-            throw capture
-        } catch (persist: Throwable) {
-            println("[RetryJournalOfflineQueuePlugin] persist failed: ${persist::class.simpleName}: ${persist.message}")
-            throw persist
-        }
+        enqueueLocked(request, url)
         throw OfflineQueuedException(url)
     }
 
