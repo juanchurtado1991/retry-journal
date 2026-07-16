@@ -14,10 +14,11 @@ import kotlin.collections.iterator
 
 /**
  * Rewrites [DiskQueue]'s live records into a fresh temp file when the dead-byte ratio crosses
- * [DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD] — never [path] itself, and never the atomic swap onto it: that
- * requires closing whatever handles [DiskQueue] itself still has open on the old file first, which
- * only [DiskQueue] knows about. [planCompaction] only ever reads [path] and writes [Plan.tempPath];
- * the caller does the swap once the [Plan] is ready.
+ * [DiskQueueConstants.COMPACTION_DEAD_RATIO_THRESHOLD] — never the queue's own `path` itself, and
+ * never the atomic swap onto it: that requires closing whatever handles [DiskQueue] itself still
+ * has open on the old file first, which only [DiskQueue] knows about. [planCompaction] only ever
+ * reads that `path` and writes [DiskQueueCompactionPlan.tempPath]; the caller does the swap once
+ * the [DiskQueueCompactionPlan] is ready.
  */
 internal object DiskQueueCompactor {
 
