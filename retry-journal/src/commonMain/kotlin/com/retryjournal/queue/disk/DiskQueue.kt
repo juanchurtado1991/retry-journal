@@ -81,7 +81,7 @@ class DiskQueue(
 
     /** Sequence id -> packed length and offset — see [PackedIndexEntry] for the bit layout — in
      * FIFO order. */
-    internal val liveOffsetsBySequence = LinkedHashMap<Long, Long>()
+    internal val liveOffsetsBySequence = LiveEntryIndex()
     internal var fileLength = 0L
     internal var deadBytes = 0L
     internal var nextSequenceId = 0L

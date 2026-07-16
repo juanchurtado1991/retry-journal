@@ -9,11 +9,11 @@ import com.retryjournal.queue.record.PackedIndexEntry
 internal object QueueInvariants {
 
     fun assertHoldLocked(queue: DiskQueue) {
-        val liveIds = queue.liveOffsetsBySequence.keys
-        val headSequenceId = liveIds.firstOrNull()
+        val headSequenceId = queue.liveOffsetsBySequence.firstSequenceIdOrNull()
+        val indexSize = queue.liveOffsetsBySequence.size
         val size = countReadableLocked(queue)
-        require(size == liveIds.size) {
-            "size mismatch: counted $size readable entries but index has ${liveIds.size}"
+        require(size == indexSize) {
+            "size mismatch: counted $size readable entries but index has $indexSize"
         }
         if (headSequenceId != null) {
             val claim = ReplayClaim.hasNonStaleClaim(
@@ -21,7 +21,7 @@ internal object QueueInvariants {
                 ReplayClaim.claimPath(queue.path),
                 currentTimeMillis(),
             )
-            if (claim != null && liveIds.contains(claim.sequenceId)) {
+            if (claim != null && queue.liveOffsetsBySequence.containsKey(claim.sequenceId)) {
                 require(claim.sequenceId == headSequenceId) {
                     "blocking replay claim targets sequence ${claim.sequenceId} but head is $headSequenceId"
                 }
@@ -32,8 +32,7 @@ internal object QueueInvariants {
 
     private fun countReadableLocked(queue: DiskQueue): Int {
         var count = 0
-        for (sequenceId in queue.liveOffsetsBySequence.keys) {
-            val packed = queue.liveOffsetsBySequence.getValue(sequenceId)
+        queue.liveOffsetsBySequence.forEach { sequenceId, packed ->
             val offset = PackedIndexEntry.unpackOffset(packed)
             if (queue.readLiveEntryAtLocked(sequenceId, offset) != null) {
                 count++

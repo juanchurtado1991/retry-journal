@@ -52,8 +52,7 @@ internal object DiskQueueIndexSync {
         if (queue.opened) return
 
         val result = DiskQueueRecovery.recover(queue.fileSystem, queue.path, queue.maxRecordFieldSize)
-        queue.liveOffsetsBySequence.clear()
-        queue.liveOffsetsBySequence.putAll(result.liveOffsetsBySequence)
+        queue.liveOffsetsBySequence.replaceAllWith(result.liveOffsetsBySequence)
         queue.nextSequenceId = result.nextSequenceId
         queue.deadBytes = result.deadBytes
         queue.fileLength = result.fileLength

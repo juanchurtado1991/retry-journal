@@ -28,8 +28,7 @@ internal object DiskQueueCompactionOps {
         queue.fileHandles.closeReadHandle()
         queue.fileSystem.atomicMove(plan.tempPath, queue.path)
 
-        queue.liveOffsetsBySequence.clear()
-        queue.liveOffsetsBySequence.putAll(plan.liveOffsetsBySequence)
+        queue.liveOffsetsBySequence.replaceAllWith(plan.liveOffsetsBySequence)
         queue.fileLength = plan.fileLength
         queue.deadBytes = 0L
         DiskQueueIndexSync.bumpGenerationLocked(queue)

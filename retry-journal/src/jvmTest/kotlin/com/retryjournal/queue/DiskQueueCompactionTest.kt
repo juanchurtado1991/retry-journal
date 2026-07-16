@@ -119,20 +119,14 @@ class DiskQueueCompactionTest {
         }
 
     private fun DiskQueue.repointIndexToSiblingRecord(wrongId: Long, correctId: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        map[wrongId] = map.getValue(correctId)
+        liveOffsetsBySequence[wrongId] = liveOffsetsBySequence[correctId]!!
     }
 
     private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        val packedA = map.getValue(sequenceIdA)
-        val packedB = map.getValue(sequenceIdB)
-        map[sequenceIdA] = packedB
-        map[sequenceIdB] = packedA
+        val packedA = liveOffsetsBySequence[sequenceIdA]!!
+        val packedB = liveOffsetsBySequence[sequenceIdB]!!
+        liveOffsetsBySequence[sequenceIdA] = packedB
+        liveOffsetsBySequence[sequenceIdB] = packedA
     }
 
     /** After tests corrupt the queue file on disk, sync the generation counter so the next op

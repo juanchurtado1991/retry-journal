@@ -10,7 +10,6 @@ import okio.Path
 import okio.Path.Companion.toPath
 import okio.buffer
 import okio.use
-import kotlin.collections.iterator
 
 /**
  * Rewrites [DiskQueue]'s live records into a fresh temp file when the dead-byte ratio crosses
@@ -26,7 +25,7 @@ internal object DiskQueueCompactor {
         fileSystem: FileSystem,
         path: Path,
         maxRecordFieldSize: Int,
-        liveOffsetsBySequence: Map<Long, Long>,
+        liveOffsetsBySequence: LiveEntryIndex,
         fileLength: Long,
         deadBytes: Long,
         nextSequenceId: Long,
@@ -85,13 +84,13 @@ internal object DiskQueueCompactor {
     private fun rewriteIndexedRecords(
         readHandle: FileHandle,
         sink: BufferedSink,
-        liveOffsetsBySequence: Map<Long, Long>,
+        liveOffsetsBySequence: LiveEntryIndex,
         maxRecordFieldSize: Int,
         newOffsetsBySequence: LinkedHashMap<Long, Long>,
         startOffset: Long,
     ): Long? {
         var newOffset = startOffset
-        for ((sequenceId, packed) in liveOffsetsBySequence) {
+        liveOffsetsBySequence.forEach { sequenceId, packed ->
             val offset = PackedIndexEntry.unpackOffset(packed)
             newOffset = copyIndexedRecord(
                 readHandle,
@@ -140,7 +139,7 @@ internal object DiskQueueCompactor {
 
     private fun appendSequenceGapTombstoneIfNeeded(
         sink: BufferedSink,
-        liveOffsetsBySequence: Map<Long, Long>,
+        liveOffsetsBySequence: LiveEntryIndex,
         nextSequenceId: Long,
         newOffset: Long,
     ): Long {

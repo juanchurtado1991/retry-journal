@@ -18,7 +18,7 @@ internal object DiskQueueHeadOps {
         var result: QueueEntry? = null
         var removedAny = false
         while (true) {
-            val (sequenceId, packed) = queue.liveOffsetsBySequence.entries.firstOrNull() ?: break
+            val (sequenceId, packed) = queue.liveOffsetsBySequence.firstEntryOrNull() ?: break
             val entry = queue.readLiveEntryAtLocked(
                 sequenceId,
                 PackedIndexEntry.unpackOffset(packed),
@@ -56,7 +56,7 @@ internal object DiskQueueHeadOps {
             if (!queue.liveOffsetsBySequence.containsKey(activeClaim.sequenceId)) {
                 ReplayClaim.delete(queue.fileSystem, claimPath)
             } else {
-                val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull()
+                val headSequenceId = queue.liveOffsetsBySequence.firstSequenceIdOrNull()
                 if (headSequenceId != activeClaim.sequenceId) {
                     ReplayClaim.delete(queue.fileSystem, claimPath)
                 } else if (DeliveryJournal.hasPendingForSequence(
@@ -89,7 +89,7 @@ internal object DiskQueueHeadOps {
         if (activeClaim.sequenceId != entryId.sequenceId) {
             error(DiskQueueConstants.COMPLETE_HEAD_CLAIM_MISMATCH_MESSAGE)
         }
-        val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull()
+        val headSequenceId = queue.liveOffsetsBySequence.firstSequenceIdOrNull()
         if (headSequenceId != entryId.sequenceId) {
             error(DiskQueueConstants.COMPLETE_HEAD_NOT_HEAD_MESSAGE)
         }
@@ -106,7 +106,7 @@ internal object DiskQueueHeadOps {
         if (!queue.liveOffsetsBySequence.containsKey(claim.sequenceId)) {
             return false
         }
-        val headSequenceId = queue.liveOffsetsBySequence.keys.firstOrNull() ?: return false
+        val headSequenceId = queue.liveOffsetsBySequence.firstSequenceIdOrNull() ?: return false
         return headSequenceId == claim.sequenceId
     }
 }

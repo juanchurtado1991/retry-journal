@@ -76,7 +76,6 @@ internal object DeliveryJournal {
         queue: DiskQueue,
         headSequenceId: Long?,
     ) {
-        val liveIds = queue.liveOffsetsBySequence.keys
         val prefix = queue.path.name + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX
         val parent = queue.path.parent ?: DiskQueueConstants.CURRENT_DIRECTORY_PATH.toPath()
         if (!queue.fileSystem.exists(parent)) {
@@ -90,7 +89,7 @@ internal object DeliveryJournal {
             if (sequenceId == null) {
                 queue.fileSystem.delete(file, mustExist = false)
             } else {
-                val orphan = !liveIds.contains(sequenceId)
+                val orphan = !queue.liveOffsetsBySequence.containsKey(sequenceId)
                 val nonHead = headSequenceId != null && sequenceId != headSequenceId
                 if (orphan || nonHead) {
                     queue.fileSystem.delete(file, mustExist = false)
@@ -103,7 +102,6 @@ internal object DeliveryJournal {
         queue: DiskQueue,
         headSequenceId: Long?,
     ) {
-        val liveIds = queue.liveOffsetsBySequence.keys
         val prefix = queue.path.name + DiskQueueConstants.DELIVERY_JOURNAL_SUFFIX
         val parent = queue.path.parent ?: DiskQueueConstants.CURRENT_DIRECTORY_PATH.toPath()
         if (!queue.fileSystem.exists(parent)) {
@@ -115,7 +113,7 @@ internal object DeliveryJournal {
             }
             val sequenceId = file.name.removePrefix(prefix).toLongOrNull()
             require(sequenceId != null) { "unexpected journal file ${file.name}" }
-            require(liveIds.contains(sequenceId)) {
+            require(queue.liveOffsetsBySequence.containsKey(sequenceId)) {
                 "orphan delivery journal for sequence $sequenceId"
             }
             if (headSequenceId != null) {

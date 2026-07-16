@@ -4,6 +4,7 @@ import com.retryjournal.freshTestDir
 import com.retryjournal.queue.FrozenHttpHeaders
 import com.retryjournal.queue.HeadReplayPrepareResult
 import com.retryjournal.queue.disk.DiskQueue
+import com.retryjournal.queue.disk.LiveEntryIndex
 import com.retryjournal.queue.record.PackedIndexEntry
 import kotlinx.coroutines.runBlocking
 import okio.FileSystem
@@ -149,7 +150,7 @@ private suspend fun reportDrainThroughput() {
 private fun reportMemoryGrowth() {
     val sizes = listOf(0, 100, 1_000, 10_000, 50_000, 100_000)
 
-    println("=== LinkedHashMap<Long,Long> (DiskQueue.liveOffsetsBySequence's current shape) ===")
+    println("=== LinkedHashMap<Long,Long> (DiskQueue.liveOffsetsBySequence's shape before the LiveEntryIndex swap) ===")
     reportGrowth(sizes) { n ->
         val map = LinkedHashMap<Long, Long>()
         for (i in 0 until n) {
@@ -159,14 +160,18 @@ private fun reportMemoryGrowth() {
     }
 
     println()
-    println("=== LongArray (dense, no stored key — a possible zero-allocation redesign) ===")
+    println("=== LiveEntryIndex (DiskQueue.liveOffsetsBySequence's real, currently-deployed shape) ===")
     reportGrowth(sizes) { n ->
-        LongArray(n) { PackedIndexEntry.pack(length = 512, offset = it.toLong() * 512L) }
+        val index = LiveEntryIndex()
+        for (i in 0 until n) {
+            index[i.toLong()] = PackedIndexEntry.pack(length = 512, offset = i.toLong() * 512L)
+        }
+        index
     }
 }
 
 private fun reportDrainMemoryRetention() {
-    println("=== Does draining the queue to empty (a full successful flush()) shrink the map back down? ===")
+    println("=== Does draining the queue to empty (a full successful flush()) shrink the index back down? ===")
     for (peakN in listOf(1_000, 10_000, 100_000)) {
         val map = LinkedHashMap<Long, Long>()
         for (i in 0 until peakN) {
@@ -179,8 +184,23 @@ private fun reportDrainMemoryRetention() {
         val afterDrainBytes = GraphLayout.parseInstance(map).totalSize()
         val freshEmptyBytes = GraphLayout.parseInstance(LinkedHashMap<Long, Long>()).totalSize()
         println(
-            "peakN=$peakN  peakBytes=$peakBytes  bytesAfterRemovingAll=$afterDrainBytes  " +
-                "freshEmptyMapBytes=$freshEmptyBytes  retainedSize()=${map.size}",
+            "LinkedHashMap  peakN=$peakN  peakBytes=$peakBytes  bytesAfterRemovingAll=$afterDrainBytes  " +
+                "freshEmptyBytes=$freshEmptyBytes  retainedSize()=${map.size}",
+        )
+
+        val index = LiveEntryIndex()
+        for (i in 0 until peakN) {
+            index[i.toLong()] = PackedIndexEntry.pack(length = 512, offset = i.toLong() * 512L)
+        }
+        val indexPeakBytes = GraphLayout.parseInstance(index).totalSize()
+        for (i in 0 until peakN) {
+            index.remove(i.toLong())
+        }
+        val indexAfterDrainBytes = GraphLayout.parseInstance(index).totalSize()
+        val indexFreshEmptyBytes = GraphLayout.parseInstance(LiveEntryIndex()).totalSize()
+        println(
+            "LiveEntryIndex peakN=$peakN  peakBytes=$indexPeakBytes  bytesAfterRemovingAll=$indexAfterDrainBytes  " +
+                "freshEmptyBytes=$indexFreshEmptyBytes  retainedSize()=${index.size}",
         )
     }
 }

@@ -119,24 +119,19 @@ class DiskQueuePrivateStateTest {
     }
 
     private fun DiskQueue.repointIndexToWrongRecord(wrongId: Long, siblingId: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        map[wrongId] = map.getValue(siblingId)
+        liveOffsetsBySequence[wrongId] = liveOffsetsBySequence[siblingId]!!
     }
 
-    /** Reaches into [DiskQueue]'s private live-offset index and swaps the packed offsets
-     * recorded for two sequence ids, so each id's index entry now points at the *other* id's
-     * on-disk record — the exact mismatch [com.retryjournal.queue.disk.readLiveEntryAtLocked]'s sequenceId check
-     * guards against. */
+    /** Reaches into [DiskQueue]'s internal live-offset index (visible directly here — no
+     * reflection needed, `jvmTest` is an associated compilation of `commonMain`/`jvmMain`) and
+     * swaps the packed offsets recorded for two sequence ids, so each id's index entry now
+     * points at the *other* id's on-disk record — the exact mismatch
+     * [com.retryjournal.queue.disk.readLiveEntryAtLocked]'s sequenceId check guards against. */
     private fun DiskQueue.swapIndexOffsets(sequenceIdA: Long, sequenceIdB: Long) {
-        val field = DiskQueue::class.java.getDeclaredField("liveOffsetsBySequence").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = field.get(this) as LinkedHashMap<Long, Long>
-        val packedA = map.getValue(sequenceIdA)
-        val packedB = map.getValue(sequenceIdB)
-        map[sequenceIdA] = packedB
-        map[sequenceIdB] = packedA
+        val packedA = liveOffsetsBySequence[sequenceIdA]!!
+        val packedB = liveOffsetsBySequence[sequenceIdB]!!
+        liveOffsetsBySequence[sequenceIdA] = packedB
+        liveOffsetsBySequence[sequenceIdB] = packedA
     }
 
     /** [DiskQueue] delegates its cached append sink/read handle to [RecordFileHandles] — reaches

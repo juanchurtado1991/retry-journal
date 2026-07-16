@@ -4,7 +4,6 @@ import com.retryjournal.queue.QueueEntry
 import com.retryjournal.queue.QueueEntryId
 import com.retryjournal.queue.record.PackedIndexEntry
 import com.retryjournal.queue.record.RecordScanResult
-import kotlin.collections.iterator
 
 /** Read-side iteration helpers for [DiskQueue.peekAll], [DiskQueue.peekIds], and [DiskQueue.peekAllRaw]. */
 internal object DiskQueuePeekOps {
@@ -22,7 +21,7 @@ internal object DiskQueuePeekOps {
         queue: DiskQueue,
         action: (Long, QueueEntry) -> Unit,
     ) {
-        for ((sequenceId, packed) in queue.liveOffsetsBySequence) {
+        queue.liveOffsetsBySequence.forEach { sequenceId, packed ->
             queue.readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed))
                 ?.let { entry -> action(sequenceId, entry) }
         }
@@ -38,14 +37,13 @@ internal object DiskQueuePeekOps {
         val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
         val scanResult = RecordScanResult()
         var count = 0
-        for (sequenceId in queue.liveOffsetsBySequence.keys) {
-            if (count >= limit) {
-                break
-            }
-            val packed = queue.liveOffsetsBySequence[sequenceId] ?: continue
-            if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
-                outResult.add(QueueEntryId(sequenceId))
-                count++
+        run stopAtLimit@{
+            queue.liveOffsetsBySequence.forEach { sequenceId, packed ->
+                if (count >= limit) return@stopAtLimit
+                if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
+                    outResult.add(QueueEntryId(sequenceId))
+                    count++
+                }
             }
         }
         return count
@@ -57,7 +55,7 @@ internal object DiskQueuePeekOps {
         val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
         val scanResult = RecordScanResult()
         var count = 0
-        for ((sequenceId, packed) in queue.liveOffsetsBySequence) {
+        queue.liveOffsetsBySequence.forEach { sequenceId, packed ->
             if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
                 count++
             }

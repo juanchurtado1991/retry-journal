@@ -3,7 +3,6 @@ package com.retryjournal.queue.disk
 import com.retryjournal.queue.ReplayClaim
 import com.retryjournal.queue.record.PackedIndexEntry
 import com.retryjournal.queue.record.RecordScanResult
-import kotlin.collections.iterator
 
 /** Tombstones corrupt index slots so [DiskQueue] cannot stall behind unreadable records. */
 internal object DiskQueueScrubOps {
@@ -26,12 +25,12 @@ internal object DiskQueueScrubOps {
         val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
         val scanResult = RecordScanResult()
         queue.scrubScratchCount = 0
-        for ((sequenceId, packed) in queue.liveOffsetsBySequence) {
+        queue.liveOffsetsBySequence.forEach { sequenceId, packed ->
             if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
-                continue
+                return@forEach
             }
             if (ReplayClaim.isActiveClaimForSequence(queue.fileSystem, claimPath, sequenceId)) {
-                continue
+                return@forEach
             }
             ensureScrubScratchCapacity(queue, queue.scrubScratchCount + 1)
             queue.scrubScratch[queue.scrubScratchCount++] = sequenceId
