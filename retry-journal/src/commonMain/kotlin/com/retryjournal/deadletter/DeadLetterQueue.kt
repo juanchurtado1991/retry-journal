@@ -11,6 +11,7 @@ import com.retryjournal.queue.disk.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
 import com.retryjournal.queue.disk.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.retryjournal.queue.platform.PlatformQueueFileLock
 import com.retryjournal.queue.platform.ioDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -196,8 +197,19 @@ class DeadLetterQueue(
     ): DeadLetterEntryId? {
         var existing: DeadLetterEntryId? = null
         storage.peekAllRaw { sequenceId, meta, entryBody ->
-            if (existing == null && requestMatches(method, url, headers, body, meta, entryBody)) {
-                existing = DeadLetterEntryId(sequenceId)
+            if (existing == null &&
+                requestMatches(
+                    method,
+                    url,
+                    headers,
+                    body,
+                    candidateMeta = meta,
+                    candidateBody = entryBody
+                )
+            ) {
+                existing = DeadLetterEntryId(
+                    value = sequenceId
+                )
             }
         }
         return existing
@@ -230,7 +242,13 @@ class DeadLetterQueue(
         }
         val matchedRightSlots = BooleanArray(right.size)
         for (leftIndex in left.names.indices) {
-            if (!hasMatchingHeaderSlot(left, right, leftIndex, matchedRightSlots)) {
+            if (!hasMatchingHeaderSlot(
+                    left,
+                    right,
+                    leftIndex,
+                    matchedRightSlots
+                )
+            ) {
                 return false
             }
         }
@@ -262,7 +280,9 @@ class DeadLetterQueue(
         storage.size()
     }
 
-    suspend fun peekAll(outResult: MutableCollection<DeadLetterEntry>): Int = withDlqLifecycle {
+    suspend fun peekAll(
+        outResult: MutableCollection<DeadLetterEntry>
+    ): Int = withDlqLifecycle {
         ensureRecovered()
         val before = outResult.size
         storage.peekAllRaw { sequenceId, meta, body ->
@@ -281,14 +301,27 @@ class DeadLetterQueue(
         ensureRecovered()
         retryMutex.withLock {
             withDlqOpsProcessLock {
-                val entry = storage.get(QueueEntryId(id.value)) ?: return@withDlqOpsProcessLock
+                val entry = storage.get(QueueEntryId(id.value))
+                    ?: return@withDlqOpsProcessLock
+
                 val journalFile = retryJournalPath(id.value)
-                DeadLetterRetryJournal.write(storage.fileSystem, journalFile, id.value, entry)
+                DeadLetterRetryJournal.write(
+                    storage.fileSystem,
+                    journalFile,
+                    idValue = id.value,
+                    entry
+                )
+
                 storage.remove(QueueEntryId(id.value))
                 try {
-                    mainQueue.enqueue(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+                    mainQueue.enqueue(
+                        entry.meta.method,
+                        entry.meta.url,
+                        entry.meta.headers,
+                        entry.body
+                    )
                     storage.fileSystem.delete(journalFile)
-                } catch (e: kotlinx.coroutines.CancellationException) {
+                } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
                     recoverSingleJournalFile(journalFile)
