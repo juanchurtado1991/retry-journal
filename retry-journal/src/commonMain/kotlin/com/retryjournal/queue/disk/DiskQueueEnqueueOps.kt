@@ -26,7 +26,7 @@ internal object DiskQueueEnqueueOps {
         return Ghost.encodeToBytes(meta)
     }
 
-    fun validateFieldSizes(queue: DiskQueue, metaBytes: ByteArray, body: ByteArray) {
+    fun validateFieldSizes(queue: DiskQueue, metaBytes: ByteArray, body: ByteArray, packedLength: Int) {
         if (metaBytes.size > queue.maxRecordFieldSize) {
             throw RecordTooLargeException(
                 DiskQueueConstants.META_FIELD_NAME,
@@ -41,7 +41,6 @@ internal object DiskQueueEnqueueOps {
                 queue.maxRecordFieldSize,
             )
         }
-        val packedLength = computePackedLiveRecordLength(metaBytes, body)
         if (packedLength > DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH) {
             throw RecordTooLargeException(
                 DiskQueueConstants.RECORD_FIELD_NAME,
@@ -91,8 +90,8 @@ internal fun encodeEnqueueMeta(
     headers: FrozenHttpHeaders,
 ): ByteArray = DiskQueueEnqueueOps.encodeMeta(method, url, headers)
 
-internal fun DiskQueue.validateEnqueueFieldSizes(metaBytes: ByteArray, body: ByteArray) =
-    DiskQueueEnqueueOps.validateFieldSizes(this, metaBytes, body)
+internal fun DiskQueue.validateEnqueueFieldSizes(metaBytes: ByteArray, body: ByteArray, packedLength: Int) =
+    DiskQueueEnqueueOps.validateFieldSizes(this, metaBytes, body, packedLength)
 
 internal fun computePackedLiveRecordLength(metaBytes: ByteArray, body: ByteArray): Int =
     DiskQueueEnqueueOps.computePackedLiveRecordLength(metaBytes, body)

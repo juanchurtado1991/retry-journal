@@ -131,8 +131,8 @@ class DiskQueue(
 
         val sequenceId = nextSequenceId
         val metaBytes = encodeEnqueueMeta(method, url, headers)
-        validateEnqueueFieldSizes(metaBytes, body)
         val packedLength = computePackedLiveRecordLength(metaBytes, body)
+        validateEnqueueFieldSizes(metaBytes, body, packedLength)
         appendLiveRecordLocked(sequenceId, metaBytes, body, packedLength)
 
         QueueEntryId(sequenceId)
