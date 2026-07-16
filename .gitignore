@@ -28,6 +28,11 @@ Desktop.ini
 .externalNativeBuild
 .cxx
 
+# Xcode — pure per-user IDE state (open tabs, window position), never project-relevant.
+# Scheme files under xcuserdata/ are intentionally still tracked (see retry-sample/iosApp/README.md
+# — the checked-in .xcodeproj is meant to open and run without any manual Xcode setup).
+UserInterfaceState.xcuserstate
+
 # Explicitly keep critical project meta
 !LICENSE
 !.github/
