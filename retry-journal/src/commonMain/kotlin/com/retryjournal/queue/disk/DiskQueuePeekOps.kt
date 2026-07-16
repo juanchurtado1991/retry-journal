@@ -3,6 +3,7 @@ package com.retryjournal.queue.disk
 import com.retryjournal.queue.QueueEntry
 import com.retryjournal.queue.QueueEntryId
 import com.retryjournal.queue.record.PackedIndexEntry
+import com.retryjournal.queue.record.RecordScanResult
 import kotlin.collections.iterator
 
 /** Read-side iteration helpers for [DiskQueue.peekAll], [DiskQueue.peekIds], and [DiskQueue.peekAllRaw]. */
@@ -27,18 +28,22 @@ internal object DiskQueuePeekOps {
         }
     }
 
+    /** Only the ids are returned — a CRC-only validity check (see [DiskQueue.isLiveEntryReadableAtLocked])
+     * is enough, no need to materialize/deserialize meta or body for entries whose content nobody asked for. */
     fun collectReadableEntryIdsLocked(
         queue: DiskQueue,
         limit: Int,
         outResult: MutableCollection<QueueEntryId>,
     ): Int {
+        val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
+        val scanResult = RecordScanResult()
         var count = 0
         for (sequenceId in queue.liveOffsetsBySequence.keys) {
             if (count >= limit) {
                 break
             }
             val packed = queue.liveOffsetsBySequence[sequenceId] ?: continue
-            if (queue.readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed)) != null) {
+            if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
                 outResult.add(QueueEntryId(sequenceId))
                 count++
             }
@@ -46,10 +51,14 @@ internal object DiskQueuePeekOps {
         return count
     }
 
+    /** A plain count — same reasoning as [collectReadableEntryIdsLocked] for using the
+     * CRC-only check instead of a full decode. */
     fun countReadableEntriesLocked(queue: DiskQueue): Int {
+        val scanBuffer = ByteArray(DiskQueueConstants.SCAN_CHUNK_SIZE)
+        val scanResult = RecordScanResult()
         var count = 0
         for ((sequenceId, packed) in queue.liveOffsetsBySequence) {
-            if (queue.readLiveEntryAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed)) != null) {
+            if (queue.isLiveEntryReadableAtLocked(sequenceId, PackedIndexEntry.unpackOffset(packed), scanBuffer, scanResult)) {
                 count++
             }
         }
