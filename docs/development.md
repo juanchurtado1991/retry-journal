@@ -110,39 +110,42 @@ assigned monotonically, and a legitimate packed value is never exactly `0L`) to 
 `long` per entry, no per-entry object at all — the sequence id is implicit in array position, so
 there's nothing to box or store. Measured with [JOL](https://github.com/openjdk/jol) (Java Object
 Layout) instead of guessing from nominal per-object sizes — roughly **90% less memory** than the
-`LinkedHashMap<Long, Long>` this replaced (~8-14 bytes/entry now vs. ~98 bytes/entry before).
+`LinkedHashMap<Long, Long>` this replaced.
+
+The array can carry some growth slack, so the real number depends on *how* it got filled:
+
+- **Recovery / compaction** (`replaceAllWith`) already knows the exact live count up front, so the
+  backing array is presized exactly to it — no growth slack at all, landing right on the 8
+  bytes/entry floor (one raw `long`, nothing else).
+- **Organic growth** (`enqueue()` calling `set()` one at a time, with no upfront size known) grows
+  the array 1.5x whenever it runs out of room, so it can carry up to ~1.5x slack right after a
+  growth event, settling back down as `compactLeadingDeadSpace()` reclaims space during ordinary
+  head-removal churn.
 
 Last measured (JVM, your numbers may vary slightly by JDK/architecture):
 
-| Backlog size | `LiveEntryIndex` memory |
-|---|---|
-| 100 | 1,080 bytes |
-| 1,000 | 8,248 bytes |
-| 10,000 | 131,128 bytes |
-| 50,000 | 524,344 bytes |
-| 100,000 | 1,048,632 bytes |
+| Backlog size | Via `replaceAllWith` (recovery/compaction) | Via sequential `set()` (organic growth) |
+|---|---|---|
+| 100 | 856 bytes (8.0 bytes/entry) | 1,136 bytes (10.2 bytes/entry) |
+| 1,000 | 8,056 bytes (8.0 bytes/entry) | 8,224 bytes (7.9 bytes/entry) |
+| 10,000 | 80,056 bytes (8.0 bytes/entry) | 93,040 bytes (9.4 bytes/entry) |
+| 50,000 | 400,056 bytes (8.0 bytes/entry) | 470,768 bytes (9.4 bytes/entry) |
+| 100,000 | 800,056 bytes (8.0 bytes/entry) | 1,059,152 bytes (11.8 bytes/entry) |
 
-Marginal cost per entry isn't a flat 8 bytes because the backing array grows by doubling: right
-after a growth event the array can be up to 2x bigger than the live count needs (the N=10,000 row
-landed just past a doubling to 16,384 slots, which is why it costs ~13 bytes/entry there instead
-of the usual ~8-10) — the excess gets reclaimed on the next `compactLeadingDeadSpace()` pass
-triggered by head-removal churn, not immediately.
+So a queue that reopens after a crash with 100,000 entries still pending loads its index at
+**~800KB, not ~1MB** — the realistic worst case (a real crash-recovery scan, or a compaction pass)
+lands right on the theoretical floor. A queue that grows to 100,000 organically via one `enqueue()`
+call at a time can carry a bit more slack depending on exactly where its last growth event landed
+relative to that particular backlog size — still ~9.3x smaller than the old `LinkedHashMap`, just
+not perfectly flat.
 
 **A full successful `flush()` does remove every delivered/dead-lettered entry from the index** —
-but the backing array never shrinks back down on removal; only growth ever resizes it. So the
-footprint after a full drain reflects the **peak** backlog size the index ever reached, not the
-current one, for the rest of that `DiskQueue` instance's lifetime:
-
-| Peak backlog reached | Bytes at peak | Bytes after draining to empty |
-|---|---|---|
-| 1,000 | 8,248 | 8,248 |
-| 10,000 | 131,128 | 131,128 |
-| 100,000 | 1,048,632 | 1,048,632 |
-
-In other words: a queue that once backed up to 100,000 entries and later drained to zero still
-holds onto ~1MB indefinitely, until the `DiskQueue` instance itself is garbage collected — but
-that's ~1MB, not the ~10MB the old `LinkedHashMap<Long, Long>` would have retained for the same
-peak.
+but the backing array never shrinks back down on removal; only growth (and `replaceAllWith`, which
+always reallocates to the true current span) ever resizes it. So between opens/compactions, the
+footprint after a full drain reflects the **peak** backlog size the index reached since the last
+`replaceAllWith`, not the current one — e.g. a queue that organically grew to 100,000 and later
+drained to zero still holds onto that ~1MB array until the next reopen or compaction reallocates
+it down, or the `DiskQueue` instance itself is garbage collected.
 
 Try the demo:
 

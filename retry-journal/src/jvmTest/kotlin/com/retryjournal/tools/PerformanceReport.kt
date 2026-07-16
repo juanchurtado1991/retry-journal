@@ -160,12 +160,30 @@ private fun reportMemoryGrowth() {
     }
 
     println()
-    println("=== LiveEntryIndex (DiskQueue.liveOffsetsBySequence's real, currently-deployed shape) ===")
+    println(
+        "=== LiveEntryIndex, built via sequential set() (organic growth — repeated enqueue(), " +
+            "one at a time, no upfront size known) ===",
+    )
     reportGrowth(sizes) { n ->
         val index = LiveEntryIndex()
         for (i in 0 until n) {
             index[i.toLong()] = PackedIndexEntry.pack(length = 512, offset = i.toLong() * 512L)
         }
+        index
+    }
+
+    println()
+    println(
+        "=== LiveEntryIndex, built via replaceAllWith() (recovery/compaction — the live count is " +
+            "known upfront, so the backing array is presized exactly to it, no doubling-growth slack) ===",
+    )
+    reportGrowth(sizes) { n ->
+        val source = LinkedHashMap<Long, Long>()
+        for (i in 0 until n) {
+            source[i.toLong()] = PackedIndexEntry.pack(length = 512, offset = i.toLong() * 512L)
+        }
+        val index = LiveEntryIndex()
+        index.replaceAllWith(source)
         index
     }
 }

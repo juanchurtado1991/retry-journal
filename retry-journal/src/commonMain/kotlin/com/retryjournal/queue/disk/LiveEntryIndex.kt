@@ -128,9 +128,26 @@ internal class LiveEntryIndex {
     /** Discards everything currently held and adopts [source] wholesale — [source]'s iteration
      * order must be ascending by sequence id (true for the `LinkedHashMap`s recovery/compaction
      * build, since both replay the on-disk file front-to-back). Used when [DiskQueue] adopts a
-     * fresh crash-recovery scan or a post-compaction index. */
+     * fresh crash-recovery scan or a post-compaction index.
+     *
+     * Reallocates the backing array to exactly the span [source] needs instead of growing into it
+     * one `set()` at a time — recovery/compaction are exactly the two moments this index's true
+     * current shape is known upfront, so this is also what actually reclaims memory after a real
+     * backlog drains: every reopen/compaction resizes down to the live span instead of carrying
+     * forward whatever peak a prior doubling-growth run left behind. */
     fun replaceAllWith(source: Map<Long, Long>) {
         clear()
+        val span = if (source.isEmpty()) {
+            0
+        } else {
+            val firstSequenceId = source.keys.first()
+            var lastSequenceId = firstSequenceId
+            for (sequenceId in source.keys) {
+                lastSequenceId = sequenceId
+            }
+            (lastSequenceId - firstSequenceId + 1).toInt()
+        }
+        packed = LongArray(maxOf(span, INITIAL_CAPACITY))
         for ((sequenceId, value) in source) {
             set(sequenceId, value)
         }
@@ -172,9 +189,12 @@ internal class LiveEntryIndex {
     }
 
     private fun grow(minCapacity: Int) {
+        // 1.5x instead of doubling — still amortized O(1) per insert (geometric growth), just a
+        // tighter worst-case memory bound (up to ~1.5x live-span overshoot instead of ~2x).
         // LongArray.copyOf zero-fills new slots, and EMPTY == 0L, so the grown tail is already
         // correctly "empty" with no extra work.
-        packed = packed.copyOf(maxOf(minCapacity, packed.size * 2))
+        val grown = packed.size + (packed.size shr 1)
+        packed = packed.copyOf(maxOf(minCapacity, grown))
     }
 
     companion object {
