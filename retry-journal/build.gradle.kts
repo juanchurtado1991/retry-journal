@@ -127,4 +127,4 @@ kover {
 
 apply(from = "../gradle/warnings.gradle.kts")
 apply(from = "../gradle/mutation-testing.gradle.kts")
-apply(from = "../gradle/memory-probe.gradle.kts")
+apply(from = "../gradle/performance-report.gradle.kts")
