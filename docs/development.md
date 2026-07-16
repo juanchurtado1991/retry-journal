@@ -23,7 +23,7 @@ coverage, not just JVM. A few tests are platform-specific by necessity (see the 
 | Coverage gate | `./gradlew ciCoverage` | Nothing | Kover line coverage on `commonMain`+`jvmMain`, ≥90% or the build fails |
 | Mutation testing | `./gradlew :retry-journal:pitestCore` | Nothing, but ~10 minutes | Whether the test suite's assertions are actually strong enough to catch a bug in `DiskQueue`/`RetryJournalEngine`/`DeadLetterQueue`/the record codecs, not just whether they execute the line. Manual/occasional — too slow for a per-commit gate. HTML report: `retry-journal/build/reports/pitest/index.html` |
 | Binary compatibility | `./gradlew :retry-journal:apiCheck :retry-worker:apiCheck` | macOS + Xcode for the full check (JVM/Android-only: `jvmApiCheck androidApiCheck`, no Mac needed) | Whether this change accidentally removed/changed a public API member. Fails with an exact diff if so. If the change is a deliberate, intentional API change, run `apiDump` instead of `apiCheck` to update the committed baseline under `api/` |
-| Memory probe | `./gradlew :retry-journal:memoryProbe` | Nothing | Real (JOL-measured) retained memory of `DiskQueue`'s in-memory live-entry index at increasing backlog sizes — not a test, a manual diagnostic. See [Memory probe](#memory-probe) below for the reference numbers and what they mean. |
+| Performance report | `./gradlew :retry-journal:performanceReport` | Nothing, ~1 minute | Real per-operation timing (JIT-warmed, median/p95 of hundreds of iterations) and memory (JOL) numbers for `DiskQueue` — not a test, a manual diagnostic. See [Performance report](#performance-report) below for the reference numbers and what they mean. |
 
 Full local pass before opening a PR:
 
@@ -43,16 +43,70 @@ commit the changed files under `api/`.
 **Not yet wired into CI:**
 - `connectedDebugAndroidTest` — needs a running emulator; GitHub Actions doesn't have one attached
   by default. Run it locally before a PR that touches `:retry-journal`.
-- `pitestCore` and `memoryProbe` — deliberately manual, see the table above.
+- `pitestCore` and `performanceReport` — deliberately manual, see the table above.
 
-### Memory probe
+### Performance report
+
+`./gradlew :retry-journal:performanceReport` — real speed and memory numbers for `DiskQueue`, not
+guesses. There's no JMH here: `me.champeau.jmh` applies the plain `java` Gradle plugin under the
+hood, which is fundamentally incompatible with a module that's both Kotlin Multiplatform and an
+Android library (verified — fails at configuration time). The timing harness in
+[`PerformanceReport.kt`](../retry-journal/src/jvmTest/kotlin/com/retryjournal/tools/PerformanceReport.kt)
+follows the same methodology by hand: a JIT warmup phase discarded before measuring, hundreds of
+measured iterations, median/p95 instead of one sample so a GC pause or one slow write doesn't set
+the headline number.
+
+#### Speed
+
+Single-operation cost (JIT-warmed, median of 500 iterations):
+
+| Operation | Median | p95 |
+|---|---|---|
+| `enqueue()` | 351µs | 505µs |
+| `peek()` | 100µs | 144µs |
+| `get(id)` | 76µs | 91µs |
+| `remove()` | 670µs | 861µs |
+
+`remove()` costs roughly 2x `enqueue()` — it appends a tombstone record (cheap) but then also
+bumps the on-disk generation counter, a second file write+flush that `enqueue()` doesn't pay.
+
+`size()`/`isEmpty()` scale with backlog size (both scrub the live set for corrupt entries first —
+`size()` does a second pass on top to count, `isEmpty()` doesn't, which is why it's consistently
+about half the cost):
+
+| Backlog size | `size()` median | `isEmpty()` median |
+|---|---|---|
+| 100 | 585µs | 301µs |
+| 1,000 | 3.80ms | 1.92ms |
+| 10,000 | 37.1ms | 18.2ms |
+
+**A real finding from measuring end-to-end, not just single operations:** draining a queue by
+hand through the public API (`while (!isEmpty()) { remove(peek().id) }`) is **not linear** —
+`isEmpty()`'s scrub rescans the entire *remaining* live set on every single call, so a full drain
+costs O(N²) in aggregate (594µs/entry at N=100 vs. 1.35ms/entry at N=1,000, still climbing).
+`RetryJournalEngine.flush()` does **not** do this: it drives `HeadReplayExecutor`, which calls
+`prepareHeadForReplay()`/`completeHeadReplay()` — those only scan forward from the head until they
+find one readable entry, never the whole set. Measured separately to confirm before reporting
+either number as "the real cost":
+
+| Backlog size | Naive (`isEmpty`+`peek`+`remove`) per entry | Realistic (`flush()`'s actual path) per entry |
+|---|---|---|
+| 100 | 594µs | 698µs |
+| 1,000 | 1.35ms (climbing) | 689µs |
+| 10,000 | *not run — already proven non-linear* | 636µs |
+
+The path `flush()` actually takes stays flat (~650-700µs/entry) regardless of backlog size — the
+naive public-API pattern someone might reach for instead does not. If you're ever writing code
+that manually drains a `DiskQueue` outside of `RetryJournalEngine`, prefer looping
+`prepareHeadForReplay()`-style head-only access over `isEmpty()`+`peek()`+`remove()` at scale.
+
+#### Memory
 
 `DiskQueue` keeps a `LinkedHashMap<Long, Long>` (`liveOffsetsBySequence`) in memory for the
 lifetime of every open queue — one entry per request still queued, mapping its sequence id to a
-packed disk offset/length. `./gradlew :retry-journal:memoryProbe` measures its *actual* retained
-size with [JOL](https://github.com/openjdk/jol) (Java Object Layout) instead of guessing from
-nominal per-object sizes, and compares it against a flat `LongArray` — the shape a
-zero-allocation redesign would use — as a reference point.
+packed disk offset/length. Measured with [JOL](https://github.com/openjdk/jol) (Java Object
+Layout) instead of guessing from nominal per-object sizes, and compared against a flat
+`LongArray` — the shape a zero-allocation redesign would use — as a reference point.
 
 Last measured (JVM, your numbers may vary slightly by JDK/architecture):
 
