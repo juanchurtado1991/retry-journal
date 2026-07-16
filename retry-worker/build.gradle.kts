@@ -17,7 +17,11 @@ ext.set(
 apply(from = "../gradle/publishing.gradle")
 
 mavenPublishing {
-    configure(KotlinMultiplatform(javadocJar = JavadocJar.Dokka("dokkaHtml")))
+    // See :retry-journal/build.gradle.kts's identical comment — Dokka V1's dokkaHtml task no
+    // longer runs under Dokka 2.2.0's default V2 mode, and an empty javadoc jar avoids the extra
+    // upload weight against Sonatype's monthly limit while still satisfying Maven Central's
+    // requirement that a `-javadoc.jar` exist.
+    configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty()))
 }
 
 apiValidation {

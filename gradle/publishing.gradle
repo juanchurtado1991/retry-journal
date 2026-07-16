@@ -5,7 +5,20 @@ def pomDescription = project.hasProperty('pomDescription')
     : "Offline-first HTTP sync engine for Kotlin Multiplatform"
 
 mavenPublishing {
-    publishToMavenCentral()
+    // SonatypeHost.DEFAULT (the no-arg overload) targets the legacy oss.sonatype.org OSSRH host.
+    // Accounts created after Sonatype's migration to the Central Portal only exist on
+    // central.sonatype.com and have no legacy staging profile, so the legacy host 404s/402s
+    // trying to create one. automaticRelease stays false (the default) — the deployment lands as
+    // pending in the Central Portal for manual publish, not auto-released.
+    //
+    // Passed as a String, not the SonatypeHost type: this file is a plain Groovy script applied
+    // via `apply(from:)`, and its compile-time classpath doesn't resolve plugin-provided classes
+    // the way a Kotlin DSL build script's does — importing SonatypeHost directly fails with
+    // "unable to resolve class" even though the plugin is applied. The String overload
+    // (`publishToMavenCentral(String, Boolean)`) exists in the plugin specifically for scripts
+    // like this one; it resolves the enum-like constant via `SonatypeHost.valueOf(...)` at
+    // runtime instead, once the plugin's classes are actually on the runtime classpath.
+    publishToMavenCentral("CENTRAL_PORTAL")
     signAllPublications()
     coordinates(project.group.toString(), project.name, project.version.toString())
 

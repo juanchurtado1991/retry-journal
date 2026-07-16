@@ -21,7 +21,11 @@ plugins {
 apply(from = "../gradle/publishing.gradle")
 
 mavenPublishing {
-    configure(KotlinMultiplatform(javadocJar = JavadocJar.Dokka("dokkaHtml")))
+    // Dokka 2.2.0 defaults to V2 mode, which removed the V1 `dokkaHtml` task this used to route
+    // through — and a full generated doc site isn't worth the extra upload weight against
+    // Sonatype's monthly limit anyway. JavadocJar.Empty() satisfies Maven Central's hard
+    // requirement that a `-javadoc.jar` exist, without generating or uploading real content.
+    configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty()))
 }
 
 apiValidation {
