@@ -1,14 +1,14 @@
 package com.retryjournal.deadletter
 
-import com.retryjournal.queue.disk.DiskQueue
-import com.retryjournal.queue.disk.DiskQueueConstants.CURRENT_DIRECTORY_PATH
-import com.retryjournal.queue.disk.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
-import com.retryjournal.queue.disk.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.retryjournal.queue.FrozenHttpHeaders
 import com.retryjournal.queue.FrozenHttpRequestMeta
 import com.retryjournal.queue.LifecycleGate
 import com.retryjournal.queue.QueueEntry
 import com.retryjournal.queue.QueueEntryId
+import com.retryjournal.queue.disk.DiskQueue
+import com.retryjournal.queue.disk.DiskQueueConstants.CURRENT_DIRECTORY_PATH
+import com.retryjournal.queue.disk.DiskQueueConstants.DLQ_OPS_LOCK_SUFFIX
+import com.retryjournal.queue.disk.DiskQueueConstants.RETRY_JOURNAL_SUFFIX
 import com.retryjournal.queue.platform.PlatformQueueFileLock
 import com.retryjournal.queue.platform.ioDispatcher
 import kotlinx.coroutines.sync.Mutex
@@ -38,7 +38,9 @@ class DeadLetterQueue(
         lifecycleGate.close()
     }
 
-    private suspend inline fun <T> withDlqLifecycle(crossinline block: suspend () -> T): T {
+    private suspend inline fun <T> withDlqLifecycle(
+        crossinline block: suspend () -> T
+    ): T {
         lifecycleGate.enter()
         try {
             return block()
@@ -47,15 +49,16 @@ class DeadLetterQueue(
         }
     }
 
-    private suspend inline fun <T> withDlqOpsProcessLock(crossinline block: suspend () -> T): T =
-        withContext(ioDispatcher) {
-            dlqOpsProcessLock.acquire()
-            try {
-                block()
-            } finally {
-                dlqOpsProcessLock.release()
-            }
+    private suspend inline fun <T> withDlqOpsProcessLock(
+        crossinline block: suspend () -> T
+    ): T = withContext(ioDispatcher) {
+        dlqOpsProcessLock.acquire()
+        try {
+            block()
+        } finally {
+            dlqOpsProcessLock.release()
         }
+    }
 
     private fun retryJournalPath(id: Long): Path =
         (storage.path.toString() + RETRY_JOURNAL_SUFFIX + id).toPath()
