@@ -7,32 +7,14 @@
 > [!NOTE]
 > This is a dedicated **HTTP outbox queue**, not a general-purpose database synchronizer (like Room/SQLDelight state sync). It focuses purely on guaranteeing HTTP delivery.
 
-<p align="center">
-  <img src="docs/demo.gif" alt="retry-journal running on Android, iOS, and Desktop — offline queue and sync in action" width="800">
-</p>
+![retry-journal running on Android, iOS, and Desktop — offline queue and sync in action](docs/demo.gif)
 
-<table align="center" width="800">
-  <tr>
-    <th>Without retry-journal</th>
-    <th>With retry-journal</th>
-  </tr>
-  <tr>
-    <td>User offline → request fails, data lost</td>
-    <td>Request <strong>queued on disk</strong>, clear "saved for later" UX</td>
-  </tr>
-  <tr>
-    <td>App killed mid-request → maybe nothing persisted</td>
-    <td><strong>Crash-safe</strong> append-only file + CRC recovery</td>
-  </tr>
-  <tr>
-    <td>Background worker + UI both sync → duplicate POSTs</td>
-    <td><strong>Cross-process locks</strong> + replay claims</td>
-  </tr>
-  <tr>
-    <td>Server returns 400 → infinite retry loop</td>
-    <td><strong>Dead letter queue</strong> — inspect, retry, or discard</td>
-  </tr>
-</table>
+| Without retry-journal | With retry-journal |
+|---|---|
+| User offline → request fails, data lost | Request **queued on disk**, clear "saved for later" UX |
+| App killed mid-request → maybe nothing persisted | **Crash-safe** append-only file + CRC recovery |
+| Background worker + UI both sync → duplicate POSTs | **Cross-process locks** + replay claims |
+| Server returns 400 → infinite retry loop | **Dead letter queue** — inspect, retry, or discard |
 
 ---
 
@@ -94,3 +76,5 @@ See it in action: [sample app](retry-sample/README.md) — a working Compose Mul
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+####
