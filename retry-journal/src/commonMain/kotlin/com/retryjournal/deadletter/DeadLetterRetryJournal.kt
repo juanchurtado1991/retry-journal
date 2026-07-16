@@ -31,7 +31,7 @@ internal object DeadLetterRetryJournal {
      * exists to recover from) could otherwise hand a garbage length to `readUtf8`/`readByteArray`
      * or to `ArrayList(headersSize)`. The per-field bound alone doesn't cap the *sum* across many
      * headers in one journal, so a corrupted-but-in-range header count can still add up to a real
-     * [OutOfMemoryError] — a [Throwable], not an [Exception] — which is why the catch below is
+     * OutOfMemoryError — a [Throwable], not an [Exception] — which is why the catch below is
      * [Throwable], matching [RecordCodec][com.retryjournal.queue.record.RecordCodec]'s own
      * `Ghost.deserialize` guard for the same "untrusted crash artifact, fail closed" reasoning. */
     fun read(fileSystem: FileSystem, file: Path): DeadLetterRetryJournalData? {
@@ -76,7 +76,9 @@ internal object DeadLetterRetryJournal {
         return true
     }
 
-    private fun BufferedSource.readLengthPrefixedUtf8(totalBytes: ByteBudget): String? {
+    private fun BufferedSource.readLengthPrefixedUtf8(
+        totalBytes: ByteBudget
+    ): String? {
         val length = readInt()
         totalBytes.add(length) ?: return null
         if (length !in 0..MAX_RECORD_FIELD_SIZE) {
@@ -85,7 +87,9 @@ internal object DeadLetterRetryJournal {
         return readUtf8(length.toLong())
     }
 
-    private fun BufferedSource.readHeadersBlock(totalBytes: ByteBudget): FrozenHttpHeaders? {
+    private fun BufferedSource.readHeadersBlock(
+        totalBytes: ByteBudget
+    ): FrozenHttpHeaders? {
         val headersSize = readInt()
         if (headersSize !in 0..MAX_HEADER_COUNT) {
             return null

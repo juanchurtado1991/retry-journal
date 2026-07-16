@@ -33,7 +33,9 @@ internal class HttpReplayer {
      * queue. Replaying through a client that re-queues its own failures would duplicate every
      * entry that fails again mid-replay — see [REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE]. */
     fun assertSafeToReplayWith(client: HttpClient) {
-        check(client.pluginOrNull(RetryJournalOfflineQueuePlugin) == null) { REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE }
+        check(client.pluginOrNull(RetryJournalOfflineQueuePlugin) == null) {
+            REPLAY_CLIENT_HAS_QUEUE_PLUGIN_MESSAGE
+        }
     }
 
     suspend fun send(client: HttpClient, entry: QueueEntry): HttpStatusCode {
@@ -55,7 +57,9 @@ internal class HttpReplayer {
 
     private fun HttpRequestBuilder.configureReplayRequest(entry: QueueEntry) {
         method = parseMethodOrFallback(entry.meta.method)
-        val contentType = applyHeaders(entry.meta.headers)?.let(::parseContentTypeOrNull)
+        val contentType = applyHeaders(entry.meta.headers)
+            ?.let(::parseContentTypeOrNull)
+
         setBody(buildReplayBody(entry.body, contentType))
     }
 
@@ -126,15 +130,27 @@ internal class HttpReplayer {
         }
         val segments = mutableListOf<String>()
         var start = 0
-        var separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR, start)
+        var separatorIndex = value.indexOf(
+            string = HEADER_MULTI_VALUE_SEPARATOR,
+            startIndex = start
+        )
+
         while (start <= value.length) {
-            val end = if (separatorIndex < 0) value.length else separatorIndex
+            val end = if (separatorIndex < 0) {
+                value.length
+            } else {
+                separatorIndex
+            }
+
             segments.add(value.substring(start, end))
             if (separatorIndex < 0) {
                 break
             }
             start = separatorIndex + 1
-            separatorIndex = value.indexOf(HEADER_MULTI_VALUE_SEPARATOR, start)
+            separatorIndex = value.indexOf(
+                string = HEADER_MULTI_VALUE_SEPARATOR,
+                startIndex = start
+            )
         }
         return segments
     }

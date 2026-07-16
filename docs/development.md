@@ -22,6 +22,7 @@ coverage, not just JVM. A few tests are platform-specific by necessity (see the 
 | Everything above except iOS/instrumented | `./gradlew ciTestJvm` | Nothing | What CI's `linux` job runs on every push |
 | Coverage gate | `./gradlew ciCoverage` | Nothing | Kover line coverage on `commonMain`+`jvmMain`, ≥90% or the build fails |
 | Mutation testing | `./gradlew :retry-journal:pitestCore` | Nothing, but ~10 minutes | Whether the test suite's assertions are actually strong enough to catch a bug in `DiskQueue`/`RetryJournalEngine`/`DeadLetterQueue`/the record codecs, not just whether they execute the line. Manual/occasional — too slow for a per-commit gate. HTML report: `retry-journal/build/reports/pitest/index.html` |
+| Binary compatibility | `./gradlew :retry-journal:apiCheck :retry-worker:apiCheck` | macOS + Xcode for the full check (JVM/Android-only: `jvmApiCheck androidApiCheck`, no Mac needed) | Whether this change accidentally removed/changed a public API member. Fails with an exact diff if so. If the change is a deliberate, intentional API change, run `apiDump` instead of `apiCheck` to update the committed baseline under `api/` |
 
 Full local pass before opening a PR:
 
@@ -29,9 +30,14 @@ Full local pass before opening a PR:
 ./gradlew ciTestJvm ciCoverage ciCompile
 ```
 
-Add `:retry-journal:iosSimulatorArm64Test` and `:retry-journal:connectedDebugAndroidTest` on top
-of that if you touched anything in `:retry-journal` and have a Mac / a booted emulator handy —
-CI runs the iOS one for you on every push, but not the Android instrumented one (see below).
+Add `:retry-journal:iosSimulatorArm64Test`, `:retry-journal:connectedDebugAndroidTest`, and
+`:retry-journal:klibApiCheck` on top of that if you touched anything in `:retry-journal` and have
+a Mac / a booted emulator handy — CI runs the iOS test and `klibApiCheck` for you on every push
+(they're in the macOS-only `ios` job), but not the Android instrumented one (see below).
+
+If you intentionally changed a public API and `apiCheck` is now failing on purpose, run
+`./gradlew :retry-journal:apiDump :retry-worker:apiDump` to update the committed baseline, then
+commit the changed files under `api/`.
 
 **Not yet wired into CI:**
 - `connectedDebugAndroidTest` — needs a running emulator; GitHub Actions doesn't have one attached

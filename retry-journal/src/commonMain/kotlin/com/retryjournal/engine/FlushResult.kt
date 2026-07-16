@@ -6,7 +6,8 @@ package com.retryjournal.engine
  * when the queue was fully drained (every remaining entry either delivered or dead-lettered).
  *
  * [persistenceFailed] is true when the server accepted a replay (2xx) or a dead-letter was
- * durably recorded but local removal did not finish — a [DeliveryJournal] was written so the
+ * durably recorded but local removal did not finish
+ * [com.retryjournal.queue.DeliveryJournal] was written so the
  * next `flush()` retries removal without re-sending HTTP.
  */
 data class FlushResult(

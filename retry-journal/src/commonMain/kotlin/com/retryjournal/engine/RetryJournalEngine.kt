@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.withLock
  */
 class RetryJournalEngine(
     private val queue: DiskQueue,
-    private val deadLetterQueue: DeadLetterQueue,
+    deadLetterQueue: DeadLetterQueue,
 ) {
     private val executor = HeadReplayExecutor(queue, deadLetterQueue, HttpReplayer())
     private val replayMutex = Mutex()

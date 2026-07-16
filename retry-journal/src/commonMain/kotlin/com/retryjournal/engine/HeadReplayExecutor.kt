@@ -2,12 +2,16 @@ package com.retryjournal.engine
 
 import com.retryjournal.client.OfflineQueuedException
 import com.retryjournal.deadletter.DeadLetterQueue
+import com.retryjournal.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND
+import com.retryjournal.engine.SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND
+import com.retryjournal.engine.SyncEngineConstants.RETRY_WORTHY_CLIENT_ERROR_STATUSES
 import com.retryjournal.queue.DeliveryJournal
-import com.retryjournal.queue.disk.DiskQueue
-import com.retryjournal.queue.disk.DiskQueueConstants
 import com.retryjournal.queue.HeadReplayPrepareResult
 import com.retryjournal.queue.QueueEntry
 import com.retryjournal.queue.QueueEntryId
+import com.retryjournal.queue.disk.DiskQueue
+import com.retryjournal.queue.disk.DiskQueueConstants
+import com.retryjournal.queue.disk.DiskQueueConstants.REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS
 import com.retryjournal.queue.inspectHeadLocked
 import io.ktor.client.HttpClient
 import io.ktor.http.HttpStatusCode
@@ -35,15 +39,15 @@ internal class HeadReplayExecutor(
     suspend fun resolveHeadState(): HeadEntryState = queue.withQueueLock {
         val snapshot = queue.inspectHeadLocked()
         val entry = snapshot.entry
-        if (entry == null) {
-            return@withQueueLock if (snapshot.blockedByClaim) {
+            ?: return@withQueueLock if (snapshot.blockedByClaim) {
                 HeadEntryState.Blocked
             } else {
                 HeadEntryState.Absent
             }
-        }
+
         mapJournalOutcome(snapshot.journalOutcome)?.let { outcome ->
-            return@withQueueLock HeadEntryState.AwaitingLocalRemoval(entry, outcome)
+            return@withQueueLock HeadEntryState
+                .AwaitingLocalRemoval(entry, outcome)
         }
         if (snapshot.blockedByClaim) {
             return@withQueueLock HeadEntryState.Blocked
@@ -72,12 +76,20 @@ internal class HeadReplayExecutor(
 
                 is HeadReplayPrepareResult.Ready -> {
                     val entry = prepared.entry
-                    val status = replayEntryOrStop(client, entry) ?: return FlushResult(
+                    val status = replayEntryOrStop(client, entry)
+                        ?: return FlushResult(
+                            delivered,
+                            deadLettered,
+                            stoppedEarly = true
+                        )
+
+                    when (val outcome = applyReplayOutcome(
+                        status,
+                        entry,
+                        onProgress,
                         delivered,
-                        deadLettered,
-                        stoppedEarly = true,
-                    )
-                    when (val outcome = applyReplayOutcome(status, entry, onProgress, delivered, deadLettered)) {
+                        deadLettered
+                    )) {
                         is ReplayOutcome.Continue -> {
                             delivered = outcome.delivered
                             deadLettered = outcome.deadLettered
@@ -143,14 +155,22 @@ internal class HeadReplayExecutor(
     ): ReplayOutcome {
         val pending = resolvePendingOutcome(entry)
         return when {
-            status.isSuccess() && pending == DeliveryOutcome.Delivered ->
+            status.isSuccess() && pending == DeliveryOutcome.Delivered -> {
                 finishDeliveredFromJournal(entry, onProgress, delivered, deadLettered)
-            status.isSuccess() ->
+            }
+
+            status.isSuccess() -> {
                 handleSuccessfulDelivery(entry, delivered, deadLettered, onProgress)
-            shouldDeadLetter(status) && pending == DeliveryOutcome.DeadLettered ->
+            }
+
+            shouldDeadLetter(status) && pending == DeliveryOutcome.DeadLettered -> {
                 finishDeadLetteredFromJournal(entry, onProgress, delivered, deadLettered)
-            shouldDeadLetter(status) ->
+            }
+
+            shouldDeadLetter(status) -> {
                 handleDeadLetterDelivery(entry, delivered, deadLettered, onProgress)
+            }
+
             else -> {
                 queue.abortHeadReplayClaim()
                 ReplayOutcome.Stop(delivered, deadLettered)
@@ -185,12 +205,26 @@ internal class HeadReplayExecutor(
                 entry.body,
             )
         ) {
-            deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+            deadLetterQueue.record(
+                entry.meta.method,
+                entry.meta.url,
+                entry.meta.headers,
+                entry.body
+            )
         }
+
         if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+            ReplayOutcome.Stop(
+                delivered,
+                deadLettered,
+                persistenceFailed = true
+            )
         } else {
-            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            DeliveryJournal.delete(
+                queue.fileSystem,
+                queue.path,
+                entry.id.sequenceId
+            )
             onProgress(FlushProgress.DeadLettered(entry.id))
             ReplayOutcome.Continue(delivered, deadLettered + 1)
         }
@@ -215,9 +249,17 @@ internal class HeadReplayExecutor(
             DeliveryJournal.OUTCOME_DELIVERED,
         )
         if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+            ReplayOutcome.Stop(
+                delivered,
+                deadLettered,
+                persistenceFailed = true
+            )
         } else {
-            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            DeliveryJournal.delete(
+                queue.fileSystem,
+                queuePath = queue.path,
+                entry.id.sequenceId
+            )
             onProgress(FlushProgress.Delivered(entry.id))
             ReplayOutcome.Continue(delivered + 1, deadLettered)
         }
@@ -241,11 +283,26 @@ internal class HeadReplayExecutor(
             entry.id.sequenceId,
             DeliveryJournal.OUTCOME_DEAD_LETTERED,
         )
-        deadLetterQueue.record(entry.meta.method, entry.meta.url, entry.meta.headers, entry.body)
+
+        deadLetterQueue.record(
+            entry.meta.method,
+            entry.meta.url,
+            entry.meta.headers,
+            entry.body
+        )
+
         if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+            ReplayOutcome.Stop(
+                delivered,
+                deadLettered,
+                persistenceFailed = true
+            )
         } else {
-            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            DeliveryJournal.delete(
+                queue.fileSystem,
+                queuePath = queue.path,
+                entry.id.sequenceId
+            )
             onProgress(FlushProgress.DeadLettered(entry.id))
             ReplayOutcome.Continue(delivered, deadLettered + 1)
         }
@@ -263,7 +320,7 @@ internal class HeadReplayExecutor(
     ): T = coroutineScope {
         val renewalJob = launch {
             while (isActive) {
-                delay(DiskQueueConstants.REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS)
+                delay(REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS)
                 queue.renewHeadReplayClaim(entryId)
             }
         }
@@ -304,7 +361,7 @@ internal class HeadReplayExecutor(
 
     private fun shouldDeadLetter(status: HttpStatusCode): Boolean {
         val value = status.value
-        return value in SyncEngineConstants.CLIENT_ERROR_STATUS_LOWER_BOUND..SyncEngineConstants.CLIENT_ERROR_STATUS_UPPER_BOUND &&
-            value !in SyncEngineConstants.RETRY_WORTHY_CLIENT_ERROR_STATUSES
+        return value in CLIENT_ERROR_STATUS_LOWER_BOUND..CLIENT_ERROR_STATUS_UPPER_BOUND &&
+            value !in RETRY_WORTHY_CLIENT_ERROR_STATUSES
     }
 }
