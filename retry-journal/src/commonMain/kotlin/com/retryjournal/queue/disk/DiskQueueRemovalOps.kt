@@ -55,8 +55,5 @@ internal object DiskQueueRemovalOps {
 internal fun DiskQueue.removeLocked(targetSequenceId: Long) =
     DiskQueueRemovalOps.removeLocked(this, targetSequenceId)
 
-internal fun DiskQueue.truncateFileLocked(offset: Long) =
-    DiskQueueRemovalOps.truncateFileLocked(this, offset)
-
 internal fun DiskQueue.assertNotClaimedForRemoval(targetSequenceId: Long) =
     DiskQueueRemovalOps.assertNotClaimedForReplay(this, targetSequenceId)

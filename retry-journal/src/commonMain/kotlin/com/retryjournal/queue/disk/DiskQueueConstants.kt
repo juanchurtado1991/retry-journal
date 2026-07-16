@@ -79,7 +79,8 @@ internal object DiskQueueConstants {
     /** Claims with timestamps far in the future (corrupt clock / file) are treated as stale. */
     const val REPLAY_CLAIM_CLOCK_SKEW_MILLIS: Long = 60_000L
 
-    /** How often [RetryJournalEngine] refreshes an active [com.retryjournal.queue.ReplayClaim] while a replay HTTP
+    /** How often [com.retryjournal.engine.RetryJournalEngine] refreshes an active
+     *  [com.retryjournal.queue.ReplayClaim] while a replay HTTP
      * round-trip is in flight — keeps slow uploads from outliving the stale window. */
     const val REPLAY_CLAIM_RENEWAL_INTERVAL_MILLIS: Long = 5L * 60L * 1000L
 

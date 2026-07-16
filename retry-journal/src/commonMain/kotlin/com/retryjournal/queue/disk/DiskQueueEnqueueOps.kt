@@ -72,7 +72,9 @@ internal object DiskQueueEnqueueOps {
             sink.flush()
 
             queue.fileLength += written
-            queue.liveOffsetsBySequence[sequenceId] = PackedIndexEntry.pack(written, offsetBefore)
+            queue.liveOffsetsBySequence[sequenceId] = PackedIndexEntry
+                .pack(written, offsetBefore)
+
             queue.nextSequenceId++
             DiskQueueIndexSync.bumpGenerationLocked(queue)
         } catch (e: IOException) {
@@ -83,7 +85,7 @@ internal object DiskQueueEnqueueOps {
     }
 }
 
-internal fun DiskQueue.encodeEnqueueMeta(
+internal fun encodeEnqueueMeta(
     method: String,
     url: String,
     headers: FrozenHttpHeaders,
@@ -92,7 +94,7 @@ internal fun DiskQueue.encodeEnqueueMeta(
 internal fun DiskQueue.validateEnqueueFieldSizes(metaBytes: ByteArray, body: ByteArray) =
     DiskQueueEnqueueOps.validateFieldSizes(this, metaBytes, body)
 
-internal fun DiskQueue.computePackedLiveRecordLength(metaBytes: ByteArray, body: ByteArray): Int =
+internal fun computePackedLiveRecordLength(metaBytes: ByteArray, body: ByteArray): Int =
     DiskQueueEnqueueOps.computePackedLiveRecordLength(metaBytes, body)
 
 internal fun DiskQueue.appendLiveRecordLocked(

@@ -100,9 +100,6 @@ internal object DiskQueueIndexSync {
 internal fun DiskQueue.refreshIndexIfNeededLocked() =
     DiskQueueIndexSync.refreshIfNeededLocked(this)
 
-internal fun DiskQueue.captureDiskMetadataLocked() =
-    DiskQueueIndexSync.captureMetadataLocked(this)
-
 internal fun DiskQueue.bumpDiskGenerationLocked() =
     DiskQueueIndexSync.bumpGenerationLocked(this)
 

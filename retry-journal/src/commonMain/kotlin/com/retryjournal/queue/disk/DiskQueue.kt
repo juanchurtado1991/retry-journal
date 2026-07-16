@@ -149,7 +149,10 @@ class DiskQueue(
 
         val scan = scanFirstReadableHeadLocked()
         finalizeHeadScrubIfNeededLocked(scan.removedAny)
-        DeliveryJournal.clearStaleJournalsLocked(this, scan.entry?.id?.sequenceId)
+        DeliveryJournal.clearStaleJournalsLocked(
+            queue = this,
+            headSequenceId = scan.entry?.id?.sequenceId
+        )
 
         val entry = scan.entry
         if (entry == null) {
