@@ -1,5 +1,8 @@
 package com.retryjournal.client
 
+import com.retryjournal.client.ClientConstants.BODY_CAPTURE_FAILED_MESSAGE
+import com.retryjournal.client.ClientConstants.BODY_TOO_LARGE_MESSAGE
+import com.retryjournal.client.ClientConstants.BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX
 import com.retryjournal.client.ClientConstants.HEADER_SCRATCH_INITIAL_CAPACITY
 import com.retryjournal.queue.FrozenHttpHeaders
 import io.ktor.client.request.HttpRequestBuilder
@@ -10,6 +13,7 @@ import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.close
 import io.ktor.utils.io.core.readBytes
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -22,11 +26,13 @@ import okio.Buffer
  * Header capture avoids [Map] entirely: [captureHeaders] writes into reusable scratch arrays on
  * this instance and snapshots them into [FrozenHttpHeaders] with a single [Array.copyOf] per
  * axis — no hash buckets, no map-entry objects. Those scratch arrays are shared across every
- * request the owning [RetryJournalOfflineQueuePlugin] ever captures, so [capture] serializes with
- * [mutex]: one `HttpClient` instance routinely has multiple requests in flight on different
- * coroutines, and without the lock two failing requests racing through [captureHeaders] at once
- * would interleave writes into the same arrays and persist one request's headers under another's
- * queued entry.
+ * request the owning [RetryJournalOfflineQueuePlugin] ever captures, so only [captureHeaders]
+ * serializes with [mutex]: one `HttpClient` instance routinely has multiple requests in flight on
+ * different coroutines, and without the lock two failing requests racing through [captureHeaders]
+ * at once would interleave writes into the same arrays and persist one request's headers under
+ * another's queued entry. [captureBody] touches no shared state, so it deliberately runs *outside*
+ * the lock — otherwise one slow multipart/streaming body would block every other concurrently
+ * failing request's header capture for no reason.
  */
 internal class RequestCapture(
     private val maxBodyBytes: Int,
@@ -37,11 +43,11 @@ internal class RequestCapture(
 
     suspend fun capture(
         request: HttpRequestBuilder
-    ): Pair<FrozenHttpHeaders, ByteArray> = mutex.withLock {
+    ): Pair<FrozenHttpHeaders, ByteArray> {
         val outgoingBody = request.body as? OutgoingContent
         val body = captureBody(outgoingBody)
-        val headers = captureHeaders(request, outgoingBody)
-        headers to body
+        val headers = mutex.withLock { captureHeaders(request, outgoingBody) }
+        return headers to body
     }
 
     private fun captureHeaders(
@@ -126,49 +132,57 @@ internal class RequestCapture(
 
     @Suppress("DEPRECATION")
     private suspend fun captureBody(content: OutgoingContent?): ByteArray {
-        if (content == null) {
-            return ClientConstants.EMPTY_BODY
-        }
+        if (content == null) { return ClientConstants.EMPTY_BODY }
         return when (content) {
             is OutgoingContent.ByteArrayContent -> captureByteArrayBody(content)
             is OutgoingContent.NoContent -> ClientConstants.EMPTY_BODY
             is OutgoingContent.ReadChannelContent -> captureReadChannelBody(content)
             is OutgoingContent.WriteChannelContent -> captureWriteChannelBody(content)
             else -> throw BodyCaptureException(
-                ClientConstants.BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX + content::class.simpleName,
+                BODY_TYPE_UNSUPPORTED_MESSAGE_PREFIX + content::class.simpleName,
             )
         }
     }
 
     private fun captureByteArrayBody(content: OutgoingContent.ByteArrayContent): ByteArray {
-        if (content.bytes().size > maxBodyBytes) {
-            throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
-        }
+        if (content.bytes().size > maxBodyBytes) { throw BodyCaptureException(BODY_TOO_LARGE_MESSAGE) }
         return content.bytes().copyOf()
     }
 
     private suspend fun captureReadChannelBody(content: OutgoingContent.ReadChannelContent): ByteArray =
         try {
             readChannelUpTo(content.readFrom())
+        } catch (cause: CancellationException) {
+            throw cause
         } catch (cause: BodyCaptureException) {
             throw cause
         } catch (cause: Throwable) {
-            throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
+            throw BodyCaptureException(BODY_CAPTURE_FAILED_MESSAGE, cause)
         }
 
     private suspend fun captureWriteChannelBody(content: OutgoingContent.WriteChannelContent): ByteArray {
         val channel = ByteChannel()
         return coroutineScope {
-            val writeJob = launch { content.writeTo(channel) }
+            val writeJob = launch {
+                try {
+                    content.writeTo(channel)
+                } finally {
+                    channel.close()
+                }
+            }
             try {
+                val result = readChannelUpTo(channel)
                 writeJob.join()
-                readChannelUpTo(channel)
+                result
+            } catch (cause: CancellationException) {
+                writeJob.cancel()
+                throw cause
             } catch (cause: BodyCaptureException) {
+                writeJob.cancel()
                 throw cause
             } catch (cause: Throwable) {
-                throw BodyCaptureException(ClientConstants.BODY_CAPTURE_FAILED_MESSAGE, cause)
-            } finally {
-                channel.close()
+                writeJob.cancel()
+                throw BodyCaptureException(BODY_CAPTURE_FAILED_MESSAGE, cause)
             }
         }
     }
@@ -194,13 +208,13 @@ internal class RequestCapture(
         }
         val remainingBudget = maxBodyBytes - total
         if (remainingBudget <= 0) {
-            throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
+            throw BodyCaptureException(BODY_TOO_LARGE_MESSAGE)
         }
         val toRead = minOf(available, remainingBudget).toLong()
         val bytes = channel.readRemaining(toRead).readBytes()
         val newTotal = total + bytes.size
         if (newTotal > maxBodyBytes) {
-            throw BodyCaptureException(ClientConstants.BODY_TOO_LARGE_MESSAGE)
+            throw BodyCaptureException(BODY_TOO_LARGE_MESSAGE)
         }
         buffer.write(bytes)
         return newTotal

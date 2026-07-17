@@ -17,12 +17,18 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okio.FileSystem
 import okio.ForwardingFileSystem
 import okio.Path
@@ -291,6 +297,77 @@ class RetryJournalOfflineQueuePluginTest {
 
         assertEquals("disk full", error.message)
         assertTrue(failingQueue.isEmpty())
+    }
+
+    @Test
+    fun `cancelling capture mid body-write surfaces as CancellationException not BodyCaptureException`() = runBlocking {
+        // Regression: captureWriteChannelBody/captureReadChannelBody used to catch Throwable
+        // without excluding CancellationException, wrapping a genuine coroutine cancellation
+        // (the caller's scope tearing down mid-capture, a withTimeout upstream, etc.) as a
+        // business-logic BodyCaptureException instead of letting it propagate and cancel normally.
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+        val captureStarted = CompletableDeferred<Unit>()
+        val hangingBody = object : io.ktor.http.content.OutgoingContent.WriteChannelContent() {
+            override suspend fun writeTo(channel: ByteWriteChannel) {
+                captureStarted.complete(Unit)
+                awaitCancellation()
+            }
+        }
+
+        var observed: Throwable? = null
+        val job = launch {
+            try {
+                client.post("https://example.com/mutations") { setBody(hangingBody) }
+            } catch (e: Throwable) {
+                observed = e
+            }
+        }
+        captureStarted.await()
+        job.cancelAndJoin()
+
+        assertTrue(observed is CancellationException, "expected CancellationException, got $observed")
+        assertNull(diskQueue.peek(), "a cancelled capture must not enqueue a partial entry")
+    }
+
+    @Test
+    fun `a slow body capture does not block a concurrent request's header capture`() = runBlocking {
+        // Regression: capture() used to hold its mutex for the whole call, including the body
+        // read — but only captureHeaders touches the shared scratch arrays the mutex protects.
+        // A slow multipart/streaming body from one failing request used to block every other
+        // concurrently failing request's header capture for no reason.
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+        val slowBodyStarted = CompletableDeferred<Unit>()
+        val releaseSlowBody = CompletableDeferred<Unit>()
+        val slowBody = object : io.ktor.http.content.OutgoingContent.WriteChannelContent() {
+            override suspend fun writeTo(channel: ByteWriteChannel) {
+                slowBodyStarted.complete(Unit)
+                releaseSlowBody.await()
+            }
+        }
+
+        val slowJob = launch {
+            try {
+                client.post("https://example.com/slow") { setBody(slowBody) }
+            } catch (_: OfflineQueuedException) {
+                // Expected once releaseSlowBody completes below.
+            }
+        }
+        slowBodyStarted.await()
+
+        // While the slow request's body capture is still blocked, a concurrent header-only
+        // request must still complete quickly instead of queueing up behind it.
+        withTimeout(5_000) {
+            assertFailsWith<OfflineQueuedException> {
+                client.post("https://example.com/fast") { header("X-Fast", "1") }
+            }
+        }
+
+        releaseSlowBody.complete(Unit)
+        slowJob.join()
     }
 
     @Test
