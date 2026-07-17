@@ -19,8 +19,8 @@ graph TD
     subgraph Disk Storage
         DiskQueue -->|Appends| QueueFile[queue.bin]
         DiskQueue -.->|Platform Lock| LockFile[queue.bin.lock]
-        Engine -->|Temporary Replay Claim| ClaimFile[queue.bin.claim]
-        Engine -->|Durability Journal| JournalFile[queue.bin.journal.N]
+        Engine -->|Temporary Replay Claim| ClaimFile[queue.bin.replay-claim]
+        Engine -->|Durability Journal| JournalFile[queue.bin.delivery-pending.N]
     end
 
     subgraph Outbox Execution
@@ -64,7 +64,7 @@ Because background sync workers and your main app UI can run concurrently on dif
 ```
 
 ### Platform Queue File Locks
-Multi-platform file locking (`PlatformQueueFileLock`) ensures only one execution context can write to or read from the queue. On JVM and Android, this is backed by an intra-JVM reentrant lock and a cooperative OS-level file channel lock (`FileChannel.tryLock()`).
+Multi-platform file locking (`PlatformQueueFileLock`) ensures only one execution context can write to or read from the queue. On JVM and Android, this is backed by an intra-JVM `ReentrantLock` (so threads in the same process block instead of racing) plus a blocking OS-level file channel lock (`FileChannel.lock()`) that arbitrates across separate processes.
 
 ### Canonical Path Mapping
 File paths can be referenced in multiple ways (e.g. symlinks, directory aliases, or case-insensitive path naming). 
@@ -102,17 +102,17 @@ Because sequence IDs are monotonic, a single entry stuck at the head of the queu
 During network flushes, Ktor requests are sent over the wire. If a connection hangs, it is critical that we do not send duplicate requests (at-least-once / at-most-once delivery control).
 
 ### Head Replay Claims
-Before replaying a request, `RetryJournalEngine` claims the head of the queue by writing a `.claim` file to disk containing the current process ID and timestamp.
+Before replaying a request, `RetryJournalEngine` claims the head of the queue by writing a `.replay-claim` file to disk containing the claimed sequence id and a timestamp — no process ID; the file's own existence next to the queue is what other processes check.
 * Other processes or background workers seeing this claim will skip flushing the head, preventing duplicate HTTP requests.
 * Claims are renewed concurrently in the background for slow uploads.
 * Safe stale checks protect against wall-clock jumps (e.g. NTP updates) to ensure claims do not lock up the queue permanently.
 
 ### Outcome Journals
 To prevent state leaks if the app crashes *after* an HTTP request succeeds but *before* the record is removed from the local queue:
-1. The engine writes a `.journal` file detailing the outcome (`DELIVERED` or `DEAD_LETTERED`).
+1. The engine writes a `.delivery-pending.<sequenceId>` file detailing the outcome (`DELIVERED` or `DEAD_LETTERED`).
 2. The local queue entry is removed.
-3. The `.journal` file is deleted.
-If a crash occurs during step 2, the engine detects the `.journal` file upon reboot and completes the local removal instead of re-sending the request.
+3. The journal file is deleted.
+If a crash occurs during step 2, the engine detects the journal file upon reboot and completes the local removal instead of re-sending the request.
 
 ---
 
