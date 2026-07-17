@@ -30,6 +30,19 @@ internal object DiskQueueConstants {
     const val INDEX_LENGTH_BITS: Int = 64 - INDEX_OFFSET_BITS
     const val MAX_PACKABLE_RECORD_LENGTH: Int = (1 shl INDEX_LENGTH_BITS) - 1
 
+    /** [com.retryjournal.queue.record.PackedIndexEntry] packs a record's byte offset into
+     * [INDEX_OFFSET_BITS] bits (~16 GiB) alongside its length. A record starting past this offset
+     * would silently corrupt both fields when packed (the high bits of the offset bleed into the
+     * length bits) — [DiskQueueEnqueueOps] must reject it before writing rather than let that
+     * happen, the same way it already rejects an over-limit field size. */
+    const val MAX_PACKABLE_OFFSET: Long = (1L shl INDEX_OFFSET_BITS) - 1L
+
+    const val QUEUE_FILE_TOO_LARGE_MESSAGE: String =
+        "Queue file has grown past the " +
+            "DiskQueueConstants.MAX_PACKABLE_OFFSET byte offset this index can address — " +
+            "refusing to write a record whose offset could never be read back. This queue needs " +
+            "compaction (raise the dead-ratio churn or drain the backlog) before it can accept more writes."
+
     /** Fixed per-record framing bytes counted by [MAX_PACKABLE_RECORD_LENGTH] on top of the two
      * variable-length fields — kept in sync with
      * [com.retryjournal.queue.disk.DiskQueueEnqueueOps.computePackedLiveRecordLength]. */
@@ -75,9 +88,6 @@ internal object DiskQueueConstants {
         "completeHeadReplay() could not remove the head entry — sequence id missing from index"
     const val REMOVE_WHILE_CLAIMED_MESSAGE: String =
         "remove() called for an entry that is currently claimed for cross-process replay"
-
-    /** Claims with timestamps far in the future (corrupt clock / file) are treated as stale. */
-    const val REPLAY_CLAIM_CLOCK_SKEW_MILLIS: Long = 60_000L
 
     /** How often [com.retryjournal.engine.RetryJournalEngine] refreshes an active
      *  [com.retryjournal.queue.ReplayClaim] while a replay HTTP

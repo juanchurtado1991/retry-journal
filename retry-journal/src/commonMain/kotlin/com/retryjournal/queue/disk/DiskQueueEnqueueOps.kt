@@ -3,8 +3,17 @@ package com.retryjournal.queue.disk
 import com.ghost.serialization.Ghost
 import com.retryjournal.queue.FrozenHttpHeaders
 import com.retryjournal.queue.FrozenHttpRequestMeta
+import com.retryjournal.queue.disk.DiskQueueConstants.BODY_FIELD_NAME
+import com.retryjournal.queue.disk.DiskQueueConstants.LENGTH_FIELD_SIZE
+import com.retryjournal.queue.disk.DiskQueueConstants.MAX_PACKABLE_OFFSET
+import com.retryjournal.queue.disk.DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH
+import com.retryjournal.queue.disk.DiskQueueConstants.META_FIELD_NAME
+import com.retryjournal.queue.disk.DiskQueueConstants.RECORD_FIELD_NAME
+import com.retryjournal.queue.disk.DiskQueueConstants.RECORD_HEADER_SIZE
+import com.retryjournal.queue.disk.DiskQueueConstants.SEQUENCE_FIELD_SIZE
 import com.retryjournal.queue.platform.currentTimeMillis
 import com.retryjournal.queue.record.PackedIndexEntry
+import com.retryjournal.queue.record.QueueFileTooLargeException
 import com.retryjournal.queue.record.RecordCodec
 import com.retryjournal.queue.record.RecordTooLargeException
 import okio.IOException
@@ -26,35 +35,41 @@ internal object DiskQueueEnqueueOps {
         return Ghost.encodeToBytes(meta)
     }
 
-    fun validateFieldSizes(queue: DiskQueue, metaBytes: ByteArray, body: ByteArray, packedLength: Int) {
+    fun validateFieldSizes(
+        queue: DiskQueue,
+        metaBytes: ByteArray,
+        body: ByteArray,
+        packedLength: Int
+    ) {
         if (metaBytes.size > queue.maxRecordFieldSize) {
             throw RecordTooLargeException(
-                DiskQueueConstants.META_FIELD_NAME,
+                META_FIELD_NAME,
                 metaBytes.size,
                 queue.maxRecordFieldSize,
             )
         }
         if (body.size > queue.maxRecordFieldSize) {
             throw RecordTooLargeException(
-                DiskQueueConstants.BODY_FIELD_NAME,
+                BODY_FIELD_NAME,
                 body.size,
                 queue.maxRecordFieldSize,
             )
         }
-        if (packedLength > DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH) {
+        if (packedLength > MAX_PACKABLE_RECORD_LENGTH) {
             throw RecordTooLargeException(
-                DiskQueueConstants.RECORD_FIELD_NAME,
+                RECORD_FIELD_NAME,
                 packedLength,
-                DiskQueueConstants.MAX_PACKABLE_RECORD_LENGTH,
+                MAX_PACKABLE_RECORD_LENGTH,
             )
+        }
+        if (queue.fileLength > MAX_PACKABLE_OFFSET) {
+            throw QueueFileTooLargeException(queue.fileLength)
         }
     }
 
     fun computePackedLiveRecordLength(metaBytes: ByteArray, body: ByteArray): Int =
-        DiskQueueConstants.RECORD_HEADER_SIZE +
-            DiskQueueConstants.SEQUENCE_FIELD_SIZE +
-            DiskQueueConstants.LENGTH_FIELD_SIZE + metaBytes.size +
-            DiskQueueConstants.LENGTH_FIELD_SIZE + body.size
+        RECORD_HEADER_SIZE + SEQUENCE_FIELD_SIZE + LENGTH_FIELD_SIZE +
+                metaBytes.size + LENGTH_FIELD_SIZE + body.size
 
     fun appendLiveRecordLocked(
         queue: DiskQueue,
@@ -90,15 +105,23 @@ internal fun encodeEnqueueMeta(
     headers: FrozenHttpHeaders,
 ): ByteArray = DiskQueueEnqueueOps.encodeMeta(method, url, headers)
 
-internal fun DiskQueue.validateEnqueueFieldSizes(metaBytes: ByteArray, body: ByteArray, packedLength: Int) =
-    DiskQueueEnqueueOps.validateFieldSizes(this, metaBytes, body, packedLength)
+internal fun DiskQueue.validateEnqueueFieldSizes(
+    metaBytes: ByteArray,
+    body: ByteArray,
+    packedLength: Int
+) = DiskQueueEnqueueOps
+    .validateFieldSizes(this, metaBytes, body, packedLength)
 
-internal fun computePackedLiveRecordLength(metaBytes: ByteArray, body: ByteArray): Int =
-    DiskQueueEnqueueOps.computePackedLiveRecordLength(metaBytes, body)
+internal fun computePackedLiveRecordLength(
+    metaBytes: ByteArray,
+    body: ByteArray
+): Int = DiskQueueEnqueueOps
+    .computePackedLiveRecordLength(metaBytes, body)
 
 internal fun DiskQueue.appendLiveRecordLocked(
     sequenceId: Long,
     metaBytes: ByteArray,
     body: ByteArray,
     packedLength: Int,
-) = DiskQueueEnqueueOps.appendLiveRecordLocked(this, sequenceId, metaBytes, body, packedLength)
+) = DiskQueueEnqueueOps
+    .appendLiveRecordLocked(this, sequenceId, metaBytes, body, packedLength)
