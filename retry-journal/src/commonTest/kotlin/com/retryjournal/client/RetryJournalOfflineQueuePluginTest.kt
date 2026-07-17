@@ -488,6 +488,56 @@ class RetryJournalOfflineQueuePluginTest {
     }
 
     @Test
+    fun `a throwing shouldEnqueue predicate does not block the request from being sent`() = runBlocking {
+        var handlerCalls = 0
+        val client = HttpClient(MockEngine {
+            handlerCalls++
+            respond("ok", HttpStatusCode.OK, headersOf())
+        }) {
+            install(RetryJournalOfflineQueuePlugin) {
+                this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue
+                shouldEnqueue = { error("boom") }
+            }
+        }
+
+        client.post("https://example.com/orders")
+
+        assertEquals(1, handlerCalls, "the request must still be attempted even though the predicate threw")
+    }
+
+    @Test
+    fun `a throwing shouldEnqueue predicate falls back to the default rule on a connectivity failure`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) {
+                this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue
+                shouldEnqueue = { error("boom") }
+            }
+        }
+
+        // POST matches the default rule even though the custom predicate blew up.
+        assertFailsWith<OfflineQueuedException> {
+            client.post("https://example.com/orders")
+        }
+        assertEquals(1, diskQueue.size())
+    }
+
+    @Test
+    fun `when the enqueue-override header is set twice the last value wins`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<IOException> {
+            client.get("https://example.com/mark-read") {
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "true")
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "false") // must win over the first value
+            }
+        }
+
+        assertTrue(diskQueue.isEmpty())
+    }
+
+    @Test
     fun `installing plugin without configuring diskQueue throws informative exception`() {
         val exception = assertFailsWith<IllegalStateException> {
             HttpClient(MockEngine { respond("ok", HttpStatusCode.OK, headersOf()) }) {

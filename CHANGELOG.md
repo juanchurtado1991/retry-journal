@@ -12,6 +12,10 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ### Fixed
 
+- `PlatformQueueFileLock`'s intra-JVM lock key could still diverge for two different dangling symlinks pointing at the same not-yet-created target, reintroducing the `OverlappingFileLockException` race the earlier canonical-path fix was meant to close; `ensureExists` now uses the same non-`EXCL` open semantics as the real lock acquisition instead of `Files.createFile`.
+- A `RetryJournalOfflineQueueConfig.shouldEnqueue` predicate that threw could stop a request from being attempted at all, even over a healthy connection, since it ran before `execute()`; it's now caught and falls back to the default method-based rule.
+- Setting `RetryJournalHeaders.ENQUEUE_OVERRIDE` more than once on the same request (e.g. a base header plus a per-call override) used to keep the *first* value instead of the last, silently ignoring the override.
+- `defaultShouldEnqueue` compared the `HttpMethod` instance case-sensitively — a request built with `HttpMethod("post")` directly instead of Ktor's `post()` DSL was silently treated as non-mutating and never queued.
 - Removed leftover debug `println` calls in `RetryJournalOfflineQueuePlugin` that printed on every intercepted request in production, including full request URLs.
 - `HeadReplayExecutor.finishDeliveredFromJournal` could let an exception escape `flush()` unhandled instead of resolving to a `FlushResult`, and left the delivery journal file orphaned on disk.
 - `FlushResult.persistenceFailed` could be reported as `false` even when a delivery/dead-letter outcome had already been durably journaled before local cleanup failed.

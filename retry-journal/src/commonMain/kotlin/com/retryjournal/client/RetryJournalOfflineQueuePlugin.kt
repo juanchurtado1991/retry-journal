@@ -11,6 +11,7 @@ import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.errors.IOException
+import kotlinx.coroutines.CancellationException
 
 /**
  * Installed on Ghost's Ktor client. When a request fails to reach the network — not a business
@@ -49,11 +50,30 @@ class RetryJournalOfflineQueuePlugin private constructor(
 
     /** Reads and strips [RetryJournalHeaders.ENQUEUE_OVERRIDE] before [execute] ever sends the
      * request — the override is a signal for this plugin alone and must never reach the wire, get
-     * persisted, or get replayed. A missing or unparseable value falls through to [shouldEnqueue]. */
+     * persisted, or get replayed. A missing or unparseable value falls through to [shouldEnqueue].
+     *
+     * Reads the *last* appended value, not the first: `HttpRequestBuilder.header(...)` appends
+     * rather than replaces, so a base client config setting one value and a specific call site
+     * overriding it — the exact layering pattern [RetryJournalHeaders]' own KDoc shows for
+     * Ktorfit — would otherwise have the override silently lose to the base value. */
     private fun resolveShouldEnqueue(request: HttpRequestBuilder): Boolean {
-        val override = request.headers[RetryJournalHeaders.ENQUEUE_OVERRIDE] ?: return shouldEnqueue(request)
-        request.headers.remove(RetryJournalHeaders.ENQUEUE_OVERRIDE)
-        return override.toBooleanStrictOrNull() ?: shouldEnqueue(request)
+        val override = request.headers.getAll(RetryJournalHeaders.ENQUEUE_OVERRIDE)?.lastOrNull()
+        if (override != null) {
+            request.headers.remove(RetryJournalHeaders.ENQUEUE_OVERRIDE)
+            override.toBooleanStrictOrNull()?.let { return it }
+        }
+        return safeShouldEnqueue(request)
+    }
+
+    /** [shouldEnqueue] is arbitrary caller-supplied code, evaluated *before* [execute] ever runs —
+     * a predicate that throws would otherwise stop the request from being attempted at all, even
+     * over a perfectly healthy network, instead of merely failing to override the default rule. */
+    private fun safeShouldEnqueue(request: HttpRequestBuilder): Boolean = try {
+        shouldEnqueue(request)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        defaultShouldEnqueue(request)
     }
 
     private suspend fun handleSendFailure(
