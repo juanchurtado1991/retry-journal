@@ -1,6 +1,6 @@
 # 🔁 retry-journal
 
-[![Maven Central](https://img.shields.io/maven-central/v/com.ghostserializer/retry-journal.svg?label=Maven%20Central)](https://search.maven.org/artifact/com.ghostserializer/retry-journal) [![CI](https://img.shields.io/github/actions/workflow/status/juanchurtado1991/retry-journal/ci.yml?branch=main&label=CI)](https://github.com/juanchurtado1991/retry-journal/actions/workflows/ci.yml) [![Platforms](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20jvm-blue)](docs/installation.md) [![Tests](https://img.shields.io/badge/tests-250%2B-brightgreen)](docs/development.md) [![License](https://img.shields.io/github/license/juanchurtado1991/retry-journal)](LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/juanchurtado1991/retry-journal/pulls)
+[Maven Central](https://search.maven.org/artifact/com.ghostserializer/retry-journal) · [CI](https://github.com/juanchurtado1991/retry-journal/actions/workflows/ci.yml) · Android · iOS · JVM · 250+ tests · [Apache 2.0](LICENSE) · [PRs welcome](https://github.com/juanchurtado1991/retry-journal/pulls)
 
 **Never lose an HTTP request because the network dropped — offline-first HTTP request replay for Kotlin Multiplatform.**
 
