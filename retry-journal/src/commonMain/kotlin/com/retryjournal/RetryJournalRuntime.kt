@@ -103,7 +103,14 @@ class RetryJournalRuntime internal constructor(
         started = false
     }
 
-    /** [stop] then [RetryJournal.close] — call on logout or process teardown. */
+    /** [stop] then [RetryJournal.close] — call on logout or process teardown.
+     *
+     * The close action runs *before* [shutdown] is marked `true`: if [RetryJournal.close] (or a
+     * custom `onShutdown`) throws — e.g. a replay was still in flight — the exception propagates
+     * and this instance is left retryable, so the caller can call [shutdown] again once whatever
+     * was in flight finishes. Marking `shutdown = true` up front instead would leave every
+     * resource open forever after a single failed attempt, since the early-return above would
+     * skip the close action on every subsequent call. */
     suspend fun shutdown() {
         if (shutdown) {
             return
@@ -113,13 +120,13 @@ class RetryJournalRuntime internal constructor(
         connectivityJob = null
         started = false
         connectivity?.cancelAndJoin()
+        onShutdown?.let { action ->
+            action()
+        } ?: retryJournal?.close()
         flushMutex.withLock {
             shutdown = true
         }
         supervisorJob.cancel()
-        onShutdown?.let { action ->
-            action()
-        } ?: retryJournal?.close()
     }
 
     /** Serialized replay — safe to call from UI and a background worker in the same process. */

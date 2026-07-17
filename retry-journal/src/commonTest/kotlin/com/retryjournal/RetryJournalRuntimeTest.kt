@@ -232,6 +232,35 @@ class RetryJournalRuntimeTest {
         runtime.shutdown()
     }
 
+    @Test
+    fun `shutdown can be retried after a failed close instead of leaking resources forever`() = runBlocking {
+        // Regression: shutdown used to mark itself done *before* running the close action. A
+        // close failure (a replay still in flight, say) left it permanently poisoned — shutdown
+        // was already true, so every later call was a silent no-op that never actually closed
+        // anything.
+        var attempts = 0
+        val runtime = RetryJournalRuntime.createForEngine(
+            engine = retryJournalThatAlwaysSucceeds().engine,
+            replayClient = HttpClient(MockEngine) {
+                engine { addHandler { respond("ok", HttpStatusCode.OK, headersOf()) } }
+            },
+            scope = this,
+            onShutdown = {
+                attempts++
+                if (attempts == 1) {
+                    error("simulated close failure")
+                }
+            },
+        )
+
+        assertFailsWith<IllegalStateException> { runtime.shutdown() }
+        assertTrue(!runtime.isShutdown, "a failed close must not poison the runtime")
+
+        runtime.shutdown() // retried — succeeds this time
+        assertTrue(runtime.isShutdown)
+        assertEquals(2, attempts)
+    }
+
     private fun retryJournalThatAlwaysSucceeds(): RetryJournal =
         RetryJournal.create(
             engineFactory = MockEngine,
