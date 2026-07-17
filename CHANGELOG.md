@@ -4,6 +4,14 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
+### Fixed
+
+- `retry-sample`: a multi-item `flush()`'s queue-chip animation could revert a chip's Delivered/DeadLettered status back to Pending, or resurrect an already-removed chip, when two chips' `FlushProgress` callbacks landed within the same 400ms animation window (`RetryJournalEngine.flush` buffers and replays them back-to-back) — the delayed removal step was applying against a stale snapshot of the chip list instead of its current state.
+
+### Changed
+
+- `retry-sample`: removed dead code and unused dependencies found during a repo-wide sanity pass — five orphaned `AppStrings` constants for a manual connectivity toggle that no longer exists (connectivity is now driven by the server health poll), a redundant `if` branch in `QueueSnapshotActions.chipStatusForEntry` returning the same value on both sides, unused `testImplementation` dependencies in `:retry-sample:server` (no `src/test` exists), an unused `kotlinx.serialization.json` dependency in `:retry-sample:composeApp` (the app exclusively uses Ghost), and five unused entries in `gradle/libs.versions.toml` (`androidx-lifecycle-viewmodel[-compose]`, `kotlin-compile-testing`, `junit-jupiter-api`, `junit-engine`). Also fixed `retry-sample/iosApp/README.md`'s file table, which still referenced a standalone `AppDelegate.swift` — `AppDelegate` has lived inside `iosAppApp.swift` since the project was scaffolded.
+
 ## [1.1.0] - 2026-07-17
 
 Selective offline queueing, plus reliability fixes across the disk queue, dead-letter recovery, cross-process locking, and the offline queue plugin found and closed since 1.0.0.
