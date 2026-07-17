@@ -49,23 +49,35 @@ private fun handleBackgroundTask(
     // as a backstop in case this run gets expired before rescheduleAfterRun() below can replace it.
     scheduler.rearmBackstop()
 
+    // Coroutine cancellation is cooperative: job.cancel() below doesn't interrupt anything already
+    // past its last suspension point, so the job's own try body and expirationHandler can both
+    // reach their "reschedule + setTaskCompletedWithSuccess" tail at once (the job finishes right
+    // as the system decides to expire it) — without a guard, both fire, double-completing the
+    // same BGTask and letting a later, wrong reschedule stomp the correct one. RunOnce ensures
+    // exactly one of them ever runs that tail.
+    val runOnce = RunOnce()
+    fun finishOnce(success: Boolean) = runOnce.runOnce {
+        scheduler.rescheduleAfterRun(success)
+        task.setTaskCompletedWithSuccess(success)
+    }
+
     val job = taskScope.launch {
         try {
             val flushResult = runtime.flushWhenOnline()
-            val success = isRetryJournalFlushSuccessful(flushResult)
-            scheduler.rescheduleAfterRun(success)
-            task.setTaskCompletedWithSuccess(success)
+            finishOnce(isRetryJournalFlushSuccessful(flushResult))
         } catch (_: CancellationException) {
-            // expirationHandler below already rescheduled and completed the task.
+            // Either expirationHandler below already finished this task, or cancellation came from
+            // somewhere else entirely (e.g. an unrelated withTimeout upstream) — finishOnce()
+            // covers both: a no-op if already finished, or a safe "failed" completion otherwise,
+            // so the BGTask is never left uncompleted.
+            finishOnce(false)
         } catch (_: Throwable) {
-            scheduler.rescheduleAfterRun(false)
-            task.setTaskCompletedWithSuccess(false)
+            finishOnce(false)
         }
     }
 
     task.expirationHandler = {
         job.cancel()
-        scheduler.rescheduleAfterRun(false)
-        task.setTaskCompletedWithSuccess(false)
+        finishOnce(false)
     }
 }
