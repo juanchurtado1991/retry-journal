@@ -47,9 +47,28 @@ internal object ReplayClaim {
         fileSystem.delete(claimPath, mustExist = false)
     }
 
-    fun isStale(claim: ReplayClaimActive, nowMillis: Long): Boolean =
-        claim.claimedAtMillis > nowMillis + DiskQueueConstants.REPLAY_CLAIM_CLOCK_SKEW_MILLIS ||
-            nowMillis - claim.claimedAtMillis > DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS
+    /** A claim whose timestamp is ahead of [nowMillis] by more than the allowed skew is either (a)
+     * a modest backward jump of the wall clock since the claim was written — NTP correction,
+     * resuming a suspended device, a manual clock change; `claimedAtMillis`/`nowMillis` both come
+     * from [com.retryjournal.queue.platform.currentTimeMillis], which has no monotonicity guarantee
+     * — or (b) a genuinely corrupt claim file. Both used to be treated identically (stale,
+     * discard), but that's wrong for (a): the claim may well still be active, and releasing it lets
+     * another process replay the same head entry, risking a duplicated non-idempotent POST — the
+     * exact thing [ReplayClaim] exists to prevent. Distinguishing them by how far ahead the
+     * timestamp is: within [DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS] of now, treat it as (a)
+     * and keep the claim active (fail safe against a duplicate send); beyond that, it's
+     * implausible for any real clock correction and is treated as (b), same as before, so a
+     * genuinely corrupt claim still self-heals instead of blocking the queue forever. */
+    fun isStale(claim: ReplayClaimActive, nowMillis: Long): Boolean {
+        val age = nowMillis - claim.claimedAtMillis
+        if (age > DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS) {
+            return true
+        }
+        if (-age > DiskQueueConstants.REPLAY_CLAIM_STALE_MILLIS) {
+            return true
+        }
+        return false
+    }
 
     fun clearIfStale(fileSystem: FileSystem, claimPath: Path) {
         val claim = read(fileSystem, claimPath) ?: return

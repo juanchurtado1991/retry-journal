@@ -129,6 +129,24 @@ class ReplayClaimTest {
     }
 
     @Test
+    fun `a claim timestamp modestly in the future from a backward clock jump is not treated as stale`() = runBlocking {
+        // Regression: isStale() used to treat *any* timestamp more than 60s in the future as
+        // stale, on the theory it could only mean a corrupt clock/file. But a genuine backward
+        // wall-clock jump (NTP correction, a device resuming from suspension) routinely exceeds
+        // 60s while the claim underneath it is still perfectly active — releasing it risked a
+        // second process replaying the same head entry and duplicating a non-idempotent POST.
+        val queue = DiskQueue(queuePath)
+        val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+
+        val claimPath = ReplayClaim.claimPath(queuePath)
+        val futureAt = currentTimeMillis() + 5 * 60_000L // 5 min — a realistic clock correction
+        ReplayClaim.write(FileSystem.SYSTEM, claimPath, id.sequenceId, futureAt)
+
+        val prepared = queue.prepareHeadForReplay()
+        assertEquals(HeadReplayPrepareResult.HeadBlocked, prepared)
+    }
+
+    @Test
     fun `a claim timestamp far in the future is treated as stale instead of blocking forever`() = runBlocking {
         val queue = DiskQueue(queuePath)
         val id = queue.enqueue("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
