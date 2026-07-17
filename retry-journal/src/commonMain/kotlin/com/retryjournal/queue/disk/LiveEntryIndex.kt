@@ -70,6 +70,7 @@ internal class LiveEntryIndex {
             "LiveEntryIndex only supports appending at/after the current base " +
                 "(sequenceId=$sequenceId, base=$baseSequenceId)"
         }
+        checkSpan(sequenceId - baseSequenceId, baseSequenceId, sequenceId)
 
         var relative = (sequenceId - baseSequenceId).toInt()
         if (relative >= packed.size) {
@@ -138,16 +139,17 @@ internal class LiveEntryIndex {
     fun replaceAllWith(source: Map<Long, Long>) {
         clear()
         val span = if (source.isEmpty()) {
-            0
+            0L
         } else {
             val firstSequenceId = source.keys.first()
             var lastSequenceId = firstSequenceId
             for (sequenceId in source.keys) {
                 lastSequenceId = sequenceId
             }
-            (lastSequenceId - firstSequenceId + 1).toInt()
+            checkSpan(lastSequenceId - firstSequenceId, firstSequenceId, lastSequenceId)
+            lastSequenceId - firstSequenceId + 1
         }
-        packed = LongArray(maxOf(span, INITIAL_CAPACITY))
+        packed = LongArray(maxOf(span.toInt(), INITIAL_CAPACITY))
         for ((sequenceId, value) in source) {
             set(sequenceId, value)
         }
@@ -188,6 +190,27 @@ internal class LiveEntryIndex {
         headSlot = 0
     }
 
+    /** Guards the one thing that lets every array access below assume `Int`-sized offsets and a
+     * boundable allocation: the gap between the oldest live entry and [sequenceId] must itself fit
+     * comfortably in an `Int` and in a sane amount of memory. A permanently stuck head entry (a
+     * leaked [com.retryjournal.queue.ReplayClaim], or an entry awaiting manual dead-letter action)
+     * combined with sustained high-volume enqueue/remove behind it is the only realistic way this
+     * gap grows large — sequence ids are assigned monotonically and never reused, and compaction
+     * rewrites offsets but never renumbers them, so the gap only ever grows, never shrinks, until
+     * that stuck entry is resolved. Failing loud here with a diagnosable message is strictly better
+     * than either silently wrapping into a corrupt negative array index or attempting a
+     * multi-gigabyte allocation that OOMs the whole process. */
+    private fun checkSpan(span: Long, oldestSequenceId: Long, newestSequenceId: Long) {
+        check(span in 0 until MAX_SPAN) {
+            "LiveEntryIndex span ($span) between the oldest live entry " +
+                "(sequenceId=$oldestSequenceId) and sequenceId=$newestSequenceId exceeds " +
+                "$MAX_SPAN — refusing to index this densely. This usually means an entry has been " +
+                "stuck at the queue head for a very long time while far newer entries kept being " +
+                "enqueued behind it; check for a leaked ReplayClaim or an entry awaiting manual " +
+                "dead-letter action."
+        }
+    }
+
     private fun grow(minCapacity: Int) {
         // 1.5x instead of doubling — still amortized O(1) per insert (geometric growth), just a
         // tighter worst-case memory bound (up to ~1.5x live-span overshoot instead of ~2x).
@@ -202,5 +225,11 @@ internal class LiveEntryIndex {
         // inline function's referenced symbols must be at least as visible as the function itself.
         private const val INITIAL_CAPACITY: Int = 8
         const val EMPTY: Long = 0L
+
+        /** Sane upper bound on the oldest-to-newest live sequence id gap this index will ever try
+         * to allocate for — 1M slots × 8 bytes/entry ≈ 8 MB, generous for any real backlog while
+         * still catching a runaway gap long before it threatens to OOM the process. See
+         * [checkSpan]. */
+        const val MAX_SPAN: Long = 1_000_000L
     }
 }

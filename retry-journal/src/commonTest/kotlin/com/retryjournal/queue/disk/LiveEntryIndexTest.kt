@@ -204,6 +204,36 @@ class LiveEntryIndexTest {
         assertEquals(index.size, countedSize)
     }
 
+    /** Regression: the oldest-to-newest live sequence id gap used to size the backing array with
+     * no upper bound — a permanently stuck head entry alongside heavy throughput behind it could
+     * make `set()`/`replaceAllWith()` attempt a multi-gigabyte allocation (or, if the gap ever
+     * exceeded [Int.MAX_VALUE], wrap into a corrupt negative array index). Both now fail loud with
+     * a diagnosable [IllegalStateException] instead. */
+    @Test
+    fun `set rejects a span larger than MAX_SPAN instead of silently growing without bound`() {
+        val index = LiveEntryIndex()
+        index[0L] = 1L
+        assertFailsWith<IllegalStateException> {
+            index[LiveEntryIndex.MAX_SPAN + 1] = 1L
+        }
+    }
+
+    @Test
+    fun `replaceAllWith rejects a span larger than MAX_SPAN instead of allocating an unbounded array`() {
+        val index = LiveEntryIndex()
+        assertFailsWith<IllegalStateException> {
+            index.replaceAllWith(linkedMapOf(0L to 1L, (LiveEntryIndex.MAX_SPAN + 1) to 1L))
+        }
+    }
+
+    @Test
+    fun `a span just under MAX_SPAN is still accepted`() {
+        val index = LiveEntryIndex()
+        index[0L] = 1L
+        index[LiveEntryIndex.MAX_SPAN - 1] = 2L
+        assertEquals(2, index.size)
+    }
+
     @Test
     fun `differential fuzz against a reference LinkedHashMap agrees after every operation`() {
         val random = Random(20260717L)
