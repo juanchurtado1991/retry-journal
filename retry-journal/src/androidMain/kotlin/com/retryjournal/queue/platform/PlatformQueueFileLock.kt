@@ -44,7 +44,7 @@ internal actual class PlatformQueueFileLock actual constructor(
         }
         val file = File(lockPath.toString())
 
-        val jvmLock = jvmLockFor(file.absolutePath)
+        val jvmLock = jvmLockFor(canonicalKeyFor(file))
         jvmLock.lock()
         try {
             channel = RandomAccessFile(file, "rw").channel
@@ -72,6 +72,20 @@ internal actual class PlatformQueueFileLock actual constructor(
 
     private companion object {
         val intraJvmLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+        /** [File.getAbsolutePath] is purely lexical — a symlink or a hardlink pointing at the same
+         * real file on disk would still key [intraJvmLocks] under a different string, letting two
+         * threads past the intra-JVM lock for what is, on disk, the same file, and straight into
+         * the same [OverlappingFileLockException] this class exists to avoid.
+         * [File.getCanonicalPath] resolves symlinks (available since API 1, unlike
+         * `java.nio.file.Path.toRealPath()`) — falls back to [File.getAbsolutePath] only if
+         * canonicalization itself fails (e.g. a permission error), which is the same key this
+         * class used before this fix. */
+        fun canonicalKeyFor(file: File): String = try {
+            file.canonicalPath
+        } catch (_: java.io.IOException) {
+            file.absolutePath
+        }
 
         /** [ConcurrentHashMap.computeIfAbsent]-equivalent get-or-create, without
          * `computeIfAbsent` itself (API 24). [ConcurrentHashMap.putIfAbsent] has been available

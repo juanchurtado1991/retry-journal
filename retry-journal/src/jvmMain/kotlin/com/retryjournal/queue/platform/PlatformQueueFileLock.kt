@@ -41,7 +41,7 @@ internal actual class PlatformQueueFileLock actual constructor(
         val nioPath: NioPath = Paths.get(lockPath.toString())
         Files.createDirectories(nioPath.parent ?: nioPath)
 
-        val jvmLock = intraJvmLocks.computeIfAbsent(nioPath.toAbsolutePath().normalize().toString()) {
+        val jvmLock = intraJvmLocks.computeIfAbsent(canonicalKeyFor(nioPath)) {
             ReentrantLock()
         }
         jvmLock.lock()
@@ -75,5 +75,22 @@ internal actual class PlatformQueueFileLock actual constructor(
 
     private companion object {
         val intraJvmLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+        /** `normalize()` only collapses `.`/`..` lexically — it does not resolve symlinks or the
+         * case-insensitive aliasing common on macOS/Windows filesystems, so two different path
+         * strings that point at the same real file on disk could still key [intraJvmLocks]
+         * separately, letting two threads past the intra-JVM lock for what the OS treats as one
+         * file and straight into [java.nio.channels.OverlappingFileLockException].
+         * [NioPath.toRealPath] resolves both, but requires the file to already exist — falls back
+         * to the previous `normalize()`-only key when it doesn't yet (first `acquire()` on a fresh
+         * path) or resolution otherwise fails. */
+        fun canonicalKeyFor(path: NioPath): String {
+            val normalized = path.toAbsolutePath().normalize()
+            return try {
+                normalized.toRealPath().toString()
+            } catch (_: java.io.IOException) {
+                normalized.toString()
+            }
+        }
     }
 }
