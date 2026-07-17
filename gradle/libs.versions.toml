@@ -29,7 +29,6 @@ ktorfit                          = "2.1.0"
 
 # Sample App UI
 androidx-activity                = "1.10.0"
-androidx-lifecycle               = "2.8.2"
 
 # Tooling & Publishing
 dokka                            = "2.2.0"
@@ -37,8 +36,6 @@ nexus-publish                    = "2.0.0"
 binary-compatibility-validator   = "0.18.1"
 
 # Testing
-kotlin-compile-testing           = "0.7.0"
-junit-jupiter                    = "5.10.2"
 kover                            = "0.9.8"
 androidx-test                    = "1.6.1"
 jol-core                         = "0.17"
@@ -82,12 +79,7 @@ ktorfit-lib-light                 = { group = "de.jensklingenberg.ktorfit", name
 ktorfit-ksp                       = { group = "de.jensklingenberg.ktorfit", name = "ktorfit-ksp", version = "2.1.0-1.0.27" }
 
 androidx-activity-compose         = { group = "androidx.activity", name = "activity-compose", version.ref = "androidx-activity" }
-androidx-lifecycle-viewmodel      = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
-androidx-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 
-kotlin-compile-testing            = { group = "dev.zacsweers.kctfork", name = "core", version.ref = "kotlin-compile-testing" }
-junit-jupiter-api                 = { group = "org.junit.jupiter", name = "junit-jupiter-api", version.ref = "junit-jupiter" }
-junit-engine                      = { group = "org.junit.jupiter", name = "junit-jupiter-engine", version.ref = "junit-jupiter" }
 jol-core                          = { group = "org.openjdk.jol", name = "jol-core", version.ref = "jol-core" }
 ktor-serialization-kotlinx-json   = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
