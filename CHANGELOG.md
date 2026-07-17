@@ -4,6 +4,25 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed leftover debug `println` calls in `RetryJournalOfflineQueuePlugin` that printed on every intercepted request in production, including full request URLs.
+- `HeadReplayExecutor.finishDeliveredFromJournal` could let an exception escape `flush()` unhandled instead of resolving to a `FlushResult`, and left the delivery journal file orphaned on disk.
+- `FlushResult.persistenceFailed` could be reported as `false` even when a delivery/dead-letter outcome had already been durably journaled before local cleanup failed.
+- `DiskQueue.enqueue` could silently corrupt a record's offset and length once the queue file grew past ~16 GiB — the packed index now rejects the write instead (`QueueFileTooLargeException`).
+- Crash recovery could lose every record after one whose `metaLen`/`bodyLen` field was corrupted but still in-range — the scanner no longer trusts an unverified length to skip ahead on a CRC mismatch.
+- `DiskQueueCompactor` could silently drop a live entry (writing a tombstone in its place, without a trace) when the in-memory index and on-disk bytes disagreed about something other than the entry's sequence id; it now aborts the compaction cycle instead, matching the existing sequence-id-mismatch behavior.
+- `LiveEntryIndex` had no upper bound on the array it would allocate for the gap between the oldest and newest live sequence id — a permanently stuck head entry alongside heavy throughput could OOM the process; it now fails with a diagnosable exception instead.
+- `DeadLetterQueue.discard()` could throw `OverlappingFileLockException` and leak a file descriptor when a pending retry journal for a *different* id needed recovering first.
+- `PlatformQueueFileLock`'s intra-process lock was keyed by a purely lexical path string — a symlink or case-insensitive filesystem alias pointing at the same real file could bypass it.
+- `ReplayClaim.isStale` treated any backward wall-clock jump past 60s as claim corruption, releasing an active claim and risking a duplicated non-idempotent POST; it now only treats an implausibly large jump (beyond the existing stale window) as corruption.
+- `RetryJournalRuntime.shutdown()` marked itself done before running the close action — a failed close (e.g. a replay still in flight) permanently poisoned the instance instead of leaving it retryable.
+- `RequestCapture` could wrap a genuine coroutine cancellation as `BodyCaptureException` instead of letting it propagate.
+- `RequestCapture` held its lock for the full body capture, not just the header capture that actually needs it — a slow multipart/streaming body from one failing request could block every other concurrently failing request's header capture.
+- `RetryJournal.close()` could silently lose all but the last exception when multiple owned resources failed to close; every failure is now preserved via `addSuppressed`.
+- `:retry-worker` iOS: `expirationHandler` and a run's own successful completion could both reschedule and complete the same `BGTask`, double-completing it and letting a stale reschedule stomp the correct one.
+- `:retry-worker` Android: a `doWork()` call landing before `setupBackgroundSync()` registered the runtime now goes through the normal short-backoff retry budget instead of failing the whole period outright.
+
 ## [1.0.0] - 2026-07-15
 
 First public release.
