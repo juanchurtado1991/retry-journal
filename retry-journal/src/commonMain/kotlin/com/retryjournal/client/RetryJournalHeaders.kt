@@ -22,14 +22,23 @@ package com.retryjournal.client
  *     header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "false")
  * }
  *
- * // Ktorfit
+ * // Ktorfit — ENQUEUE_ON_FAILURE / DISCARD_ON_FAILURE are the full "Name: Value" line @Headers expects
  * interface Api {
- *     @Headers(["X-Retry-Journal-Enqueue: false"])
+ *     @Headers(RetryJournalHeaders.DISCARD_ON_FAILURE)
  *     @POST("analytics-ping")
  *     suspend fun ping()
  * }
  * ```
  */
-public object RetryJournalHeaders {
-    public const val ENQUEUE_OVERRIDE: String = "X-Retry-Journal-Enqueue"
+object RetryJournalHeaders {
+    const val ENQUEUE_OVERRIDE: String = "X-Retry-Journal-Enqueue"
+
+    /** Full `"Name: Value"` line for codegen clients whose `@Headers` annotation takes a literal
+     * header string (Ktorfit, Retrofit-style) rather than a name/value pair — pass this directly,
+     * e.g. `@Headers(RetryJournalHeaders.ENQUEUE_ON_FAILURE)`. */
+    const val ENQUEUE_ON_FAILURE: String = "$ENQUEUE_OVERRIDE: true"
+
+    /** Same as [ENQUEUE_ON_FAILURE] but for the opposite override — skip queueing this endpoint
+     * even if it would otherwise be queued (e.g. a mutating method under the default rule). */
+    const val DISCARD_ON_FAILURE: String = "$ENQUEUE_OVERRIDE: false"
 }

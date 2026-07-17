@@ -381,6 +381,10 @@ sealed class com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjourna
 }
 
 final object com.retryjournal.client/RetryJournalHeaders { // com.retryjournal.client/RetryJournalHeaders|null[0]
+    final const val DISCARD_ON_FAILURE // com.retryjournal.client/RetryJournalHeaders.DISCARD_ON_FAILURE|{}DISCARD_ON_FAILURE[0]
+        final fun <get-DISCARD_ON_FAILURE>(): kotlin/String // com.retryjournal.client/RetryJournalHeaders.DISCARD_ON_FAILURE.<get-DISCARD_ON_FAILURE>|<get-DISCARD_ON_FAILURE>(){}[0]
+    final const val ENQUEUE_ON_FAILURE // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_ON_FAILURE|{}ENQUEUE_ON_FAILURE[0]
+        final fun <get-ENQUEUE_ON_FAILURE>(): kotlin/String // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_ON_FAILURE.<get-ENQUEUE_ON_FAILURE>|<get-ENQUEUE_ON_FAILURE>(){}[0]
     final const val ENQUEUE_OVERRIDE // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_OVERRIDE|{}ENQUEUE_OVERRIDE[0]
         final fun <get-ENQUEUE_OVERRIDE>(): kotlin/String // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_OVERRIDE.<get-ENQUEUE_OVERRIDE>|<get-ENQUEUE_OVERRIDE>(){}[0]
 }

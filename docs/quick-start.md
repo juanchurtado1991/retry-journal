@@ -55,13 +55,17 @@ retryJournal.client.get("https://api.example.com/mark-read") {
 }
 ```
 
-Using a codegen client like Ktorfit instead of the raw Ktor DSL? The same header works via `@Headers`:
+Using a codegen client like Ktorfit instead of the raw Ktor DSL? `RetryJournalHeaders.ENQUEUE_ON_FAILURE` / `DISCARD_ON_FAILURE` are the same header pre-formatted as the full `"Name: Value"` line `@Headers` expects:
 
 ```kotlin
 interface Api {
-    @Headers(["X-Retry-Journal-Enqueue: false"])
+    @Headers(RetryJournalHeaders.DISCARD_ON_FAILURE)
     @POST("analytics-ping")
     suspend fun ping()
+
+    @Headers(RetryJournalHeaders.ENQUEUE_ON_FAILURE)
+    @GET("mark-read")
+    suspend fun markRead()
 }
 ```
 

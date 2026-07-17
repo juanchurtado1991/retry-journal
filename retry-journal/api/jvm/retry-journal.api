@@ -64,6 +64,8 @@ public final class com/retryjournal/client/OfflineQueuedException : java/lang/Ex
 }
 
 public final class com/retryjournal/client/RetryJournalHeaders {
+	public static final field DISCARD_ON_FAILURE Ljava/lang/String;
+	public static final field ENQUEUE_ON_FAILURE Ljava/lang/String;
 	public static final field ENQUEUE_OVERRIDE Ljava/lang/String;
 	public static final field INSTANCE Lcom/retryjournal/client/RetryJournalHeaders;
 }
