@@ -89,4 +89,36 @@ class PlatformQueueFileLockTest {
             executor.shutdownNow()
         }
     }
+
+    /** Regression: `ensureExists` originally used [Files.createFile], whose `CREATE_NEW`/`EXCL`
+     * semantics treat a symlink as "already there" without following it — so for two *dangling*
+     * symlinks pointing at the same not-yet-created target, each one's `toRealPath()` still failed
+     * (target never materialized) and fell back to each symlink's own distinct lexical path,
+     * reproducing the exact key-inconsistency bug this class exists to prevent. */
+    @Test
+    fun `acquire via two different dangling symlinks to the same target serializes instead of racing`() {
+        val target = dir.resolve("queue.bin.lock") // never created directly — only the symlinks are
+        val symlinkA = dir.resolve("queue-a.lock")
+        val symlinkB = dir.resolve("queue-b.lock")
+        Files.createSymbolicLink(symlinkA, target)
+        Files.createSymbolicLink(symlinkB, target)
+
+        val lockA = PlatformQueueFileLock(symlinkA.toString().toPath(), FileSystem.SYSTEM)
+        val lockB = PlatformQueueFileLock(symlinkB.toString().toPath(), FileSystem.SYSTEM)
+
+        lockA.acquire()
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val future = executor.submit {
+                lockB.acquire()
+                lockB.release()
+            }
+            assertFailsWith<TimeoutException> { future.get(500, TimeUnit.MILLISECONDS) }
+
+            lockA.release()
+            future.get(5, TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 }

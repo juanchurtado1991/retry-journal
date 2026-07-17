@@ -79,16 +79,20 @@ internal actual class PlatformQueueFileLock actual constructor(
 
         /** [acquire] calls this before ever computing a lock key, so [canonicalKeyFor]'s
          * `toRealPath()` call always has a real file to resolve — see [canonicalKeyFor]'s own doc
-         * for why that consistency is what actually matters here. A plain create-if-absent race
-         * between two threads is fine: [Files.createFile] on the loser throws
-         * [java.nio.file.FileAlreadyExistsException], which just confirms the file the winner
-         * created now exists — nothing to do but ignore it. */
+         * for why that consistency is what actually matters here.
+         *
+         * Deliberately opens with plain `CREATE` (matching the real lock-acquisition
+         * [FileChannel.open] call below) rather than [Files.createFile]'s `CREATE_NEW`/`EXCL`
+         * semantics: those two disagree on what a *symlink whose target doesn't exist yet* means —
+         * `EXCL` treats the symlink itself as "already there" and refuses to follow it, while plain
+         * `CREATE` follows it and materializes the target. If this used `EXCL` and [lockPath] were
+         * such a symlink, this method would report "exists" without the target ever being created,
+         * `canonicalKeyFor`'s `toRealPath()` would then fail and fall back to the symlink's own
+         * lexical path — the exact first-call-vs-later-call key inconsistency this method exists to
+         * prevent, just triggered a different way. Using the same open mode both places means
+         * there's only one notion of "materialized" to reason about. */
         fun ensureExists(path: NioPath) {
-            try {
-                Files.createFile(path)
-            } catch (_: java.nio.file.FileAlreadyExistsException) {
-                // Already there — created by us on a prior acquire(), or by a racing thread just now.
-            }
+            FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE).close()
         }
 
         /** `normalize()` only collapses `.`/`..` lexically — it does not resolve symlinks or the
