@@ -39,6 +39,9 @@ final class com.retryjournal.client/RetryJournalOfflineQueueConfig { // com.retr
     final var diskQueue // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue|{}diskQueue[0]
         final fun <get-diskQueue>(): com.retryjournal.queue.disk/DiskQueue // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue.<get-diskQueue>|<get-diskQueue>(){}[0]
         final fun <set-diskQueue>(com.retryjournal.queue.disk/DiskQueue) // com.retryjournal.client/RetryJournalOfflineQueueConfig.diskQueue.<set-diskQueue>|<set-diskQueue>(com.retryjournal.queue.disk.DiskQueue){}[0]
+    final var shouldEnqueue // com.retryjournal.client/RetryJournalOfflineQueueConfig.shouldEnqueue|{}shouldEnqueue[0]
+        final fun <get-shouldEnqueue>(): kotlin/Function1<io.ktor.client.request/HttpRequestBuilder, kotlin/Boolean> // com.retryjournal.client/RetryJournalOfflineQueueConfig.shouldEnqueue.<get-shouldEnqueue>|<get-shouldEnqueue>(){}[0]
+        final fun <set-shouldEnqueue>(kotlin/Function1<io.ktor.client.request/HttpRequestBuilder, kotlin/Boolean>) // com.retryjournal.client/RetryJournalOfflineQueueConfig.shouldEnqueue.<set-shouldEnqueue>|<set-shouldEnqueue>(kotlin.Function1<io.ktor.client.request.HttpRequestBuilder,kotlin.Boolean>){}[0]
 }
 
 final class com.retryjournal.client/RetryJournalOfflineQueuePlugin { // com.retryjournal.client/RetryJournalOfflineQueuePlugin|null[0]
@@ -122,6 +125,10 @@ final class com.retryjournal.queue.disk/DiskQueue { // com.retryjournal.queue.di
     final suspend fun peekIds(kotlin/Int, kotlin.collections/MutableCollection<com.retryjournal.queue/QueueEntryId>): kotlin/Int // com.retryjournal.queue.disk/DiskQueue.peekIds|peekIds(kotlin.Int;kotlin.collections.MutableCollection<com.retryjournal.queue.QueueEntryId>){}[0]
     final suspend fun remove(com.retryjournal.queue/QueueEntryId) // com.retryjournal.queue.disk/DiskQueue.remove|remove(com.retryjournal.queue.QueueEntryId){}[0]
     final suspend fun size(): kotlin/Int // com.retryjournal.queue.disk/DiskQueue.size|size(){}[0]
+}
+
+final class com.retryjournal.queue.record/QueueFileTooLargeException : kotlin/IllegalStateException { // com.retryjournal.queue.record/QueueFileTooLargeException|null[0]
+    constructor <init>(kotlin/Long) // com.retryjournal.queue.record/QueueFileTooLargeException.<init>|<init>(kotlin.Long){}[0]
 }
 
 final class com.retryjournal.queue.record/RecordTooLargeException : kotlin/IllegalArgumentException { // com.retryjournal.queue.record/RecordTooLargeException|null[0]
@@ -373,6 +380,11 @@ sealed class com.retryjournal.queue/HeadReplayPrepareResult { // com.retryjourna
     }
 }
 
+final object com.retryjournal.client/RetryJournalHeaders { // com.retryjournal.client/RetryJournalHeaders|null[0]
+    final const val ENQUEUE_OVERRIDE // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_OVERRIDE|{}ENQUEUE_OVERRIDE[0]
+        final fun <get-ENQUEUE_OVERRIDE>(): kotlin/String // com.retryjournal.client/RetryJournalHeaders.ENQUEUE_OVERRIDE.<get-ENQUEUE_OVERRIDE>|<get-ENQUEUE_OVERRIDE>(){}[0]
+}
+
 final object com.retryjournal.queue/FrozenHttpHeadersSerializer : com.ghost.serialization.contract/GhostSerializer<com.retryjournal.queue/FrozenHttpHeaders> { // com.retryjournal.queue/FrozenHttpHeadersSerializer|null[0]
     final val typeName // com.retryjournal.queue/FrozenHttpHeadersSerializer.typeName|{}typeName[0]
         final fun <get-typeName>(): kotlin/String // com.retryjournal.queue/FrozenHttpHeadersSerializer.typeName.<get-typeName>|<get-typeName>(){}[0]
@@ -394,3 +406,6 @@ final object com.retryjournal.queue/FrozenHttpRequestMetaSerializer : com.ghost.
     final fun serialize(com.ghost.serialization.writer/GhostJsonWriter, com.retryjournal.queue/FrozenHttpRequestMeta) // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.serialize|serialize(com.ghost.serialization.writer.GhostJsonWriter;com.retryjournal.queue.FrozenHttpRequestMeta){}[0]
     final fun warmUp() // com.retryjournal.queue/FrozenHttpRequestMetaSerializer.warmUp|warmUp(){}[0]
 }
+
+final val com.retryjournal.client/defaultShouldEnqueue // com.retryjournal.client/defaultShouldEnqueue|{}defaultShouldEnqueue[0]
+    final fun <get-defaultShouldEnqueue>(): kotlin/Function1<io.ktor.client.request/HttpRequestBuilder, kotlin/Boolean> // com.retryjournal.client/defaultShouldEnqueue.<get-defaultShouldEnqueue>|<get-defaultShouldEnqueue>(){}[0]

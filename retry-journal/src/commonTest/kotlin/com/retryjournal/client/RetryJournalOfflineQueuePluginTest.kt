@@ -8,7 +8,10 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.request.header
+import io.ktor.client.request.options
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -368,6 +371,120 @@ class RetryJournalOfflineQueuePluginTest {
 
         releaseSlowBody.complete(Unit)
         slowJob.join()
+    }
+
+    @Test
+    fun `a GET is not queued by default when it fails offline`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<IOException> {
+            client.get("https://example.com/profile")
+        }
+
+        assertNull(diskQueue.peek(), "GET has no caller left waiting for a delayed response — must not be queued")
+    }
+
+    @Test
+    fun `a HEAD and OPTIONS are not queued by default when they fail offline`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<IOException> { client.head("https://example.com/profile") }
+        assertFailsWith<IOException> { client.options("https://example.com/profile") }
+
+        assertTrue(diskQueue.isEmpty())
+    }
+
+    @Test
+    fun `the enqueue-override header forces a GET to be queued and is stripped before persisting`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.get("https://example.com/mark-read") {
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "true")
+            }
+        }
+
+        val queued = diskQueue.peek()
+        assertEquals("https://example.com/mark-read", queued?.meta?.url)
+        assertNull(
+            queued?.meta?.headers?.findValue(RetryJournalHeaders.ENQUEUE_OVERRIDE),
+            "the override header must never be persisted",
+        )
+    }
+
+    @Test
+    fun `the enqueue-override header forces a POST to be skipped and the original exception surfaces`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<IOException> {
+            client.post("https://example.com/analytics-ping") {
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "false")
+            }
+        }
+
+        assertTrue(diskQueue.isEmpty())
+    }
+
+    @Test
+    fun `the enqueue-override header never reaches the wire`() = runBlocking {
+        var sentHeaderValue: String? = null
+        val client = HttpClient(MockEngine { request ->
+            sentHeaderValue = request.headers[RetryJournalHeaders.ENQUEUE_OVERRIDE]
+            throw IOException("no network")
+        }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.get("https://example.com/mark-read") {
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "true")
+            }
+        }
+
+        assertNull(sentHeaderValue, "the override header must be stripped before the request is sent")
+    }
+
+    @Test
+    fun `an unparseable enqueue-override header value falls back to the default rule`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) { this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue }
+        }
+
+        assertFailsWith<IOException> {
+            client.get("https://example.com/profile") {
+                header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "yes-please")
+            }
+        }
+
+        assertTrue(diskQueue.isEmpty())
+    }
+
+    @Test
+    fun `a custom shouldEnqueue predicate replaces the default method-based rule`() = runBlocking {
+        val client = HttpClient(MockEngine { throw IOException("no network") }) {
+            install(RetryJournalOfflineQueuePlugin) {
+                this.diskQueue = this@RetryJournalOfflineQueuePluginTest.diskQueue
+                shouldEnqueue = { request -> "/orders" in request.url.buildString() }
+            }
+        }
+
+        assertFailsWith<OfflineQueuedException> {
+            client.get("https://example.com/orders/42") // GET, but matches the custom predicate
+        }
+        assertFailsWith<IOException> {
+            client.post("https://example.com/analytics-ping") // POST, but doesn't match it
+        }
+
+        assertEquals(1, diskQueue.size())
+        assertEquals("https://example.com/orders/42", diskQueue.peek()?.meta?.url)
     }
 
     @Test

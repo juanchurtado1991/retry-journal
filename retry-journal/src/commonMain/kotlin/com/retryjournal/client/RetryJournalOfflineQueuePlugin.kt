@@ -22,6 +22,7 @@ import io.ktor.utils.io.errors.IOException
  */
 class RetryJournalOfflineQueuePlugin private constructor(
     private val diskQueue: DiskQueue,
+    private val shouldEnqueue: (HttpRequestBuilder) -> Boolean,
 ) {
     private val requestCapture = RequestCapture(diskQueue.maxRecordFieldSize)
     private val lifecycleGate = LifecycleGate(
@@ -34,25 +35,39 @@ class RetryJournalOfflineQueuePlugin private constructor(
 
     private fun intercept(client: HttpClient) {
         client.plugin(HttpSend).intercept { request ->
+            val enqueueThisRequest = resolveShouldEnqueue(request)
             lifecycleGate.enter()
             try {
                 execute(request)
             } catch (cause: Throwable) {
-                handleSendFailure(request, cause)
+                handleSendFailure(request, cause, enqueueThisRequest)
             } finally {
                 lifecycleGate.leave()
             }
         }
     }
 
+    /** Reads and strips [RetryJournalHeaders.ENQUEUE_OVERRIDE] before [execute] ever sends the
+     * request — the override is a signal for this plugin alone and must never reach the wire, get
+     * persisted, or get replayed. A missing or unparseable value falls through to [shouldEnqueue]. */
+    private fun resolveShouldEnqueue(request: HttpRequestBuilder): Boolean {
+        val override = request.headers[RetryJournalHeaders.ENQUEUE_OVERRIDE] ?: return shouldEnqueue(request)
+        request.headers.remove(RetryJournalHeaders.ENQUEUE_OVERRIDE)
+        return override.toBooleanStrictOrNull() ?: shouldEnqueue(request)
+    }
+
     private suspend fun handleSendFailure(
         request: HttpRequestBuilder,
-        cause: Throwable
+        cause: Throwable,
+        enqueueThisRequest: Boolean,
     ): Nothing {
         if (cause is BodyCaptureException) {
             throw cause
         }
         if (!causesOrIsIOException(cause)) {
+            throw cause
+        }
+        if (!enqueueThisRequest) {
             throw cause
         }
         val url = request.url.buildString()
@@ -84,7 +99,7 @@ class RetryJournalOfflineQueuePlugin private constructor(
         ): RetryJournalOfflineQueuePlugin {
             val config = RetryJournalOfflineQueueConfig().apply(block)
             requireConfiguredDiskQueue(config)
-            return RetryJournalOfflineQueuePlugin(config.diskQueue)
+            return RetryJournalOfflineQueuePlugin(config.diskQueue, config.shouldEnqueue)
         }
 
         override fun install(plugin: RetryJournalOfflineQueuePlugin, scope: HttpClient) {

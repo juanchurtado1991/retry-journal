@@ -55,20 +55,31 @@ public final class com/retryjournal/client/BodyCaptureException : java/lang/Exce
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
+public final class com/retryjournal/client/DefaultShouldEnqueueKt {
+	public static final fun getDefaultShouldEnqueue ()Lkotlin/jvm/functions/Function1;
+}
+
 public final class com/retryjournal/client/OfflineQueuedException : java/lang/Exception {
 	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class com/retryjournal/client/RetryJournalHeaders {
+	public static final field ENQUEUE_OVERRIDE Ljava/lang/String;
+	public static final field INSTANCE Lcom/retryjournal/client/RetryJournalHeaders;
 }
 
 public final class com/retryjournal/client/RetryJournalOfflineQueueConfig {
 	public field diskQueue Lcom/retryjournal/queue/disk/DiskQueue;
 	public fun <init> ()V
 	public final fun getDiskQueue ()Lcom/retryjournal/queue/disk/DiskQueue;
+	public final fun getShouldEnqueue ()Lkotlin/jvm/functions/Function1;
 	public final fun setDiskQueue (Lcom/retryjournal/queue/disk/DiskQueue;)V
+	public final fun setShouldEnqueue (Lkotlin/jvm/functions/Function1;)V
 }
 
 public final class com/retryjournal/client/RetryJournalOfflineQueuePlugin {
 	public static final field Plugin Lcom/retryjournal/client/RetryJournalOfflineQueuePlugin$Plugin;
-	public synthetic fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lcom/retryjournal/queue/disk/DiskQueue;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public final class com/retryjournal/client/RetryJournalOfflineQueuePlugin$Plugin : io/ktor/client/plugins/HttpClientPlugin {
@@ -369,6 +380,10 @@ public final class com/retryjournal/queue/disk/DiskQueue {
 	public final fun peekIds (ILjava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun remove-5I8jQHg (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun size (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/retryjournal/queue/record/QueueFileTooLargeException : java/lang/IllegalStateException {
+	public fun <init> (J)V
 }
 
 public final class com/retryjournal/queue/record/RecordTooLargeException : java/lang/IllegalArgumentException {

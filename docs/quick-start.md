@@ -43,6 +43,37 @@ try {
 }
 ```
 
+### Which requests get queued?
+
+By default, only **mutating methods** (`POST`/`PUT`/`PATCH`/`DELETE`) are queued on a connectivity failure — a `GET`/`HEAD`/`OPTIONS` that fails just throws its `IOException` as usual, since nothing is left waiting for that response by the time a delayed `flush()` resends it days later.
+
+Override per request with `RetryJournalHeaders.ENQUEUE_OVERRIDE` — it's stripped before the request is sent, so it never reaches the server:
+
+```kotlin
+retryJournal.client.get("https://api.example.com/mark-read") {
+    header(RetryJournalHeaders.ENQUEUE_OVERRIDE, "true") // queue this GET anyway
+}
+```
+
+Using a codegen client like Ktorfit instead of the raw Ktor DSL? The same header works via `@Headers`:
+
+```kotlin
+interface Api {
+    @Headers(["X-Retry-Journal-Enqueue: false"])
+    @POST("analytics-ping")
+    suspend fun ping()
+}
+```
+
+Or replace the default rule entirely with your own global policy:
+
+```kotlin
+install(RetryJournalOfflineQueuePlugin) {
+    diskQueue = queue
+    shouldEnqueue = { request -> request.url.toString().contains("/orders") }
+}
+```
+
 ## 3. Sync when the network is back — `flush()`
 
 Call this when **you** decide there is connectivity (see [Scheduling](scheduling.md)):

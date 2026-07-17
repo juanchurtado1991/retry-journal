@@ -4,6 +4,12 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
+### Added
+
+- Selective offline queueing: connectivity failures are now queued by default only for mutating methods (`POST`/`PUT`/`PATCH`/`DELETE`) — `defaultShouldEnqueue`. `GET`/`HEAD`/`OPTIONS` are skipped by default since nothing is left waiting for a delayed response by the time a later `flush()` resends it.
+  - `RetryJournalOfflineQueueConfig.shouldEnqueue` lets you replace the default rule with your own global policy.
+  - `RetryJournalHeaders.ENQUEUE_OVERRIDE` (`X-Retry-Journal-Enqueue: true`/`false`) is a per-request override that takes priority over both — reachable from codegen clients (Ktorfit, Retrofit-style annotation interfaces) via `@Headers`/`@Header`, since they never expose direct access to `HttpRequestBuilder`. The header is stripped before the request is ever sent, so it never reaches the server and never needs filtering before persistence or replay.
+
 ### Fixed
 
 - Removed leftover debug `println` calls in `RetryJournalOfflineQueuePlugin` that printed on every intercepted request in production, including full request URLs.
