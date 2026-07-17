@@ -3,7 +3,7 @@
 ```kotlin
 // libs.versions.toml
 [libraries]
-retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.0.0" }
+retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.1.0" }
 ```
 
 ```kotlin

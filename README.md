@@ -24,7 +24,7 @@ Every pending request costs exactly one `Long` (8 bytes) in memory, with O(1) lo
 
 ```kotlin
 // libs.versions.toml
-retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.0.0" }
+retry-journal = { module = "com.ghostserializer:retry-journal", version = "1.1.0" }
 ```
 
 ```kotlin

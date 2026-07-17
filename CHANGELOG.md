@@ -4,6 +4,10 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-17
+
+Selective offline queueing, plus reliability fixes across the disk queue, dead-letter recovery, cross-process locking, and the offline queue plugin found and closed since 1.0.0.
+
 ### Added
 
 - Selective offline queueing: connectivity failures are now queued by default only for mutating methods (`POST`/`PUT`/`PATCH`/`DELETE`) — `defaultShouldEnqueue`. `GET`/`HEAD`/`OPTIONS` are skipped by default since nothing is left waiting for a delayed response by the time a later `flush()` resends it.

@@ -25,7 +25,7 @@ data class RetryJournalSchedulerConfig(
 ```kotlin
 // libs.versions.toml
 [libraries]
-retry-worker = { module = "com.ghostserializer:retry-worker", version = "1.0.0" }
+retry-worker = { module = "com.ghostserializer:retry-worker", version = "1.1.0" }
 ```
 
 ```kotlin
