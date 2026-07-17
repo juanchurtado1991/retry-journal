@@ -130,7 +130,13 @@ internal object DiskQueueCompactor {
                     null
                 }
 
-                else -> newOffset + RecordCodec.writeTombstone(sink, sequenceId)
+                // The in-memory index believes this sequence id is live at this offset — a
+                // Tombstone/Invalid/EOF result here means the index and the on-disk bytes have
+                // already diverged. Silently writing a tombstone would paper over that and drop
+                // the entry without a trace; abort this compaction cycle instead, the same as the
+                // sequence-id-mismatch case above, and let the queue's own scrub/recovery paths
+                // reconcile it.
+                else -> null
             }
         } finally {
             source.close()
