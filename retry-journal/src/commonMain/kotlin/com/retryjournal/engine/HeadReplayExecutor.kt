@@ -194,13 +194,20 @@ internal class HeadReplayExecutor(
         onProgress: suspend (FlushProgress) -> Unit,
         delivered: Int,
         deadLettered: Int,
-    ): ReplayOutcome {
+    ): ReplayOutcome = try {
         if (!completeHeadReplayOrStop(entry.id)) {
-            return ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
+        } else {
+            DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
+            onProgress(FlushProgress.Delivered(entry.id))
+            ReplayOutcome.Continue(delivered + 1, deadLettered)
         }
-        DeliveryJournal.delete(queue.fileSystem, queue.path, entry.id.sequenceId)
-        onProgress(FlushProgress.Delivered(entry.id))
-        return ReplayOutcome.Continue(delivered + 1, deadLettered)
+    } catch (e: CancellationException) {
+        abortHeadReplayClaimNonCancellable()
+        throw e
+    } catch (_: Throwable) {
+        queue.abortHeadReplayClaim()
+        ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
     }
 
     private suspend fun finishDeadLetteredFromJournal(
@@ -244,7 +251,10 @@ internal class HeadReplayExecutor(
         throw e
     } catch (_: Throwable) {
         queue.abortHeadReplayClaim()
-        ReplayOutcome.Stop(delivered, deadLettered)
+        // Reached only when pending == DeadLettered — a previous flush already durably wrote this
+        // outcome to the DeliveryJournal, so any failure here is a local-cleanup failure, never a
+        // "nothing was recorded" one.
+        ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = true)
     }
 
     private suspend fun handleSuccessfulDelivery(
@@ -252,34 +262,40 @@ internal class HeadReplayExecutor(
         delivered: Int,
         deadLettered: Int,
         onProgress: suspend (FlushProgress) -> Unit,
-    ): ReplayOutcome = try {
-        DeliveryJournal.write(
-            queue.fileSystem,
-            queue.path,
-            entry.id.sequenceId,
-            DeliveryJournal.OUTCOME_DELIVERED,
-        )
-        if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(
-                delivered,
-                deadLettered,
-                persistenceFailed = true
-            )
-        } else {
-            DeliveryJournal.delete(
+    ): ReplayOutcome {
+        var journalWritten = false
+        return try {
+            DeliveryJournal.write(
                 queue.fileSystem,
-                queuePath = queue.path,
-                entry.id.sequenceId
+                queue.path,
+                entry.id.sequenceId,
+                DeliveryJournal.OUTCOME_DELIVERED,
             )
-            onProgress(FlushProgress.Delivered(entry.id))
-            ReplayOutcome.Continue(delivered + 1, deadLettered)
+            journalWritten = true
+            if (!completeHeadReplayOrStop(entry.id)) {
+                ReplayOutcome.Stop(
+                    delivered,
+                    deadLettered,
+                    persistenceFailed = true
+                )
+            } else {
+                DeliveryJournal.delete(
+                    queue.fileSystem,
+                    queuePath = queue.path,
+                    entry.id.sequenceId
+                )
+                onProgress(FlushProgress.Delivered(entry.id))
+                ReplayOutcome.Continue(delivered + 1, deadLettered)
+            }
+        } catch (e: CancellationException) {
+            abortHeadReplayClaimNonCancellable()
+            throw e
+        } catch (_: Throwable) {
+            queue.abortHeadReplayClaim()
+            // persistenceFailed only if the journal write itself already landed durably before
+            // this failed — otherwise nothing was recorded and the next flush retries from scratch.
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = journalWritten)
         }
-    } catch (e: CancellationException) {
-        abortHeadReplayClaimNonCancellable()
-        throw e
-    } catch (_: Throwable) {
-        queue.abortHeadReplayClaim()
-        ReplayOutcome.Stop(delivered, deadLettered)
     }
 
     private suspend fun handleDeadLetterDelivery(
@@ -287,42 +303,50 @@ internal class HeadReplayExecutor(
         delivered: Int,
         deadLettered: Int,
         onProgress: suspend (FlushProgress) -> Unit,
-    ): ReplayOutcome = try {
-        DeliveryJournal.write(
-            queue.fileSystem,
-            queue.path,
-            entry.id.sequenceId,
-            DeliveryJournal.OUTCOME_DEAD_LETTERED,
-        )
-
-        deadLetterQueue.record(
-            entry.meta.method,
-            entry.meta.url,
-            entry.meta.headers,
-            entry.body
-        )
-
-        if (!completeHeadReplayOrStop(entry.id)) {
-            ReplayOutcome.Stop(
-                delivered,
-                deadLettered,
-                persistenceFailed = true
-            )
-        } else {
-            DeliveryJournal.delete(
+    ): ReplayOutcome {
+        var journalWritten = false
+        var dlqWritten = false
+        return try {
+            DeliveryJournal.write(
                 queue.fileSystem,
-                queuePath = queue.path,
-                entry.id.sequenceId
+                queue.path,
+                entry.id.sequenceId,
+                DeliveryJournal.OUTCOME_DEAD_LETTERED,
             )
-            onProgress(FlushProgress.DeadLettered(entry.id))
-            ReplayOutcome.Continue(delivered, deadLettered + 1)
+            journalWritten = true
+
+            deadLetterQueue.record(
+                entry.meta.method,
+                entry.meta.url,
+                entry.meta.headers,
+                entry.body
+            )
+            dlqWritten = true
+
+            if (!completeHeadReplayOrStop(entry.id)) {
+                ReplayOutcome.Stop(
+                    delivered,
+                    deadLettered,
+                    persistenceFailed = true
+                )
+            } else {
+                DeliveryJournal.delete(
+                    queue.fileSystem,
+                    queuePath = queue.path,
+                    entry.id.sequenceId
+                )
+                onProgress(FlushProgress.DeadLettered(entry.id))
+                ReplayOutcome.Continue(delivered, deadLettered + 1)
+            }
+        } catch (e: CancellationException) {
+            abortHeadReplayClaimNonCancellable()
+            throw e
+        } catch (_: Throwable) {
+            queue.abortHeadReplayClaim()
+            // persistenceFailed is only true if BOTH the journal write and DLQ write succeeded,
+            // but the subsequent local cleanup/delete failed.
+            ReplayOutcome.Stop(delivered, deadLettered, persistenceFailed = dlqWritten)
         }
-    } catch (e: CancellationException) {
-        abortHeadReplayClaimNonCancellable()
-        throw e
-    } catch (_: Throwable) {
-        queue.abortHeadReplayClaim()
-        ReplayOutcome.Stop(delivered, deadLettered)
     }
 
     private suspend fun <T> withReplayClaimRenewal(
