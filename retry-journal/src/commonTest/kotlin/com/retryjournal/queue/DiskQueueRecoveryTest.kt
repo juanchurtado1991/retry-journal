@@ -203,6 +203,45 @@ class DiskQueueRecoveryTest {
     }
 
     @Test
+    fun `corrupted bodyLen still in range does not skip past valid records that follow`() = runBlocking {
+        // Regression: on a live record's CRC mismatch, the scanner used to still report its own
+        // computed recordLength (derived from metaLen/bodyLen) for DiskQueueRecovery to skip by —
+        // trusted even though those fields are exactly what's unverified when the CRC fails. A
+        // corrupted bodyLen that's still in-range (so the earlier range check doesn't catch it)
+        // makes the scanner hash the wrong number of body bytes, desyncing the stream from the
+        // file's true record boundaries. Jumping by that wrong length can overshoot end-of-file,
+        // and truncateTrailingInvalidBytes then discards everything from there on — including
+        // "/third" below, which was never actually corrupted.
+        val queue = DiskQueue(queuePath)
+        queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())
+        val secondBody = "second-body-0123456789"
+        queue.enqueue("POST", "/second", FrozenHttpHeaders.EMPTY, secondBody.encodeToByteArray())
+        queue.enqueue("POST", "/third", FrozenHttpHeaders.EMPTY, "third-body".encodeToByteArray())
+
+        val bytes = FileSystem.SYSTEM.read(queuePath) { readByteArray() }
+        val bodyStart = bytes.indexOfSubarray(secondBody.encodeToByteArray())
+        val bodyLenFieldStart = bodyStart - 4
+        val original = ((bytes[bodyLenFieldStart].toInt() and 0xFF) shl 24) or
+            ((bytes[bodyLenFieldStart + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[bodyLenFieldStart + 2].toInt() and 0xFF) shl 8) or
+            (bytes[bodyLenFieldStart + 3].toInt() and 0xFF)
+        // One byte shorter — still comfortably in range (0..maxRecordFieldSize), but wrong.
+        val corrupted = original - 1
+        bytes[bodyLenFieldStart] = (corrupted ushr 24).toByte()
+        bytes[bodyLenFieldStart + 1] = (corrupted ushr 16).toByte()
+        bytes[bodyLenFieldStart + 2] = (corrupted ushr 8).toByte()
+        bytes[bodyLenFieldStart + 3] = corrupted.toByte()
+        FileSystem.SYSTEM.write(queuePath) { write(bytes) }
+
+        val reopened = DiskQueue(queuePath)
+        val entries = reopened.peekAll()
+
+        assertEquals(2, entries.size)
+        assertEquals("/first", entries[0].meta.url)
+        assertEquals("/third", entries[1].meta.url)
+    }
+
+    @Test
     fun `scanning a truncated record at the end does not perform a slow byte-by-byte scan`() = runBlocking {
         val queue = DiskQueue(queuePath)
         queue.enqueue("POST", "/first", FrozenHttpHeaders.EMPTY, "first-body".encodeToByteArray())

@@ -89,8 +89,11 @@ internal object RecordScanCodec {
 
         val recordLength = liveRecordLength(metaLen, bodyLen)
         if (Crc32.finalize(crc) != expectedCrc) {
+            // metaLen/bodyLen are unverified by this failed CRC — trusting recordLength (derived
+            // from them) to skip ahead could jump straight over legitimate records that follow,
+            // which DiskQueueRecovery would then never see and later prune as "trailing invalid
+            // bytes". Leaving recordLength at 0 forces a safe byte-by-byte resync scan instead.
             outResult.type = RecordScanResult.TYPE_INVALID
-            outResult.recordLength = recordLength
             return
         }
 
