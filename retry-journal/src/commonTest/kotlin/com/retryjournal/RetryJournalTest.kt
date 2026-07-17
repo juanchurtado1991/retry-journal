@@ -23,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** Wraps a real [MockEngine] but fails [close] — reproduces a real [HttpClientEngine] closing
  * uncleanly (e.g. socket teardown throwing), to prove [RetryJournal.close] still releases its other
@@ -145,6 +146,28 @@ class RetryJournalTest {
         releaseRequest.complete(Unit)
         requestJob.join()
         retryJournal.close()
+    }
+
+    @Test
+    fun `close preserves every close failure as a suppressed exception instead of losing all but the last`() = runBlocking {
+        // client and replayClient are both built from the same engineFactory, so both throw here
+        // — a plain nested try/finally used to let the second failure silently replace the first
+        // instead of preserving it.
+        val retryJournal = RetryJournal.create(
+            engineFactory = ThrowingCloseEngineFactory,
+            queuePath = (dir.toString() + "/queue.bin").toPath(),
+        ) {
+            engine {
+                addHandler { respond("ok", HttpStatusCode.OK, headersOf()) }
+            }
+        }
+
+        val error = assertFailsWith<Throwable> { retryJournal.close() }
+
+        assertTrue(
+            error.suppressedExceptions.isNotEmpty(),
+            "expected the second close() failure to be preserved as a suppressed exception, got none",
+        )
     }
 
     @Test

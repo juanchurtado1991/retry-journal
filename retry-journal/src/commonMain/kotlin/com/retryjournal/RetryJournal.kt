@@ -87,18 +87,30 @@ class RetryJournal private constructor(
         diskQueue.closeForShutdown()
     }
 
+    /** Every resource is still closed even if an earlier one throws (the guarantee this class's
+     * KDoc documents) — but a plain nested try/finally would let a later failure silently replace
+     * an earlier one, since only the last exception thrown survives to propagate. Collecting the
+     * first exception and attaching every subsequent one via [Throwable.addSuppressed] keeps all
+     * of them visible instead of losing all but the last. */
     private fun closeOwnedResources() {
-        try {
-            client.close()
-        } finally {
-            try {
-                replayClient.close()
-            } finally {
-                try {
-                    diskQueue.close()
-                } finally {
-                    deadLetterQueue.close()
-                }
+        var firstError: Throwable? = null
+        firstError = closeQuietly(firstError) { client.close() }
+        firstError = closeQuietly(firstError) { replayClient.close() }
+        firstError = closeQuietly(firstError) { diskQueue.close() }
+        firstError = closeQuietly(firstError) { deadLetterQueue.close() }
+        firstError?.let { throw it }
+    }
+
+    private inline fun closeQuietly(firstError: Throwable?, block: () -> Unit): Throwable? {
+        return try {
+            block()
+            firstError
+        } catch (e: Throwable) {
+            if (firstError == null) {
+                e
+            } else {
+                firstError.addSuppressed(e)
+                firstError
             }
         }
     }
