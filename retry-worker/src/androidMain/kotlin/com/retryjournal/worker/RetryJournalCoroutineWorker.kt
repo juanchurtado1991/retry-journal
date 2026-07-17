@@ -17,11 +17,18 @@ class RetryJournalCoroutineWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val runtime = RetryJournalWorkerRegistry.runtimeProvider?.invoke() ?: return Result.failure()
         val maxRetryAttempts = inputData.getInt(
             RetryJournalWorkerConstants.KEY_MAX_RETRY_ATTEMPTS,
             RetryJournalSchedulerConfig().maxRetryAttempts,
         )
+        // A null provider here means WorkManager instantiated this worker (by reflection, on its
+        // own schedule) before setupBackgroundSync() ran and registered one — e.g. the app builds
+        // RetryJournalRuntime asynchronously and this periodic run landed in that window. That's a
+        // transient condition, not a permanent one, so it goes through the same short backoff
+        // budget as any other flush failure instead of unconditionally failing this run and waiting
+        // a full intervalMs for the next scheduled attempt.
+        val runtime = RetryJournalWorkerRegistry.runtimeProvider?.invoke()
+            ?: return retryOrFail(maxRetryAttempts)
         return try {
             val flushResult = runtime.flushWhenOnline()
             if (isRetryJournalFlushSuccessful(flushResult)) {
