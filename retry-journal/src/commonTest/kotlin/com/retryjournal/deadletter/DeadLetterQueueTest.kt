@@ -319,6 +319,39 @@ class DeadLetterQueueTest {
     }
 
     @Test
+    fun `discard succeeds when a pending retry journal for a different id needs recovery first`() = runBlocking {
+        // Regression: discard() used to call ensureRecovered() *inside* the dlqOpsProcessLock it
+        // had already acquired. If a pending retry journal for a *different* id needed
+        // recovering, recoverPendingRetries() would try to acquire that same
+        // PlatformQueueFileLock again — not reentrant, so this threw
+        // OverlappingFileLockException on JVM and leaked the outer FileChannel.
+        val idA = deadLetterQueue.record("POST", "/a", FrozenHttpHeaders.EMPTY, "a".encodeToByteArray())
+        val idB = deadLetterQueue.record("POST", "/b", FrozenHttpHeaders.EMPTY, "b".encodeToByteArray())
+
+        // Simulate a crash mid-retry(idB): its journal is written and it's removed from storage,
+        // but it never finished being enqueued onto the main queue — recovery must process this
+        // before the discard below runs.
+        val dlqStorage = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val entryB = dlqStorage.get(QueueEntryId(idB.value))!!
+        val journalFile = (dlqStorage.path.toString() + ".retry." + idB.value).toPath()
+        DeadLetterRetryJournal.write(dlqStorage.fileSystem, journalFile, idB.value, entryB)
+        dlqStorage.remove(entryB.id)
+
+        // Fresh instance so ensureRecovered() has not run on it yet.
+        val mainQueue2 = DiskQueue((dir.toString() + "/main.bin").toPath())
+        val dlqStorage2 = DiskQueue((dir.toString() + "/dead-letter.bin").toPath())
+        val deadLetterQueue2 = DeadLetterQueue(mainQueue2, dlqStorage2)
+
+        // Must not throw — before the fix, this threw OverlappingFileLockException on JVM.
+        deadLetterQueue2.discard(idA)
+
+        assertTrue(!FileSystem.SYSTEM.exists(journalFile))
+        val recovered = mainQueue2.peek()
+        kotlin.test.assertNotNull(recovered)
+        assertEquals("/b", recovered.meta.url)
+    }
+
+    @Test
     fun `recovery deletes retry journals with unparseable ids`() = runBlocking {
         val journalFile = (dir.toString() + "/dead-letter.bin.retry.notanumber").toPath()
         FileSystem.SYSTEM.write(journalFile) { writeUtf8("garbage") }

@@ -331,10 +331,16 @@ class DeadLetterQueue(
     }
 
     suspend fun discard(id: DeadLetterEntryId) = withDlqLifecycle {
+        // Delete the journal file first so ensureRecovered() doesn't see and recover it.
+        deleteDeadLetterRetryJournalIfExists(id)
+        // ensureRecovered() must run before dlqOpsProcessLock is acquired below, not inside it:
+        // recovering a pending retry journal for a *different* id acquires the same
+        // PlatformQueueFileLock again internally (see recoverPendingRetries), which isn't
+        // reentrant — calling it while already holding the lock throws OverlappingFileLockException
+        // (JVM) and leaks the outer FileChannel. record()/retry() already follow this order.
+        ensureRecovered()
         retryMutex.withLock {
             withDlqOpsProcessLock {
-                deleteDeadLetterRetryJournalIfExists(id)
-                ensureRecovered()
                 storage.remove(QueueEntryId(id.value))
             }
         }
