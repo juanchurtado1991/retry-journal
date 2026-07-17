@@ -130,7 +130,7 @@ internal class DemoScreenState(
         isBusy = true
         log(AppStrings.LOG_SYNCING)
         val result = SyncSetup.runtime.flush { progress ->
-            scope.animateChipOnFlushProgress(progress, queueChips) { queueChips = it }
+            scope.animateChipOnFlushProgress(progress, queueChips) { transform -> queueChips = transform(queueChips) }
         }
         refreshCounts()
         logSyncResult(result)
