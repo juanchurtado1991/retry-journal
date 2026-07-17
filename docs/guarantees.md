@@ -10,6 +10,16 @@
 | Slow uploads keep replay claims alive (renewal during send) | **4xx** → dead letter, not retry forever |
 | | Advisory file locks — exotic network filesystems (some NFS setups) may differ |
 
+## Installing alongside Ktor's own `HttpRequestRetry`
+
+`RetryJournalOfflineQueuePlugin` and Ktor's built-in [`HttpRequestRetry`](https://ktor.io/docs/client-retry.html) both hook the same extension point (`HttpSend`), and installation order controls which one sees a failure first.
+
+If `HttpRequestRetry` is installed **before** `RetryJournalOfflineQueuePlugin`, its default retry policy (`retryOnExceptionOrServerErrors`) retries on *any* exception it doesn't recognize as a timeout — including `OfflineQueuedException`. That means every one of its internal retry attempts re-enters this plugin's failure handling, enqueueing another copy of the same mutating request: up to `maxRetries + 1` duplicate entries on disk for a single logical send, each later replayed independently.
+
+If you use both, either:
+- Install `RetryJournalOfflineQueuePlugin` **before** `HttpRequestRetry`, so this plugin's `OfflineQueuedException` is the one that reaches the caller instead of being fed back into Ktor's retry loop, or
+- Configure `HttpRequestRetry`'s `retryIf { _, response -> ... }` / exception predicate to exclude `OfflineQueuedException` explicitly.
+
 ## What you build vs what the library gives you
 
 | You provide | retry-journal provides |
