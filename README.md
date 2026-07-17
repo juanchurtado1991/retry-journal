@@ -52,6 +52,29 @@ val result = retryJournal.flush()
 ```
 
 Full walkthrough: [docs/quick-start.md](docs/quick-start.md).
+---
+
+## Architecture & Reliability
+
+To prevent data loss and ensure robust performance, `retry-journal` uses several advanced architectural techniques:
+
+### 1. Crash-Safe Storage & Byte-by-Byte Recovery
+* **Append-Only Log**: Outbox records are appended to a flat binary file. Modifying a record (like marking it as removed/tombstoned) simply appends a lightweight tombstone marker, keeping disk writes fast and avoiding expensive in-place mutations.
+* **CRC32 Verification**: Every record is written with a CRC32 checksum wrapping its headers, URL, and body. 
+* **Safe Resync Scan**: If the app crashes mid-write, `retry-journal` runs a recovery scan on boot. If it hits a CRC mismatch, it drops back to a safe byte-by-byte scan rather than trusting corrupted header metadata to skip ahead, discarding only the corrupted trailing bytes.
+
+### 2. Multi-Process Concurrency & Path Aliasing Protection
+* **Platform Queue File Locks**: Multi-platform file locking (`PlatformQueueFileLock`) ensures only one process (e.g. your app UI and a background OS sync worker) can write to or flush the queue at a time.
+* **Canonical Path Mapping**: To prevent `OverlappingFileLockException` on JVM and Android, the file lock resolves real/canonical paths. Using a symlink or directory alias points to the same underlying lock key, preventing concurrent processes from acquiring overlapping locks.
+
+### 3. Highly-Optimized Memory Indexing
+* **`LiveEntryIndex` (Dense Long Array)**: Keeping hundreds of thousands of entries in memory using typical Kotlin/Java collections like `LinkedHashMap` leads to excessive garbage collection and high memory overhead.
+* **Zero-Allocation Mapping**: We map sequence IDs to packed disk offsets and record lengths inside a single primitive `LongArray`. The sequence ID is implicit in the array index, using bit-packing to store the offset and length in one 64-bit value. This reduces memory footprint by ~90% (8 bytes per entry).
+* **Span Safety**: We guard the index against runaway sequence ID gaps (from long-term stuck head entries) with a `MAX_SPAN` threshold, failing cleanly instead of risking an `OutOfMemoryError`.
+
+### 4. Zero-Leak Delivery & Retry Journals
+* **Head Replay Claims**: To ensure at-most-once delivery during slow or hanging connections, the engine locks the queue head using a temporary `.claim` file on disk. Claims are refreshed concurrently during active uploads and automatically expire or safely handle wall-clock jumps.
+* **Outcome Journals**: Delivery and Dead-letter transactions write their state to a `.journal` file before modifying the queue itself. If the process is killed mid-write, the engine detects the journal on reboot, ensuring that completed requests are never re-sent or lost.
 
 ---
 
