@@ -72,14 +72,19 @@ class PlatformQueueFileLockTest {
         lockOnReal.acquire()
         val executor = Executors.newSingleThreadExecutor()
         try {
-            val future = executor.submit { lockOnSymlink.acquire() }
+            // acquire() and release() must run on the same thread — ReentrantLock (unlike
+            // synchronized) throws IllegalMonitorStateException if a different thread than the
+            // one that locked it calls unlock().
+            val future = executor.submit {
+                lockOnSymlink.acquire()
+                lockOnSymlink.release()
+            }
             // Blocked behind the intra-JVM guard rather than racing straight into
             // FileChannel.lock() (which throws instead of waiting) or succeeding concurrently.
             assertFailsWith<TimeoutException> { future.get(500, TimeUnit.MILLISECONDS) }
 
             lockOnReal.release()
-            future.get(5, TimeUnit.SECONDS)
-            lockOnSymlink.release()
+            future.get(5, TimeUnit.SECONDS) // now proceeds, acquiring and releasing on the executor thread
         } finally {
             executor.shutdownNow()
         }

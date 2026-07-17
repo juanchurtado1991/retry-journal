@@ -40,6 +40,7 @@ internal actual class PlatformQueueFileLock actual constructor(
         }
         val nioPath: NioPath = Paths.get(lockPath.toString())
         Files.createDirectories(nioPath.parent ?: nioPath)
+        ensureExists(nioPath)
 
         val jvmLock = intraJvmLocks.computeIfAbsent(canonicalKeyFor(nioPath)) {
             ReentrantLock()
@@ -76,14 +77,32 @@ internal actual class PlatformQueueFileLock actual constructor(
     private companion object {
         val intraJvmLocks = ConcurrentHashMap<String, ReentrantLock>()
 
+        /** [acquire] calls this before ever computing a lock key, so [canonicalKeyFor]'s
+         * `toRealPath()` call always has a real file to resolve — see [canonicalKeyFor]'s own doc
+         * for why that consistency is what actually matters here. A plain create-if-absent race
+         * between two threads is fine: [Files.createFile] on the loser throws
+         * [java.nio.file.FileAlreadyExistsException], which just confirms the file the winner
+         * created now exists — nothing to do but ignore it. */
+        fun ensureExists(path: NioPath) {
+            try {
+                Files.createFile(path)
+            } catch (_: java.nio.file.FileAlreadyExistsException) {
+                // Already there — created by us on a prior acquire(), or by a racing thread just now.
+            }
+        }
+
         /** `normalize()` only collapses `.`/`..` lexically — it does not resolve symlinks or the
-         * case-insensitive aliasing common on macOS/Windows filesystems, so two different path
+         * case-insensitive aliasing common on macOS/Windows filesystems (e.g. macOS routing `/tmp`
+         * through `/private/tmp`), nor a lock path that is itself a symlink, so two different path
          * strings that point at the same real file on disk could still key [intraJvmLocks]
          * separately, letting two threads past the intra-JVM lock for what the OS treats as one
          * file and straight into [java.nio.channels.OverlappingFileLockException].
-         * [NioPath.toRealPath] resolves both, but requires the file to already exist — falls back
-         * to the previous `normalize()`-only key when it doesn't yet (first `acquire()` on a fresh
-         * path) or resolution otherwise fails. */
+         *
+         * [NioPath.toRealPath] resolves all of that, but requires the target to already exist —
+         * [ensureExists] is what makes this safe to call unconditionally: without it, the very
+         * first `acquire()` on a fresh path (file absent) would key differently than every call
+         * after (file now present), landing two different [ReentrantLock]s for the same path and
+         * defeating the guard entirely. */
         fun canonicalKeyFor(path: NioPath): String {
             val normalized = path.toAbsolutePath().normalize()
             return try {
