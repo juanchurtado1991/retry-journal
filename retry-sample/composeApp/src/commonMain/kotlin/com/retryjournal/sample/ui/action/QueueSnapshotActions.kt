@@ -47,8 +47,7 @@ private fun chipStatusForEntry(
     return when (headState) {
         QueueHeadState.Empty -> ChipStatus.Pending
         QueueHeadState.Blocked -> ChipStatus.HeadBlocked
-        is QueueHeadState.AwaitingReplay ->
-            if (headState.entry.id == entryId) ChipStatus.Pending else ChipStatus.Pending
+        is QueueHeadState.AwaitingReplay -> ChipStatus.Pending
         is QueueHeadState.AwaitingLocalRemoval ->
             if (headState.entry.id == entryId) ChipStatus.AwaitingLocalRemoval else ChipStatus.Pending
     }
