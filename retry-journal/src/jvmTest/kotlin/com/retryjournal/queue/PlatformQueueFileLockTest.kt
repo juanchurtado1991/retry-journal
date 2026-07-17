@@ -3,7 +3,9 @@ package com.retryjournal.queue
 import com.retryjournal.queue.platform.PlatformQueueFileLock
 import okio.FileSystem
 import okio.Path.Companion.toPath
+import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -116,6 +118,48 @@ class PlatformQueueFileLockTest {
             assertFailsWith<TimeoutException> { future.get(500, TimeUnit.MILLISECONDS) }
 
             lockA.release()
+            future.get(5, TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    /** Regression: [PlatformQueueFileLock]'s `ensureExists` used to unconditionally open-then-close
+     * a throwaway probe [FileChannel] on every `acquire()`, even when the lock file already
+     * existed. The JDK's own `FileLock` docs warn that on some platforms, closing *any* channel on
+     * a file releases *every* lock the JVM holds on it — via that channel or any other one open on
+     * the same file — so that probe could silently release another thread's still-held real OS
+     * lock. This only materializes via open+close for a file that doesn't exist yet (nothing could
+     * hold a lock on a file that didn't exist a moment ago), and skips straight past for one that
+     * already does. */
+    @Test
+    fun `a second acquire on an already-existing path does not release the first holder's real OS lock`() {
+        val lockNioPath = dir.resolve("queue.bin.lock")
+        val lockPath = lockNioPath.toString().toPath()
+
+        val firstLock = PlatformQueueFileLock(lockPath, FileSystem.SYSTEM)
+        firstLock.acquire()
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val future = executor.submit {
+                val secondLock = PlatformQueueFileLock(lockPath, FileSystem.SYSTEM)
+                secondLock.acquire()
+                secondLock.release()
+            }
+            // Blocked behind the intra-JVM guard, same as the other serialization tests — but the
+            // point here is what happens to the *first* holder's real lock while this is blocked.
+            assertFailsWith<TimeoutException> { future.get(500, TimeUnit.MILLISECONDS) }
+
+            // A raw third-party probe on the same file, in this same JVM, must still see the lock
+            // as held — OverlappingFileLockException is exactly how the JVM reports "already
+            // locked here" (see this file's own top-level doc). If the second acquire()'s
+            // materialization step had silently released the first holder's real FileLock, this
+            // probe would succeed instead of throwing.
+            FileChannel.open(lockNioPath, StandardOpenOption.WRITE).use { probe ->
+                assertFailsWith<java.nio.channels.OverlappingFileLockException> { probe.tryLock() }
+            }
+
+            firstLock.release()
             future.get(5, TimeUnit.SECONDS)
         } finally {
             executor.shutdownNow()

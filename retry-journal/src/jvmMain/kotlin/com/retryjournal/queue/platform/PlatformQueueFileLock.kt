@@ -81,6 +81,19 @@ internal actual class PlatformQueueFileLock actual constructor(
          * `toRealPath()` call always has a real file to resolve — see [canonicalKeyFor]'s own doc
          * for why that consistency is what actually matters here.
          *
+         * The [Files.exists] check is not just an optimization — it's what makes this safe to call
+         * while another thread in this JVM might currently hold the real [FileLock] on this same
+         * file via a *different* [FileChannel]. The JDK's own [FileLock] docs warn that "closing a
+         * channel releases all locks held by the Java virtual machine on the underlying file
+         * regardless of whether the locks were acquired via that channel or via another channel
+         * open on the same file" on some platforms — so opening-then-closing a throwaway probe
+         * channel here, unconditionally, on every `acquire()`, could silently release another
+         * thread's still-held lock out from under it. Skipping straight to [canonicalKeyFor] when
+         * the file already exists (the case for every call after the very first one, ever, since
+         * nothing deletes this file) avoids opening any channel on it at all in that case. Only a
+         * file that doesn't exist yet is safe to materialize via open+close: nothing could hold a
+         * lock on a file that didn't exist a moment ago, so there's no lock to disturb.
+         *
          * Deliberately opens with plain `CREATE` (matching the real lock-acquisition
          * [FileChannel.open] call below) rather than [Files.createFile]'s `CREATE_NEW`/`EXCL`
          * semantics: those two disagree on what a *symlink whose target doesn't exist yet* means —
@@ -89,9 +102,11 @@ internal actual class PlatformQueueFileLock actual constructor(
          * such a symlink, this method would report "exists" without the target ever being created,
          * `canonicalKeyFor`'s `toRealPath()` would then fail and fall back to the symlink's own
          * lexical path — the exact first-call-vs-later-call key inconsistency this method exists to
-         * prevent, just triggered a different way. Using the same open mode both places means
-         * there's only one notion of "materialized" to reason about. */
+         * prevent, just triggered a different way. */
         fun ensureExists(path: NioPath) {
+            if (Files.exists(path)) {
+                return
+            }
             FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE).close()
         }
 

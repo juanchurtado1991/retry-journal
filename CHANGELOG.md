@@ -12,6 +12,7 @@ All notable changes to `retry-journal` are documented here. Format follows [Keep
 
 ### Fixed
 
+- `PlatformQueueFileLock.ensureExists` unconditionally opened and closed a throwaway probe channel on every `acquire()`, even for an already-locked file — the JDK's `FileLock` docs warn this can silently release *another* channel's still-held lock on some platforms. It now only opens a channel when the file doesn't exist yet, when nothing could hold a lock on it.
 - `PlatformQueueFileLock`'s intra-JVM lock key could still diverge for two different dangling symlinks pointing at the same not-yet-created target, reintroducing the `OverlappingFileLockException` race the earlier canonical-path fix was meant to close; `ensureExists` now uses the same non-`EXCL` open semantics as the real lock acquisition instead of `Files.createFile`.
 - A `RetryJournalOfflineQueueConfig.shouldEnqueue` predicate that threw could stop a request from being attempted at all, even over a healthy connection, since it ran before `execute()`; it's now caught and falls back to the default method-based rule.
 - Setting `RetryJournalHeaders.ENQUEUE_OVERRIDE` more than once on the same request (e.g. a base header plus a per-call override) used to keep the *first* value instead of the last, silently ignoring the override.
