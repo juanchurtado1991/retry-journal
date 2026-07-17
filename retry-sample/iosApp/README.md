@@ -33,13 +33,13 @@ The shared Kotlin code (`:retry-sample:composeApp`) is already iOS-ready; this f
 
 A working `iosApp.xcodeproj` is checked into this folder — open it directly in Xcode, select a Simulator or device, and build & run. It already links the Kotlin framework via the standard KMP **Embed & Sign** (`embedAndSignAppleFrameworkForXcode`) build phase, targets `:retry-sample:composeApp:iosArm64` / `iosSimulatorArm64`, and has `Info.plist`'s `BGTaskSchedulerPermittedIdentifiers` set from `Info.plist.snippet.xml`.
 
-Starting a new project from scratch instead (e.g. embedding this sample in your own app)? Copy `AppDelegate.swift`, `ContentView.swift`, and merge `Info.plist.snippet.xml` into your own `Info.plist`, then repeat the framework-linking steps above by hand.
+Starting a new project from scratch instead (e.g. embedding this sample in your own app)? Copy `iosAppApp.swift`, `ContentView.swift`, and merge `Info.plist.snippet.xml` into your own `Info.plist`, then repeat the framework-linking steps above by hand.
 
 Files here:
 
 | File | Purpose |
 |---|---|
-| `AppDelegate.swift` | Calls `RetryJournalBackgroundSetup.shared.register()` (`:retry-worker`'s `BGTaskScheduler` registration) |
+| `iosAppApp.swift` | `AppDelegate` (calls `RetryJournalBackgroundSetup.shared.register()` — `:retry-worker`'s `BGTaskScheduler` registration) plus the `@main` `App` entry point |
 | `ContentView.swift` | SwiftUI wrapper around `MainViewController()` |
 | `Info.plist.snippet.xml` | Background sync identifier — must match `AppConstants.IOS_BACKGROUND_TASK_ID` |
 
