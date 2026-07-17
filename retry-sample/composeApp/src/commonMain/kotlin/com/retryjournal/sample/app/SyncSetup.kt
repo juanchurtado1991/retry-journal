@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import okio.Path.Companion.toPath
 import com.ghost.serialization.Ghost
+import com.ghost.serialization.generated.GhostModuleRegistry_retry_journal
+import com.ghost.serialization.generated.GhostModuleRegistry_retry_journal_sample_shared
 
 /**
  * Wires the library once per process. [runtime] is the app-layer entry point for `flush()` —
@@ -27,8 +29,8 @@ import com.ghost.serialization.Ghost
 internal object SyncSetup {
 
     init {
-        Ghost.addRegistry(com.ghost.serialization.generated.GhostModuleRegistry_retry_journal.INSTANCE)
-        Ghost.addRegistry(com.ghost.serialization.generated.GhostModuleRegistry_retry_journal_sample_shared.INSTANCE)
+        Ghost.addRegistry(GhostModuleRegistry_retry_journal.INSTANCE)
+        Ghost.addRegistry(GhostModuleRegistry_retry_journal_sample_shared.INSTANCE)
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

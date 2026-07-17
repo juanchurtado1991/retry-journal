@@ -8,15 +8,15 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
-import com.retryjournal.queue.FrozenHttpHeaders
 import kotlinx.coroutines.test.runTest
+import com.ghost.serialization.generated.GhostModuleRegistry_retry_journal
 
 class DiskQueueIosTest {
     private val dir = "/tmp/retry-journal-ios-test".toPath()
 
     @BeforeTest
     fun setUp() {
-        com.ghost.serialization.Ghost.addRegistry(com.ghost.serialization.generated.GhostModuleRegistry_retry_journal.INSTANCE)
+        com.ghost.serialization.Ghost.addRegistry(GhostModuleRegistry_retry_journal.INSTANCE)
         FileSystem.SYSTEM.createDirectories(dir, mustCreate = false)
     }
 
